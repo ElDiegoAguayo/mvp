@@ -7,6 +7,7 @@ import { usePathname } from 'next/navigation'
 import { LogoutButton } from '@/components/auth/logout-button'
 import { getModuleIcon, getIconShape, resolveIconStyle, resolveTextStyle, resolveIconContainerStyle } from '@/lib/module-icons'
 import { GlobalAIAssistant } from '@/components/dashboard/global-ai-assistant'
+import { isModuleRouteActive, resolveModuleHref } from '@/lib/dashboard/module-routes'
 import { cn } from '@/lib/utils'
 import {
   Shield,
@@ -152,8 +153,8 @@ export function DashboardShell({
               const iconContainer = resolveIconContainerStyle(m.color, shapeCfg.className)
               const iconStyle = resolveIconStyle(m.color)
               const textStyle = resolveTextStyle(m.text_color ?? null, m.color)
-              const href = `/dashboard/${m.slug}`
-              const active = pathname === href
+              const href = resolveModuleHref(m.slug, m.name)
+              const active = isModuleRouteActive(pathname, m.slug, m.name)
               return (
                 <Link
                   key={m.id}
@@ -307,8 +308,8 @@ export function DashboardShell({
                   const iconContainer = resolveIconContainerStyle(m.color, shapeCfg.className)
                   const iconStyle = resolveIconStyle(m.color)
                   const textStyle = resolveTextStyle(m.text_color ?? null, m.color)
-                  const href = `/dashboard/${m.slug}`
-                  const active = pathname === href
+                  const href = resolveModuleHref(m.slug, m.name)
+                  const active = isModuleRouteActive(pathname, m.slug, m.name)
                   return (
                     <Link
                       key={m.id}

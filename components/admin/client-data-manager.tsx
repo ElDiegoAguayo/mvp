@@ -74,6 +74,10 @@ import { ExcelImporter, ColumnDef } from './excel-importer'
 import { getModuleIcon, getIconShape, resolveIconContainerStyle, resolveIconStyle, resolveTextStyle } from '@/lib/module-icons'
 import { cn } from '@/lib/utils'
 import { InventoryManager } from '@/components/admin/inventory-manager'
+import { SiiCostosSection } from '@/components/admin/sii-costos-section'
+import { ProduccionUploader } from '@/components/admin/produccion-uploader'
+import { ProduccionManager } from '@/components/admin/produccion-manager'
+import { isCostosGastosModule, isProduccionModule } from '@/lib/dashboard/costos-module'
 
 // Preset options for select columns
 const PRESET_OPTIONS = [
@@ -1074,6 +1078,8 @@ export function ClientDataManager({ initialClientId, initialModuleId }: ClientDa
   if (viewLevel === 'module-detail' && selectedClient && selectedModule) {
     const ModuleIcon = getModuleIcon(selectedModule.icon)
     const isInventoryModule = selectedModule.slug.toLowerCase().includes('inventario')
+    const isCostosModule = isCostosGastosModule(selectedModule.slug, selectedModule.name)
+    const isProduccionModuleFlag = isProduccionModule(selectedModule.slug, selectedModule.name)
     
     return (
       <div className="space-y-6">
@@ -1131,6 +1137,34 @@ export function ClientDataManager({ initialClientId, initialModuleId }: ClientDa
           <div className="space-y-6">
             {isInventoryModule && (
               <InventoryManager clientId={selectedClient.id} />
+            )}
+
+            {isCostosModule && (
+              <SiiCostosSection clienteId={selectedClient.id} />
+            )}
+
+            {isProduccionModuleFlag && (
+              <div className="space-y-4">
+                <div className="rounded-xl border border-border/50 bg-card p-5 space-y-3">
+                  <div>
+                    <h2 className="text-base font-semibold text-foreground">Importar Excel de Embalaje</h2>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Sube el archivo con las hojas &quot;CODIGOS EMBALAJE&quot; e &quot;INVENTARIO&quot;. Los datos existentes se sobreescriben.
+                    </p>
+                  </div>
+                  <ProduccionUploader clienteId={selectedClient.id} />
+                </div>
+
+                <div className="rounded-xl border border-border/50 bg-card p-5 space-y-3">
+                  <div>
+                    <h2 className="text-base font-semibold text-foreground">Datos Importados</h2>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Visualiza, edita o elimina materiales y códigos de embalaje cargados.
+                    </p>
+                  </div>
+                  <ProduccionManager clienteId={selectedClient.id} />
+                </div>
+              </div>
             )}
 
             <div className="grid lg:grid-cols-2 gap-6">

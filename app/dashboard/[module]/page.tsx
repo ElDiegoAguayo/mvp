@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { ShieldAlert, ArrowLeft, AlertTriangle } from 'lucide-react'
 import { getModuleIcon } from '@/lib/module-icons'
 import { ModuleDataView } from '@/components/dashboard/module-data-view'
+import { resolveModuleHref } from '@/lib/dashboard/module-routes'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,7 +25,7 @@ export default async function DynamicModulePage({
   try {
     const { module: slug } = await params
     const supabase = await createClient()
-    
+
     const {
       data: { user },
       error: authError,
@@ -36,7 +37,6 @@ export default async function DynamicModulePage({
 
     if (!user) redirect('/auth/login')
 
-    // Fetch module by slug
     const { data: moduleData } = await supabase
       .from('modules')
       .select('id, slug, name, icon, description, is_active')
@@ -45,18 +45,19 @@ export default async function DynamicModulePage({
 
     const moduleRow = moduleData as ModuleRow | null
 
-    // Module doesn't exist or is disabled
     if (!moduleRow || !moduleRow.is_active) {
       return <AccessDenied reason="missing" />
     }
 
-    // User has access to this module
+    const canonicalHref = resolveModuleHref(slug, moduleRow.name)
+    if (canonicalHref !== `/dashboard/${slug}`) {
+      redirect(canonicalHref)
+    }
+
     const Icon = getModuleIcon(moduleRow.icon)
 
-    // Show dynamic data view (tables and charts)
     return (
       <div className="flex flex-col h-full">
-        {/* Header */}
         <div className="flex items-center gap-4 mb-6 px-1">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center">
@@ -71,7 +72,6 @@ export default async function DynamicModulePage({
           </div>
         </div>
 
-        {/* Dynamic Data View */}
         <ModuleDataView
           moduleId={moduleRow.id}
           moduleName={moduleRow.name}
