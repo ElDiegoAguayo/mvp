@@ -96,9 +96,10 @@ export function DashboardLayout({
   containerClassName = '',
 }: DashboardLayoutProps) {
   // Filter widgets based on permissions
-  const visibleWidgets = permissions
+  const visibleWidgets = (permissions
     ? filterWidgetsByPermissions(widgets, permissions)
     : widgets.filter((w) => w.visible).sort((a, b) => a.order - b.order)
+  ).filter((w) => w.type !== 'ai-assistant')
 
   // Handle case when no widgets are visible
   if (visibleWidgets.length === 0) {

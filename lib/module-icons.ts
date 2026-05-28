@@ -18,7 +18,7 @@ import {
   // Environment & Location
   Globe2, Mountain,
   // Time & Communication
-  Calendar, Clock, Bell, Mail, MessageSquare, Radio,
+  Calendar, CalendarRange, Clock, Bell, Mail, MessageSquare, Radio,
   // Security & Other
   Shield, Lock, Eye, Search, Filter, Star, Heart, Target, Bookmark,
   Rocket, LayoutDashboard, Home, Microscope, FlaskConical,
@@ -37,7 +37,7 @@ export const MODULE_ICON_MAP: Record<string, LucideIcon> = {
   Settings, Wrench, Factory, Activity, Gauge, Zap, Layers, GitBranch,
   FlaskConical, Microscope,
   Globe, Globe2, Mountain,
-  Calendar, Clock, Bell, Mail, MessageSquare, Radio,
+  Calendar, CalendarRange, Clock, Bell, Mail, MessageSquare, Radio,
   Shield, Lock, Eye, Search, Filter, Star, Heart, Target, Bookmark,
   Rocket, LayoutDashboard, Home,
 }
@@ -56,7 +56,7 @@ export const ICON_CATEGORIES: IconCategory[] = [
   { label: 'Documentos',   icons: ['FileText', 'FolderLock', 'ClipboardList', 'BookOpen', 'Newspaper', 'FileSpreadsheet'] },
   { label: 'Operaciones',  icons: ['Settings', 'Wrench', 'Factory', 'Activity', 'Gauge', 'Zap', 'Layers', 'GitBranch', 'FlaskConical', 'Microscope'] },
   { label: 'Naturaleza',   icons: ['Globe', 'Globe2', 'Mountain'] },
-  { label: 'Otros',        icons: ['Calendar', 'Clock', 'Bell', 'Mail', 'MessageSquare', 'Radio', 'Shield', 'Lock', 'Eye', 'Search', 'Filter', 'Star', 'Heart', 'Target', 'Bookmark', 'Rocket', 'LayoutDashboard', 'Home'] },
+  { label: 'Otros',        icons: ['Calendar', 'CalendarRange', 'Clock', 'Bell', 'Mail', 'MessageSquare', 'Radio', 'Shield', 'Lock', 'Eye', 'Search', 'Filter', 'Star', 'Heart', 'Target', 'Bookmark', 'Rocket', 'LayoutDashboard', 'Home'] },
 ]
 
 export const MODULE_ICON_OPTIONS: { value: string; label: string }[] = Object.keys(

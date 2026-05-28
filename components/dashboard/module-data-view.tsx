@@ -29,6 +29,8 @@ import { ChartPreview } from '@/components/admin/chart-preview'
 import { DocumentGenerator } from '@/components/dashboard/document-generator'
 import { ModuleViewTracker } from '@/components/dashboard/module-view-tracker'
 import { InventoryOverview } from '@/components/dashboard/inventory-overview'
+import { HarvestPlanManager } from '@/components/dashboard/harvest-plan/harvest-plan-manager'
+import { isHarvestPlanModule } from '@/lib/dashboard/harvest-plan-module'
 import { FILTERABLE_COLUMN_TYPES, type ColumnType } from '@/lib/column-types'
 
 // Dynamic import of ShipTrackerWidget with ssr: false to avoid "window is not defined" errors
@@ -113,6 +115,7 @@ export function ModuleDataView({ moduleId, moduleName, moduleSlug }: ModuleDataV
   const isInventoryModule =
     moduleSlug?.toLowerCase().includes('inventario') ||
     moduleName?.toLowerCase().includes('inventario')
+  const isHarvestPlan = isHarvestPlanModule(moduleSlug, moduleName)
 
   // Hydrate the enabled-filters preference from localStorage once on mount.
   useEffect(() => {
@@ -412,7 +415,7 @@ export function ModuleDataView({ moduleId, moduleName, moduleSlug }: ModuleDataV
     )
   }
 
-  if (charts.length === 0 && tables.length === 0 && !isDocumentModule && !isInventoryModule) {
+  if (charts.length === 0 && tables.length === 0 && !isDocumentModule && !isInventoryModule && !isHarvestPlan) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <div className="w-16 h-16 rounded-2xl bg-secondary/50 flex items-center justify-center mb-4">
@@ -423,6 +426,15 @@ export function ModuleDataView({ moduleId, moduleName, moduleSlug }: ModuleDataV
           No tienes gráficos o tablas asignadas para este módulo. Contacta al administrador para solicitar acceso.
         </p>
       </div>
+    )
+  }
+
+  if (isHarvestPlan) {
+    return (
+      <>
+        <ModuleViewTracker moduleId={moduleId} moduleSlug={moduleSlug} moduleName={moduleName} />
+        <HarvestPlanManager />
+      </>
     )
   }
 

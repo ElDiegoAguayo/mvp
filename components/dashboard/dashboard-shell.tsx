@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LogoutButton } from '@/components/auth/logout-button'
 import { getModuleIcon, getIconShape, resolveIconStyle, resolveTextStyle, resolveIconContainerStyle } from '@/lib/module-icons'
+import { GlobalAIAssistant } from '@/components/dashboard/global-ai-assistant'
 import { cn } from '@/lib/utils'
 import {
   Shield,
@@ -435,6 +436,8 @@ export function DashboardShell({
           <X className="w-5 h-5" />
         </button>
       )}
+
+      <GlobalAIAssistant />
     </div>
   )
 }
