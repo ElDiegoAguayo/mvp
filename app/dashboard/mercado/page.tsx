@@ -27,6 +27,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatDate } from '@/lib/format-date'
 import { DashboardCard } from '@/components/dashboard/dashboard-card'
+import { exportStyledReportExcel } from '@/lib/excel/upcrop-excel-theme'
 
 // Dynamic import for PortMap (ssr: false to avoid hydration issues)
 const PortMap = dynamic(() => import('@/components/dashboard/port-map'), {
@@ -157,19 +158,7 @@ function formatPrice(value: number, currency: string): string {
   return `${symbol}${converted.toFixed(2)}`
 }
 
-function formatCsvNumber(value: number, currency: string): string {
-  const { rate } = CURRENCIES[currency] || CURRENCIES.USD
-  const converted = value * rate
-  if (currency === 'UF' || currency === 'UTM') {
-    return converted.toFixed(6)
-  }
-  if (currency === 'CLP' || currency === 'JPY') {
-    return converted.toFixed(2)
-  }
-  return converted.toFixed(2)
-}
-
-// ──��─────────────────────────────���──────────────────────────���─────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // Chart Data (Daily data for last 360 days ending on current date: May 19, 2026)
 // ───────��─────────────────────────────────────────────────────────────────────
 
@@ -334,6 +323,7 @@ export default function MercadoPage() {
   const [marketNews, setMarketNews] = useState<Array<{ title: string; link: string; pubDate: string }>>([])
   const [newsLoading, setNewsLoading] = useState<boolean>(true)
   const [newsError, setNewsError] = useState<boolean>(false)
+  const [exporting, setExporting] = useState(false)
 
   // Fetch market news from real API
   useEffect(() => {
@@ -439,50 +429,55 @@ export default function MercadoPage() {
     ? ((latestData.priceClose - previousData.priceClose) / previousData.priceClose) * 100
     : 0
 
-  const handleExportCsv = () => {
-    const headers = [
-      'Fecha',
-      'Fruta',
-      'Variedad',
-      'Destino',
-      'Puerto',
-      'Precio Ref. Anterior',
-      'Precio Cierre Hoy',
-      'Variacion (%)',
-      'Moneda',
-    ]
+  const handleExportExcel = async () => {
+    if (historicalData.length === 0) return
 
-    const rows = historicalData.map((row) => [
-      row.date,
-      selectedFruit,
-      selectedVariety,
-      selectedCountry,
-      selectedPort,
-      formatCsvNumber(row.priceRef, selectedCurrency),
-      formatCsvNumber(row.priceClose, selectedCurrency),
-      row.variation.toFixed(2),
-      selectedCurrency,
-    ])
+    setExporting(true)
+    try {
+      const { rate } = CURRENCIES[selectedCurrency] || CURRENCIES.USD
+      const headers = [
+        'Fecha',
+        'Fruta',
+        'Variedad',
+        'Destino',
+        'Puerto',
+        'Precio Ref. Anterior',
+        'Precio Cierre Hoy',
+        'Variación (%)',
+        'Moneda',
+      ]
 
-    const escapeCsv = (value: string | number) => {
-      const stringValue = String(value)
-      if (/[",\n]/.test(stringValue)) {
-        return `"${stringValue.replace(/"/g, '""')}"`
-      }
-      return stringValue
+      const excelRows = historicalData.map((row) => [
+        row.date,
+        selectedFruit,
+        selectedVariety,
+        selectedCountry,
+        selectedPort,
+        Math.round(row.priceRef * rate * 100) / 100,
+        Math.round(row.priceClose * rate * 100) / 100,
+        Math.round(row.variation * 100) / 100,
+        selectedCurrency,
+      ])
+
+      await exportStyledReportExcel({
+        sheetName: 'Precios FOB',
+        title: 'HISTÓRICO DE PRECIOS FOB',
+        moduleLabel: 'Inteligencia de Mercado',
+        filename: `mercado-precios-fob-${new Date().toISOString().slice(0, 10)}.xlsx`,
+        headers,
+        rows: excelRows,
+        instructions: [
+          '1. Precios convertidos a la moneda seleccionada en pantalla.',
+          '2. Variación (%) compara el cierre de hoy vs. la referencia anterior.',
+          '3. Fuentes: ODEPA (FOB), USDA AMS (mercado NA), Banco Central (divisas).',
+        ],
+        summary: `Resumen: ${excelRows.length} día${excelRows.length !== 1 ? 's' : ''} · ${selectedFruit} ${selectedVariety} · ${selectedCountry} (${selectedPort}) · ${selectedCurrency}`,
+        numericColumns: [6, 7, 8],
+        columnWidths: [14, 14, 16, 14, 18, 18, 18, 14, 10],
+      })
+    } finally {
+      setExporting(false)
     }
-
-    const csvContent = [headers, ...rows]
-      .map((row) => row.map(escapeCsv).join(','))
-      .join('\n')
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `mercado-precios-fob-${new Date().toISOString().slice(0, 10)}.csv`
-    link.click()
-    URL.revokeObjectURL(url)
   }
 
   return (
@@ -708,10 +703,11 @@ export default function MercadoPage() {
               </div>
               <button
                 type="button"
-                onClick={handleExportCsv}
-                className="inline-flex items-center rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                onClick={() => void handleExportExcel()}
+                disabled={exporting || historicalData.length === 0}
+                className="inline-flex items-center rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-50"
               >
-                Exportar CSV
+                {exporting ? 'Generando…' : 'Exportar Excel'}
               </button>
             </div>
           }

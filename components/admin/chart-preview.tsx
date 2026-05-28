@@ -106,6 +106,21 @@ const CHART_COLORS = [
   '#84CC16', // Lime
 ]
 
+function useIsDarkMode() {
+  const [isDark, setIsDark] = useState(false)
+
+  useEffect(() => {
+    const root = document.documentElement
+    const update = () => setIsDark(root.classList.contains('dark'))
+    update()
+    const observer = new MutationObserver(update)
+    observer.observe(root, { attributes: true, attributeFilter: ['class'] })
+    return () => observer.disconnect()
+  }, [])
+
+  return isDark
+}
+
 // Map colors (gradient from light to dark)
 const MAP_COLORS = {
   min: '#E0F2FE',
@@ -317,6 +332,10 @@ export function ChartPreview({
   const [error, setError] = useState<string | null>(null)
   const [savingCell, setSavingCell] = useState<string | null>(null)
   const instanceId = useId()
+  const isDarkMode = useIsDarkMode()
+  const pieLabelColor = isDarkMode ? '#e5e7eb' : '#374151'
+  const pieLegendColor = isDarkMode ? '#fafafa' : '#0a0a0a'
+  const pieSliceStroke = isDarkMode ? '#1f1d1b' : '#ffffff'
   const loadDataRef = useRef<() => void>(() => {})
   const [showAddRow, setShowAddRow] = useState(false)
   const [newRowData, setNewRowData] = useState<Record<string, unknown>>({})
@@ -1104,6 +1123,61 @@ export function ChartPreview({
     )
   }
 
+  const PieTooltip = ({
+    active,
+    payload,
+  }: {
+    active?: boolean
+    payload?: Array<{ name?: string; value?: number; payload?: { fill?: string } }>
+  }) => {
+    if (!active || !payload?.length) return null
+    const entry = payload[0]
+    const color = entry.payload?.fill ?? CHART_COLORS[0]
+    return (
+      <div className="bg-card border border-border rounded-lg p-3 shadow-lg">
+        <p className="text-sm font-medium" style={{ color }}>
+          {entry.name}: {new Intl.NumberFormat('es-CL').format(Number(entry.value ?? 0))}
+        </p>
+      </div>
+    )
+  }
+
+  const renderPieLabel = ({
+    cx = 0,
+    cy = 0,
+    midAngle = 0,
+    innerRadius = 0,
+    outerRadius = 0,
+    percent = 0,
+    name = '',
+  }: {
+    cx?: number
+    cy?: number
+    midAngle?: number
+    innerRadius?: number
+    outerRadius?: number
+    percent?: number
+    name?: string
+  }) => {
+    if (percent < 0.04) return null
+    const radius = innerRadius + (outerRadius - innerRadius) * 1.12
+    const radian = (-midAngle * Math.PI) / 180
+    const x = cx + radius * Math.cos(radian)
+    const y = cy + radius * Math.sin(radian)
+    return (
+      <text
+        x={x}
+        y={y}
+        fill={pieLabelColor}
+        textAnchor={x > cx ? 'start' : 'end'}
+        dominantBaseline="central"
+        fontSize={11}
+      >
+        {`${name}: ${(percent * 100).toFixed(0)}%`}
+      </text>
+    )
+  }
+
   // Normalize country name for matching
   const normalizeCountryName = (name: string): string => {
     const lower = name.toLowerCase().trim()
@@ -1157,20 +1231,23 @@ export function ChartPreview({
   const visibleColumns = (config.visible_columns || config.columns || []) as string[]
 
   // Filter rows that have actual data in the columns used by this chart
-  // (ignore completely empty rows in X/Y so they don't pollute the chart)
-  const chartDataSource = data.filter((row: any) => {
+  const chartDataSource = data.filter((row: Record<string, unknown>) => {
     if (chartType === 'data_table') return true
+
+    if (chartType === 'pie' || chartType === 'donut') {
+      const labelVal = labelColumn ? row[labelColumn] : null
+      const valueVal = valueColumn ? row[valueColumn] : null
+      const hasLabel = labelVal != null && String(labelVal).trim() !== ''
+      const hasValue = valueVal != null && String(valueVal).trim() !== '' && Number(valueVal) !== 0
+      return hasLabel && hasValue
+    }
 
     const xVal = xColumn ? row[xColumn] : null
     const yVal = yColumn ? row[yColumn] : null
-
     const hasX = xVal != null && String(xVal).trim() !== ''
     const hasY = yVal != null && String(yVal).trim() !== ''
 
     if (['bar', 'line', 'area'].includes(chartType)) {
-      return hasX && hasY
-    }
-    if (['pie', 'donut'].includes(chartType)) {
       return hasX && hasY
     }
     return hasX || hasY
@@ -1185,9 +1262,15 @@ export function ChartPreview({
       }))
     }
     if (chartType === 'pie' || chartType === 'donut') {
-      return chartDataSource.map((row, index) => ({
-        name: String(row[labelColumn] || row[xColumn]),
-        value: Number(row[valueColumn] || row[yColumn]) || 0,
+      const aggregated = new Map<string, number>()
+      chartDataSource.forEach((row, index) => {
+        const name = String(row[labelColumn] || row[xColumn] || `Item ${index + 1}`)
+        const value = Number(row[valueColumn] || row[yColumn]) || 0
+        aggregated.set(name, (aggregated.get(name) ?? 0) + value)
+      })
+      return Array.from(aggregated.entries()).map(([name, value], index) => ({
+        name,
+        value,
         fill: CHART_COLORS[index % CHART_COLORS.length],
       }))
     }
@@ -1195,6 +1278,14 @@ export function ChartPreview({
   }
 
   const chartData = prepareChartData()
+
+  if (chartType !== 'data_table' && chartData.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+        Sin datos para mostrar en este gráfico
+      </div>
+    )
+  }
 
   // Render chart based on type
   const renderChart = () => {
@@ -1273,49 +1364,57 @@ export function ChartPreview({
 
       case 'pie':
         return (
-          <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer width="100%" height={320}>
             <PieChart>
               <Pie
                 data={chartData}
                 dataKey="value"
                 nameKey="name"
                 cx="50%"
-                cy="50%"
-                outerRadius={100}
-                label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                labelLine={false}
+                cy="45%"
+                outerRadius={95}
+                paddingAngle={2}
+                label={renderPieLabel}
+                labelLine={{ stroke: '#6b7280', strokeWidth: 1 }}
               >
                 {(chartData as Array<{ fill: string }>).map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.fill} />
+                  <Cell key={`cell-${index}`} fill={entry.fill} stroke={pieSliceStroke} strokeWidth={2} />
                 ))}
               </Pie>
-              <Tooltip />
-              <Legend />
+              <Tooltip content={<PieTooltip />} />
+              <Legend
+                verticalAlign="bottom"
+                wrapperStyle={{ color: pieLegendColor, fontSize: 12, paddingTop: 12 }}
+              />
             </PieChart>
           </ResponsiveContainer>
         )
 
       case 'donut':
         return (
-          <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer width="100%" height={320}>
             <PieChart>
               <Pie
                 data={chartData}
                 dataKey="value"
                 nameKey="name"
                 cx="50%"
-                cy="50%"
-                innerRadius={60}
-                outerRadius={100}
-                label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                labelLine={false}
+                cy="45%"
+                innerRadius={55}
+                outerRadius={95}
+                paddingAngle={2}
+                label={renderPieLabel}
+                labelLine={{ stroke: '#6b7280', strokeWidth: 1 }}
               >
                 {(chartData as Array<{ fill: string }>).map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.fill} />
+                  <Cell key={`cell-${index}`} fill={entry.fill} stroke={pieSliceStroke} strokeWidth={2} />
                 ))}
               </Pie>
-              <Tooltip />
-              <Legend />
+              <Tooltip content={<PieTooltip />} />
+              <Legend
+                verticalAlign="bottom"
+                wrapperStyle={{ color: pieLegendColor, fontSize: 12, paddingTop: 12 }}
+              />
             </PieChart>
           </ResponsiveContainer>
         )

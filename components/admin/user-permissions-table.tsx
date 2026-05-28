@@ -47,6 +47,7 @@ import {
 } from 'lucide-react'
 import { getModuleIcon, getIconShape, resolveIconContainerStyle, resolveIconStyle, resolveTextStyle } from '@/lib/module-icons'
 import { cn } from '@/lib/utils'
+import { exportStyledReportExcel } from '@/lib/excel/upcrop-excel-theme'
 import { CreateModuleDialog } from './create-module-dialog'
 import { EditModuleDialog } from './edit-module-dialog'
 import { EditUserDialog } from './edit-user-dialog'
@@ -145,6 +146,93 @@ function useDebouncedValue<T>(value: T, delay = 300) {
     return () => clearTimeout(id)
   }, [value, delay])
   return debounced
+}
+
+function UserTablePagination({
+  safePage,
+  totalPages,
+  pageSize,
+  totalItems,
+  onPageChange,
+}: {
+  safePage: number
+  totalPages: number
+  pageSize: number
+  totalItems: number
+  onPageChange: (page: number) => void
+}) {
+  if (totalItems === 0 || totalPages <= 1) return null
+
+  return (
+    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-border bg-secondary/30 shrink-0">
+      <p className="text-xs text-muted-foreground">
+        Mostrando{' '}
+        <span className="text-foreground font-medium">{(safePage - 1) * pageSize + 1}</span>
+        {'–'}
+        <span className="text-foreground font-medium">
+          {Math.min(safePage * pageSize, totalItems)}
+        </span>{' '}
+        de <span className="text-foreground font-medium">{totalItems}</span>
+      </p>
+      <div className="flex items-center gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={safePage <= 1}
+          onClick={() => onPageChange(Math.max(1, safePage - 1))}
+          className="h-8 border-border gap-1"
+          aria-label="Página anterior"
+        >
+          <ChevronLeft className="w-4 h-4" />
+          <span className="hidden sm:inline">Anterior</span>
+        </Button>
+        {Array.from({ length: totalPages }).map((_, i) => {
+          const pageNum = i + 1
+          if (
+            totalPages > 7 &&
+            Math.abs(pageNum - safePage) > 2 &&
+            pageNum !== 1 &&
+            pageNum !== totalPages
+          ) {
+            if (pageNum === 2 || pageNum === totalPages - 1) {
+              return (
+                <span key={pageNum} className="px-1.5 text-muted-foreground">
+                  …
+                </span>
+              )
+            }
+            return null
+          }
+          return (
+            <Button
+              key={pageNum}
+              size="sm"
+              variant={pageNum === safePage ? 'default' : 'outline'}
+              onClick={() => onPageChange(pageNum)}
+              className={
+                pageNum === safePage
+                  ? 'h-8 w-8 p-0 bg-primary text-primary-foreground hover:bg-primary/90'
+                  : 'h-8 w-8 p-0 border-border'
+              }
+            >
+              {pageNum}
+            </Button>
+          )
+        })}
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={safePage >= totalPages}
+          onClick={() => onPageChange(Math.min(totalPages, safePage + 1))}
+          className="h-8 border-border gap-1"
+          aria-label="Página siguiente"
+        >
+          <span className="hidden sm:inline">Siguiente</span>
+          <ChevronRight className="w-4 h-4" />
+        </Button>
+      </div>
+    </div>
+  )
 }
 
 export function UserPermissionsTable() {
@@ -596,8 +684,8 @@ export function UserPermissionsTable() {
 
   const tableMinWidth = 340 + 140 + modules.length * 120
 
-  const handleExportCSV = () => {
-    const header = [
+  const handleExportExcel = async () => {
+    const headers = [
       'Nombre',
       'Email',
       'Rol',
@@ -606,29 +694,41 @@ export function UserPermissionsTable() {
       'Creado',
       ...modules.map((m) => m.name),
     ]
-    const escape = (val: string) => `"${val.replace(/"/g, '""')}"`
-    const rows = filteredUsers.map((u) => {
-      const cols = [
-        escape(u.full_name ?? ''),
-        escape(u.email ?? ''),
-        escape(u.role),
-        escape(u.is_active ? 'Activo' : 'Bloqueado'),
-        escape(formatDateTime(u.last_activity_at)),
-        escape(formatDateTime(u.created_at)),
+    const excelRows = filteredUsers.map((u) => {
+      const cols: (string | number)[] = [
+        u.full_name ?? '',
+        u.email ?? '',
+        u.role,
+        u.is_active ? 'Activo' : 'Bloqueado',
+        formatDateTime(u.last_activity_at),
+        formatDateTime(u.created_at),
       ]
       modules.forEach((m) => {
-        cols.push(access[accessKey(u.id, m.id)] ? 'Si' : 'No')
+        cols.push(access[accessKey(u.id, m.id)] ? 'Sí' : 'No')
       })
-      return cols.join(',')
+      return cols
     })
-    const csv = [header.join(','), ...rows].join('\n')
-    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `usuarios-upcrop-${new Date().toISOString().slice(0, 10)}.csv`
-    link.click()
-    URL.revokeObjectURL(url)
+
+    const activos = filteredUsers.filter((u) => u.is_active).length
+
+    await exportStyledReportExcel({
+      sheetName: 'Usuarios',
+      title: 'USUARIOS Y PERMISOS',
+      moduleLabel: 'Administración — Usuarios',
+      filename: `usuarios-upcrop-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      headers,
+      rows: excelRows,
+      instructions: [
+        '1. Cada columna de módulo indica si el usuario tiene acceso (Sí/No).',
+        '2. Use Estado para identificar cuentas bloqueadas o inactivas.',
+        '3. El export refleja los filtros de búsqueda activos en pantalla.',
+      ],
+      summary: `Resumen: ${filteredUsers.length} usuario${filteredUsers.length !== 1 ? 's' : ''} · ${activos} activo${activos !== 1 ? 's' : ''} · ${modules.length} módulo${modules.length !== 1 ? 's' : ''}`,
+      columnWidths: [
+        20, 28, 14, 12, 18, 18,
+        ...modules.map(() => 12),
+      ],
+    })
   }
 
   return (
@@ -668,12 +768,12 @@ export function UserPermissionsTable() {
             Nuevo Módulo
           </Button>
           <Button
-            onClick={handleExportCSV}
+            onClick={() => void handleExportExcel()}
             variant="outline"
             className="border-border hover:bg-primary hover:text-primary-foreground hover:border-primary"
           >
             <Download className="w-4 h-4 mr-2" />
-            Exportar CSV
+            Exportar Excel
           </Button>
         </div>
       </div>
@@ -1015,6 +1115,16 @@ export function UserPermissionsTable() {
             </tbody>
           </table>
           </div>
+
+          {!isLoading && filteredUsers.length > 0 && (
+            <UserTablePagination
+              safePage={safePage}
+              totalPages={totalPages}
+              pageSize={PAGE_SIZE}
+              totalItems={filteredUsers.length}
+              onPageChange={setPage}
+            />
+          )}
         </div>
 
         {/* Mobile status bar */}
@@ -1270,73 +1380,16 @@ export function UserPermissionsTable() {
           </div>
         )}
 
-        {/* Pagination */}
+        {/* Pagination (mobile + respaldo al final de la tarjeta) */}
         {!isLoading && filteredUsers.length > 0 && (
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-border bg-secondary/30">
-            <p className="text-xs text-muted-foreground">
-              Mostrando{' '}
-              <span className="text-foreground font-medium">
-                {(safePage - 1) * PAGE_SIZE + 1}
-              </span>
-              {'–'}
-              <span className="text-foreground font-medium">
-                {Math.min(safePage * PAGE_SIZE, filteredUsers.length)}
-              </span>{' '}
-              de <span className="text-foreground font-medium">{filteredUsers.length}</span>
-            </p>
-            <div className="flex items-center gap-1">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={safePage <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                className="h-8 border-border"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </Button>
-              {Array.from({ length: totalPages }).map((_, i) => {
-                const pageNum = i + 1
-                if (
-                  totalPages > 7 &&
-                  Math.abs(pageNum - safePage) > 2 &&
-                  pageNum !== 1 &&
-                  pageNum !== totalPages
-                ) {
-                  if (pageNum === 2 || pageNum === totalPages - 1) {
-                    return (
-                      <span key={pageNum} className="px-1.5 text-muted-foreground">
-                        …
-                      </span>
-                    )
-                  }
-                  return null
-                }
-                return (
-                  <Button
-                    key={pageNum}
-                    size="sm"
-                    variant={pageNum === safePage ? 'default' : 'outline'}
-                    onClick={() => setPage(pageNum)}
-                    className={
-                      pageNum === safePage
-                        ? 'h-8 w-8 p-0 bg-primary text-primary-foreground hover:bg-primary/90'
-                        : 'h-8 w-8 p-0 border-border'
-                    }
-                  >
-                    {pageNum}
-                  </Button>
-                )
-              })}
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={safePage >= totalPages}
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                className="h-8 border-border"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </Button>
-            </div>
+          <div className="lg:hidden">
+            <UserTablePagination
+              safePage={safePage}
+              totalPages={totalPages}
+              pageSize={PAGE_SIZE}
+              totalItems={filteredUsers.length}
+              onPageChange={setPage}
+            />
           </div>
         )}
       </div>

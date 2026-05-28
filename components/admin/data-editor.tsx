@@ -70,6 +70,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
+import { exportStyledReportExcel } from '@/lib/excel/upcrop-excel-theme'
 
 // Countries list in Spanish
 const COUNTRIES = [
@@ -672,32 +673,35 @@ export function DataEditor({ tableId }: DataEditorProps) {
     }
   }
 
-  // Export to CSV
-  const exportCsv = () => {
+  const exportExcel = async () => {
     if (!table || rows.length === 0) return
 
     const headers = table.columns.map((c) => c.name)
-    const csvRows = rows.map((row) =>
+    const excelRows = rows.map((row) =>
       table.columns.map((col) => {
         const val = row.data[col.id]
         if (val === null || val === undefined) return ''
         if (typeof val === 'boolean') return val ? 'Sí' : 'No'
-        return String(val).replace(/"/g, '""')
-      })
+        return String(val)
+      }),
     )
 
-    const csv = [
-      headers.map((h) => `"${h}"`).join(','),
-      ...csvRows.map((r) => r.map((c) => `"${c}"`).join(',')),
-    ].join('\n')
+    await exportStyledReportExcel({
+      sheetName: table.name.slice(0, 31),
+      title: table.name.toUpperCase(),
+      moduleLabel: 'Administración — Editor de datos',
+      filename: `${table.name.replace(/\s+/g, '_')}-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      headers,
+      rows: excelRows,
+      instructions: [
+        '1. Exportación de respaldo de la tabla visible en el editor.',
+        '2. Los valores booleanos aparecen como Sí/No.',
+        '3. Edite en UpCrop y vuelva a exportar para obtener datos actualizados.',
+      ],
+      summary: `Resumen: ${rows.length} fila${rows.length !== 1 ? 's' : ''} · ${table.columns.length} columna${table.columns.length !== 1 ? 's' : ''}`,
+    })
 
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `${table.name.replace(/\s+/g, '_')}.csv`
-    link.click()
-    URL.revokeObjectURL(url)
+    toast.success('Excel exportado')
   }
 
   // Render cell input
@@ -1042,9 +1046,9 @@ export function DataEditor({ tableId }: DataEditorProps) {
             <RefreshCw className="w-4 h-4 mr-2" />
             Recargar
           </Button>
-          <Button variant="outline" size="sm" onClick={exportCsv} disabled={rows.length === 0}>
+          <Button variant="outline" size="sm" onClick={() => void exportExcel()} disabled={rows.length === 0}>
             <Download className="w-4 h-4 mr-2" />
-            Exportar CSV
+            Exportar Excel
           </Button>
           <Button onClick={addRow} variant="outline" size="sm">
             <Plus className="w-4 h-4 mr-2" />

@@ -44,6 +44,10 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { AsignacionPanel } from './asignacion-panel'
+import { usePagination } from '@/hooks/use-pagination'
+import { TablePaginationBar } from '@/components/ui/table-pagination-bar'
+
+const PAGE_SIZE = 10
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -376,12 +380,41 @@ export function DocumentosClasificadosSheet({
   const totalIva   = useMemo(() => docs.reduce((s, d) => s + Number(d.monto_iva),   0), [docs])
   const totalBruto = useMemo(() => docs.reduce((s, d) => s + Number(d.monto_bruto), 0), [docs])
 
-  const allSelected  = docs.length > 0 && selected.size === docs.length
+  const {
+    page,
+    setPage,
+    totalPages,
+    totalItems,
+    paginatedItems,
+    startIndex,
+    endIndex,
+    hasPagination,
+  } = usePagination(docs, PAGE_SIZE)
+
+  useEffect(() => {
+    setEditingDocId(null)
+  }, [page])
+
+  const pageAllSelected =
+    paginatedItems.length > 0 && paginatedItems.every((d) => selected.has(d.id))
+
   const someSelected = selected.size > 0
   const hasCentros   = docs.some((d) => d.centros_asignados.length > 0)
 
   const toggleAll = () => {
-    setSelected(allSelected ? new Set() : new Set(docs.map((d) => d.id)))
+    if (pageAllSelected) {
+      setSelected((prev) => {
+        const next = new Set(prev)
+        paginatedItems.forEach((d) => next.delete(d.id))
+        return next
+      })
+    } else {
+      setSelected((prev) => {
+        const next = new Set(prev)
+        paginatedItems.forEach((d) => next.add(d.id))
+        return next
+      })
+    }
   }
 
   const toggleOne = (id: string) => {
@@ -534,10 +567,10 @@ export function DocumentosClasificadosSheet({
                     <th className="w-10 px-3 py-2.5 border-r border-border/40">
                       <input
                         type="checkbox"
-                        checked={allSelected}
+                        checked={pageAllSelected}
                         onChange={toggleAll}
                         className="rounded border-border accent-primary"
-                        title="Seleccionar todos"
+                        title="Seleccionar página actual"
                       />
                     </th>
                     <th className="text-left font-semibold text-muted-foreground px-3 py-2.5 whitespace-nowrap border-r border-border/40">#</th>
@@ -560,9 +593,10 @@ export function DocumentosClasificadosSheet({
                   </tr>
                 </thead>
                 <tbody>
-                  {docs.map((doc, idx) => {
+                  {paginatedItems.map((doc, idx) => {
                     const isSelected = selected.has(doc.id)
                     const isEditing  = editingDocId === doc.id
+                    const rowNum = startIndex + idx + 1
                     return [
                       <tr
                         key={doc.id}
@@ -580,7 +614,7 @@ export function DocumentosClasificadosSheet({
                           />
                         </td>
                         <td className="px-3 py-2 text-muted-foreground/60 tabular-nums border-r border-border/30">
-                          {idx + 1}
+                          {rowNum}
                         </td>
                         {COLS.map((col) => {
                           const raw = doc[col.key]
@@ -673,6 +707,17 @@ export function DocumentosClasificadosSheet({
                   </tr>
                 </tfoot>
               </table>
+              {hasPagination && (
+                <TablePaginationBar
+                  page={page}
+                  totalPages={totalPages}
+                  totalItems={totalItems}
+                  startIndex={startIndex}
+                  endIndex={endIndex}
+                  onPageChange={setPage}
+                  itemLabel="documentos"
+                />
+              )}
             </div>
           )}
         </div>

@@ -22,6 +22,7 @@ import {
   type LoginAttemptRow, type LoginStats, type BlockedIpRow,
   type AdminSecurityContext, type IpGeoInfo,
 } from '@/app/admin/actions'
+import { exportStyledReportExcel } from '@/lib/excel/upcrop-excel-theme'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -417,7 +418,7 @@ export function SecurityDashboard() {
     })
   }
 
-  function handleExportCSV() {
+  function handleExportExcel() {
     startExport(async () => {
       const res = await getLoginHistoryAction({
         page: 0,
@@ -429,9 +430,8 @@ export function SecurityDashboard() {
       const ips = [...new Set(res.rows.map(r => r.ip_address).filter(Boolean) as string[])]
       const geo = ips.length > 0 ? await getIpGeolocationsAction(ips) : {}
 
-      const esc = (v: string) => `"${(v ?? '').replace(/"/g, '""')}"`
       const headers = ['Estado', 'Nombre', 'Email', 'IP', 'País', 'Ciudad', 'Navegador', 'SO', 'Fecha']
-      const rows = res.rows.map(row => {
+      const excelRows = res.rows.map((row) => {
         const { browser, os } = parseUserAgent(row.user_agent ?? '')
         const g = row.ip_address ? geo[row.ip_address] : null
         return [
@@ -444,17 +444,27 @@ export function SecurityDashboard() {
           browser,
           os,
           formatDateTime(row.attempted_at),
-        ].map(esc).join(',')
+        ]
       })
 
-      const csv = [headers.join(','), ...rows].join('\n')
-      const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' })
-      const url  = URL.createObjectURL(blob)
-      const a    = document.createElement('a')
-      a.href     = url
-      a.download = `seguridad-logins-${new Date().toISOString().slice(0, 10)}.csv`
-      a.click()
-      URL.revokeObjectURL(url)
+      const failed = res.rows.filter((r) => !r.success).length
+
+      await exportStyledReportExcel({
+        sheetName: 'Accesos',
+        title: 'HISTORIAL DE ACCESOS',
+        moduleLabel: 'Administración — Seguridad',
+        filename: `seguridad-logins-${new Date().toISOString().slice(0, 10)}.xlsx`,
+        headers,
+        rows: excelRows,
+        instructions: [
+          '1. Revise intentos fallidos y accesos desde IPs o ubicaciones inusuales.',
+          '2. La columna Estado indica si el inicio de sesión fue exitoso o rechazado.',
+          '3. Use Navegador y SO para detectar dispositivos no reconocidos.',
+        ],
+        summary: `Resumen: ${res.rows.length} registro${res.rows.length !== 1 ? 's' : ''} · ${failed} fallido${failed !== 1 ? 's' : ''}${emailFilter ? ` · Email: ${emailFilter}` : ''}${onlyFailed ? ' · Solo fallidos' : ''}`,
+        columnWidths: [12, 18, 24, 16, 14, 16, 16, 14, 18],
+      })
+
       toast.success(`Exportados ${res.rows.length} registros`)
     })
   }
@@ -559,11 +569,11 @@ export function SecurityDashboard() {
               variant="outline"
               size="sm"
               className="h-8 gap-1.5 text-xs"
-              onClick={handleExportCSV}
+              onClick={handleExportExcel}
               disabled={isExporting || total === 0}
             >
               {isExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-              Exportar CSV
+              Exportar Excel
             </Button>
             <span className="text-xs text-muted-foreground ml-auto shrink-0">
               {total.toLocaleString('es-CL')} registros

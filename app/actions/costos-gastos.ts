@@ -849,6 +849,7 @@ export async function procesarExcelSII(formData: FormData): Promise<ProcesarResu
  */
 export async function obtenerGastosPorContraparte(
   clienteId: string,
+  options?: { mesDevengo?: string | null },
 ): Promise<GastosResult> {
   if (!clienteId?.trim()) {
     return { ok: false, data: [], message: 'cliente_id requerido.' }
@@ -861,7 +862,6 @@ export async function obtenerGastosPorContraparte(
     return { ok: false, data: [], message: 'Sesión expirada.' }
   }
 
-  // Only the owner (or sub-users via effective_user_id) or an admin may query.
   if (clienteId !== effectiveUserId) {
     const { data: profile } = await supabase
       .from('profiles')
@@ -878,9 +878,29 @@ export async function obtenerGastosPorContraparte(
     }
   }
 
-  const { data, error } = await supabase.rpc('gastos_por_contraparte', {
-    p_cliente_id: clienteId,
-  })
+  const mesDevengo = options?.mesDevengo?.trim()
+
+  if (!mesDevengo) {
+    const { data, error } = await supabase.rpc('gastos_por_contraparte', {
+      p_cliente_id: clienteId,
+    })
+
+    if (error) {
+      return {
+        ok: false,
+        data: [],
+        message: `Error al consultar datos: ${error.message}`,
+      }
+    }
+
+    return { ok: true, data: (data ?? []) as GastoPorContraparte[] }
+  }
+
+  const { data: rows, error } = await supabase
+    .from('registro_compras_sii')
+    .select('rut_contraparte, razon_social, monto_neto, monto_iva, monto_bruto, estado_clasificacion')
+    .eq('cliente_id', clienteId)
+    .eq('mes_devengo', mesDevengo)
 
   if (error) {
     return {
@@ -890,7 +910,98 @@ export async function obtenerGastosPorContraparte(
     }
   }
 
-  return { ok: true, data: (data ?? []) as GastoPorContraparte[] }
+  const map = new Map<string, GastoPorContraparte>()
+  for (const row of rows ?? []) {
+    const rut = row.rut_contraparte
+    const existing = map.get(rut)
+    const isPendiente = row.estado_clasificacion === 'pendiente'
+    if (existing) {
+      existing.total_monto_neto += Number(row.monto_neto)
+      existing.total_monto_iva += Number(row.monto_iva)
+      existing.total_monto_bruto += Number(row.monto_bruto)
+      existing.total_registros += 1
+      if (isPendiente) existing.pendientes += 1
+      else existing.clasificados += 1
+      if (!existing.razon_social && row.razon_social) {
+        existing.razon_social = row.razon_social
+      }
+    } else {
+      map.set(rut, {
+        rut_contraparte: rut,
+        razon_social: row.razon_social ?? '',
+        total_monto_neto: Number(row.monto_neto),
+        total_monto_iva: Number(row.monto_iva),
+        total_monto_bruto: Number(row.monto_bruto),
+        total_registros: 1,
+        pendientes: isPendiente ? 1 : 0,
+        clasificados: isPendiente ? 0 : 1,
+      })
+    }
+  }
+
+  const data = [...map.values()].sort(
+    (a, b) => b.total_monto_bruto - a.total_monto_bruto,
+  )
+  return { ok: true, data }
+}
+
+export async function obtenerPeriodosGastos(
+  clienteId: string,
+): Promise<{ ok: boolean; periodos: string[]; message?: string }> {
+  if (!clienteId?.trim()) {
+    return { ok: false, periodos: [], message: 'cliente_id requerido.' }
+  }
+
+  const supabase = await createClient()
+  const { userId, effectiveUserId } = await getEffectiveUserId(supabase)
+  if (!userId || !effectiveUserId) {
+    return { ok: false, periodos: [], message: 'Sesión expirada.' }
+  }
+
+  const { data, error } = await supabase
+    .from('registro_compras_sii')
+    .select('mes_devengo')
+    .eq('cliente_id', clienteId)
+    .not('mes_devengo', 'is', null)
+    .not('mes_devengo', 'eq', '')
+
+  if (error) {
+    return { ok: false, periodos: [], message: error.message }
+  }
+
+  const unique = [...new Set((data ?? []).map((r) => r.mes_devengo as string))]
+  unique.sort((a, b) => b.localeCompare(a))
+  return { ok: true, periodos: unique }
+}
+
+export interface ResumenCostosWorkflow {
+  totalRegistros: number
+  pendientes: number
+  clasificados: number
+  contrapartes: number
+}
+
+export async function obtenerResumenCostosWorkflow(
+  clienteId: string,
+): Promise<{ ok: boolean; data: ResumenCostosWorkflow; message?: string }> {
+  const result = await obtenerGastosPorContraparte(clienteId)
+  if (!result.ok) {
+    return {
+      ok: false,
+      data: { totalRegistros: 0, pendientes: 0, clasificados: 0, contrapartes: 0 },
+      message: result.message,
+    }
+  }
+  const gastos = result.data
+  return {
+    ok: true,
+    data: {
+      totalRegistros: gastos.reduce((s, g) => s + Number(g.total_registros), 0),
+      pendientes: gastos.reduce((s, g) => s + Number(g.pendientes), 0),
+      clasificados: gastos.reduce((s, g) => s + Number(g.clasificados), 0),
+      contrapartes: gastos.length,
+    },
+  }
 }
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

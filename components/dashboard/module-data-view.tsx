@@ -388,6 +388,16 @@ export function ModuleDataView({ moduleId, moduleName, moduleSlug }: ModuleDataV
     return Object.values(activeFilters).filter(v => v && v !== 'all').length
   }, [activeFilters])
 
+  const visualCharts = useMemo(
+    () => charts.filter((c) => c.chart_type !== 'data_table'),
+    [charts],
+  )
+  const tableCharts = useMemo(
+    () => charts.filter((c) => c.chart_type === 'data_table'),
+    [charts],
+  )
+  const hasTableView = tableCharts.length > 0 || tables.length > 0
+
   // Clear all filters
   const clearFilters = () => {
     setActiveFilters({})
@@ -625,82 +635,65 @@ export function ModuleDataView({ moduleId, moduleName, moduleSlug }: ModuleDataV
         </div>
       )}
 
-      {charts.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 text-center border border-dashed border-border rounded-xl">
-          <div className="w-14 h-14 rounded-2xl bg-secondary/50 flex items-center justify-center mb-3">
-            <Filter className="w-7 h-7 text-muted-foreground" />
-          </div>
-          <h3 className="text-base font-semibold mb-1">Sin gráficos configurados</h3>
-          <p className="text-sm text-muted-foreground max-w-md">
-            Puedes generar documentos con los registros existentes. Si necesitas gráficos, contacta al administrador.
-          </p>
-        </div>
-      ) : (
+      {visualCharts.length > 0 && (
         <>
-          {/* Charts header with centralized refresh */}
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-lg font-semibold">Gráficos</h2>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setChartRefreshKey(k => k + 1)}
+              onClick={() => setChartRefreshKey((k) => k + 1)}
               className="flex items-center gap-2"
             >
               <RefreshCw className="w-4 h-4" />
-              Actualizar todos los gráficos
+              Actualizar gráficos
             </Button>
           </div>
 
-          {/* Charts grid - maps go above data tables */}
           <div className="grid gap-6 min-w-0">
-            {[...charts]
+            {[...visualCharts]
               .sort((a, b) => {
-                // Priority: maps first, data_tables last, others in between (stable by display_order)
-                const priority = (type: string) => {
-                  if (type === 'map') return 0
-                  if (type === 'data_table') return 2
-                  return 1
-                }
+                const priority = (type: string) => (type === 'map' ? 0 : 1)
                 const pa = priority(a.chart_type)
                 const pb = priority(b.chart_type)
                 if (pa !== pb) return pa - pb
                 return (a.display_order ?? 0) - (b.display_order ?? 0)
               })
-              .map(chart => (
-              <div
-                key={chart.id}
-                className="p-6 bg-card border rounded-xl min-w-0 overflow-hidden"
-              >
-                <div className="mb-4">
-                  <h3 className="text-lg font-semibold">{chart.name}</h3>
-                  {chart.table && (
-                    <p className="text-sm text-muted-foreground">
-                      Datos de: {chart.table.name}
-                    </p>
-                  )}
+              .map((chart) => (
+                <div
+                  key={chart.id}
+                  className="p-6 bg-card border rounded-xl min-w-0 overflow-hidden"
+                >
+                  <div className="mb-4">
+                    <h3 className="text-lg font-semibold">{chart.name}</h3>
+                    {chart.table && (
+                      <p className="text-sm text-muted-foreground">
+                        Datos de: {chart.table.name}
+                      </p>
+                    )}
+                  </div>
+                  <ChartPreview
+                    chartId={chart.id}
+                    tableId={chart.table_id}
+                    chartType={chart.chart_type}
+                    config={chart.config}
+                    filters={activeFilters}
+                    refreshKey={chartRefreshKey}
+                  />
                 </div>
-                <ChartPreview
-                  chartId={chart.id}
-                  tableId={chart.table_id}
-                  chartType={chart.chart_type}
-                  config={chart.config}
-                  filters={activeFilters}
-                  refreshKey={chartRefreshKey}
-                />
-              </div>
-            ))}
+              ))}
           </div>
         </>
       )}
 
-      {charts.length === 0 && tables.length > 0 && (
+      {hasTableView && (
         <div className="space-y-6">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">Tablas de datos</h2>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setChartRefreshKey(k => k + 1)}
+              onClick={() => setChartRefreshKey((k) => k + 1)}
               className="flex items-center gap-2"
             >
               <RefreshCw className="w-4 h-4" />
@@ -708,30 +701,49 @@ export function ModuleDataView({ moduleId, moduleName, moduleSlug }: ModuleDataV
             </Button>
           </div>
           <div className="grid gap-6 min-w-0">
-            {tables.map((table) => (
-              <div key={table.id} className="p-6 bg-card border rounded-xl min-w-0 overflow-hidden">
-                <div className="mb-4">
-                  <h3 className="text-lg font-semibold">{table.name}</h3>
-                  {table.description && (
-                    <p className="text-sm text-muted-foreground">{table.description}</p>
-                  )}
-                </div>
-                <ChartPreview
-                  tableId={table.id}
-                  chartType="data_table"
-                  config={{
-                    visible_columns: table.columns?.map((col) => col.id) ?? [],
-                    editableColumns: tableConfigs[table.id]?.editableColumns ?? [],
-                    allowAddRows: tableConfigs[table.id]?.allowAddRows ?? false,
-                    allowAddColumns: tableConfigs[table.id]?.allowAddColumns ?? false,
-                    allowEditColumns: tableConfigs[table.id]?.allowEditColumns ?? false,
-                    allowDeleteColumns: tableConfigs[table.id]?.allowDeleteColumns ?? false,
-                  }}
-                  filters={activeFilters}
-                  refreshKey={chartRefreshKey}
-                />
-              </div>
-            ))}
+            {tableCharts.length > 0
+              ? tableCharts.map((chart) => (
+                  <div key={chart.id} className="p-6 bg-card border rounded-xl min-w-0 overflow-hidden">
+                    <div className="mb-4">
+                      <h3 className="text-lg font-semibold">{chart.name}</h3>
+                      {chart.table && (
+                        <p className="text-sm text-muted-foreground">{chart.table.name}</p>
+                      )}
+                    </div>
+                    <ChartPreview
+                      chartId={chart.id}
+                      tableId={chart.table_id}
+                      chartType="data_table"
+                      config={chart.config}
+                      filters={activeFilters}
+                      refreshKey={chartRefreshKey}
+                    />
+                  </div>
+                ))
+              : tables.map((table) => (
+                  <div key={table.id} className="p-6 bg-card border rounded-xl min-w-0 overflow-hidden">
+                    <div className="mb-4">
+                      <h3 className="text-lg font-semibold">{table.name}</h3>
+                      {table.description && (
+                        <p className="text-sm text-muted-foreground">{table.description}</p>
+                      )}
+                    </div>
+                    <ChartPreview
+                      tableId={table.id}
+                      chartType="data_table"
+                      config={{
+                        visible_columns: table.columns?.map((col) => col.id) ?? [],
+                        editableColumns: tableConfigs[table.id]?.editableColumns ?? [],
+                        allowAddRows: tableConfigs[table.id]?.allowAddRows ?? false,
+                        allowAddColumns: tableConfigs[table.id]?.allowAddColumns ?? false,
+                        allowEditColumns: tableConfigs[table.id]?.allowEditColumns ?? false,
+                        allowDeleteColumns: tableConfigs[table.id]?.allowDeleteColumns ?? false,
+                      }}
+                      filters={activeFilters}
+                      refreshKey={chartRefreshKey}
+                    />
+                  </div>
+                ))}
           </div>
         </div>
       )}

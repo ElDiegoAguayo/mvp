@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useState, useCallback, useMemo, useEffect } from 'react'
 import {
@@ -32,6 +32,10 @@ import type { GastoPorContraparte } from '@/app/actions/costos-gastos'
 import { Loader2, CheckCircle2, FileX, Split, Columns } from 'lucide-react'
 import { toast } from 'sonner'
 import { AsignacionPanel } from './asignacion-panel'
+import { usePagination } from '@/hooks/use-pagination'
+import { TablePaginationBar } from '@/components/ui/table-pagination-bar'
+
+const PAGE_SIZE = 10
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Optional column definitions
@@ -257,6 +261,7 @@ export function ClasificacionSheet({
 
     setDocs([])
     setRows({})
+    setBatchState({})
     setLoadingDocs(true)
 
     Promise.all([
@@ -300,6 +305,40 @@ export function ClasificacionSheet({
     () => Object.values(rows).filter(isRowComplete).length,
     [rows, isRowComplete],
   )
+
+  const [batchState, setBatchState] = useState<RowState>({})
+
+  const applyBatchToAll = useCallback(() => {
+    const first = taxonomy.niveles[0]
+    if (!first || !batchState[first.numero]) {
+      toast.error('Completa al menos el primer nivel antes de aplicar a todos.')
+      return
+    }
+    setRows((prev) => {
+      const next = { ...prev }
+      for (const doc of docs) {
+        if (isRowComplete(prev[doc.id] ?? {})) continue
+        next[doc.id] = { ...batchState }
+      }
+      return next
+    })
+    toast.success('Clasificación aplicada a todos los documentos pendientes.')
+  }, [batchState, docs, isRowComplete, taxonomy.niveles])
+
+  const {
+    page,
+    setPage,
+    totalPages,
+    totalItems,
+    paginatedItems,
+    startIndex,
+    endIndex,
+    hasPagination,
+  } = usePagination(docs, PAGE_SIZE)
+
+  useEffect(() => {
+    setExpandedAsignacion(null)
+  }, [page])
 
   // ── Save ────────────────────────────────────────────────────────────────
 
@@ -382,6 +421,57 @@ export function ClasificacionSheet({
           </div>
         </SheetHeader>
 
+        {!loadingDocs && docs.length > 0 && (
+          <div className="shrink-0 px-6 py-3 border-b border-border bg-secondary/20 space-y-2">
+            <p className="text-xs font-semibold text-foreground">Clasificar en lote</p>
+            <p className="text-[11px] text-muted-foreground">
+              Define una categoría y aplícala a todos los documentos pendientes de esta contraparte.
+            </p>
+            <div className="flex flex-wrap items-end gap-2">
+              <table className="text-xs">
+                <tbody>
+                  <tr>
+                    {taxonomy.niveles.map((nivel) => {
+                      const opts = taxonomy.opciones[nivel.numero] ?? []
+                      const prev = taxonomy.niveles.find((n) => n.numero < nivel.numero)
+                      const isDisabled = prev ? !batchState[prev.numero] : false
+                      return (
+                        <td key={nivel.numero} className="pr-2 pb-0">
+                          <Select
+                            value={batchState[nivel.numero] ?? ''}
+                            onValueChange={(v) => {
+                              setBatchState((cur) => {
+                                const updated: RowState = { ...cur, [nivel.numero]: v }
+                                taxonomy.niveles
+                                  .filter((n) => n.numero > nivel.numero)
+                                  .forEach((n) => { updated[n.numero] = '' })
+                                return updated
+                              })
+                            }}
+                            disabled={isDisabled}
+                          >
+                            <SelectTrigger className="h-8 text-[11px] w-[140px]">
+                              <SelectValue placeholder={nivel.label} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {opts.map((opt) => (
+                                <SelectItem key={opt} value={opt} className="text-xs">{opt}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </td>
+                      )
+                    })}
+                  </tr>
+                </tbody>
+              </table>
+              <Button type="button" size="sm" variant="secondary" onClick={applyBatchToAll}>
+                Aplicar a todos ({docs.length - completedCount})
+              </Button>
+            </div>
+          </div>
+        )}
+
 
         {/* Document rows */}
         <div className="flex-1 min-h-0 overflow-auto">
@@ -398,6 +488,7 @@ export function ClasificacionSheet({
               </p>
             </div>
           ) : (
+            <>
             <div className="overflow-x-auto">
               <table
                 className="w-full text-xs"
@@ -427,18 +518,19 @@ export function ClasificacionSheet({
                   </tr>
                 </thead>
                 <tbody>
-                  {docs.map((doc, idx) => {
+                  {paginatedItems.map((doc, idx) => {
                     const row = rows[doc.id] ?? {}
                     const isComplete = isRowComplete(row)
                     const asignacionOpen = expandedAsignacion === doc.id
                     const totalCols = 8 + visibleCols.size + taxonomy.niveles.length
+                    const rowNum = startIndex + idx + 1
 
                     return [
                       <tr
                         key={doc.id}
                         className={`border-b border-border/40 transition-colors hover:bg-primary/5 ${isComplete ? 'opacity-60' : ''}`}
                       >
-                        <td className="px-4 py-1.5 text-muted-foreground tabular-nums">{idx + 1}</td>
+                        <td className="px-4 py-1.5 text-muted-foreground tabular-nums">{rowNum}</td>
                         <td className="px-2 py-1.5 font-mono whitespace-nowrap">{doc.numero_documento || '—'}</td>
                         <td className="px-2 py-1.5 text-muted-foreground whitespace-nowrap">{doc.tipo_documento || '—'}</td>
                         <td className="px-2 py-1.5 font-mono text-muted-foreground whitespace-nowrap">{doc.fecha_emision || '—'}</td>
@@ -504,6 +596,18 @@ export function ClasificacionSheet({
                 </tbody>
               </table>
             </div>
+              {hasPagination && (
+                <TablePaginationBar
+                  page={page}
+                  totalPages={totalPages}
+                  totalItems={totalItems}
+                  startIndex={startIndex}
+                  endIndex={endIndex}
+                  onPageChange={setPage}
+                  itemLabel="documentos"
+                />
+              )}
+            </>
           )}
         </div>
 

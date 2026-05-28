@@ -26,6 +26,7 @@ import {
 import { restoreAuditAction } from '@/app/admin/audit-actions'
 import { getAuditLogsAction, type AuditLogServerRow } from '@/app/admin/actions'
 import { cn } from '@/lib/utils'
+import { exportStyledReportExcel } from '@/lib/excel/upcrop-excel-theme'
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
@@ -220,8 +221,8 @@ export function AuditLogTable() {
     })
   }, [restoringId, fetchPage])
 
-  // ── CSV export (full filtered set, fetches all pages) ─────────────────────────
-  const handleExportCSV = () => {
+  // ── Excel export (full filtered set, fetches all pages) ───────────────────────
+  const handleExportExcel = () => {
     startExport(async () => {
       const allRes = await getAuditLogsAction({
         pageSize: 10000,
@@ -237,8 +238,7 @@ export function AuditLogTable() {
       })
 
       const headers = ['Fecha', 'Actor', 'Tipo actor', 'Email', 'Riesgo', 'Tipo', 'Descripción', 'Target']
-      const esc = (v: string) => `"${(v ?? '').replace(/"/g, '""')}"`
-      const csvRows = allRes.rows.map(l => {
+      const excelRows = allRes.rows.map((l) => {
         const kind = resolveRowActorKind(l)
         const risk = getActionRiskLevel(l.action_type)
         return [
@@ -250,17 +250,31 @@ export function AuditLogTable() {
           ACTION_LABEL[l.action_type as AuditActionType] ?? l.action_type,
           l.description,
           l.target_label ?? '',
-        ].map(esc).join(',')
+        ]
       })
 
-      const csv  = [headers.join(','), ...csvRows].join('\n')
-      const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' })
-      const url  = URL.createObjectURL(blob)
-      const a    = document.createElement('a')
-      a.href     = url
-      a.download = `auditoria-upcrop-${new Date().toISOString().slice(0, 10)}.csv`
-      a.click()
-      URL.revokeObjectURL(url)
+      const filterParts: string[] = []
+      if (debouncedSearch) filterParts.push(`búsqueda "${debouncedSearch}"`)
+      if (categoryFilter !== 'all') filterParts.push(`categoría ${categoryFilter}`)
+      if (riskFilter !== 'all') filterParts.push(`riesgo ${riskFilter}`)
+      if (dateFrom || dateTo) filterParts.push(`periodo ${dateFrom || '…'} — ${dateTo || '…'}`)
+
+      await exportStyledReportExcel({
+        sheetName: 'Auditoría',
+        title: 'REGISTRO DE AUDITORÍA',
+        moduleLabel: 'Administración — Auditoría',
+        filename: `auditoria-upcrop-${new Date().toISOString().slice(0, 10)}.xlsx`,
+        headers,
+        rows: excelRows,
+        instructions: [
+          '1. Cada fila es un evento registrado en la plataforma (acciones de usuarios y administradores).',
+          '2. Use la columna Riesgo para priorizar revisiones de seguridad.',
+          '3. Los filtros activos en pantalla se aplicaron al exportar.',
+        ],
+        summary: `Resumen: ${allRes.rows.length} evento${allRes.rows.length !== 1 ? 's' : ''}${filterParts.length ? ` · Filtros: ${filterParts.join(', ')}` : ''}`,
+        columnWidths: [18, 18, 14, 24, 10, 18, 36, 20],
+      })
+
       toast.success(`Exportados ${allRes.rows.length} eventos`)
     })
   }
@@ -421,12 +435,12 @@ export function AuditLogTable() {
             <Button
               variant="outline"
               size="sm"
-              onClick={handleExportCSV}
+              onClick={handleExportExcel}
               disabled={isExporting || total === 0}
               className="h-8 gap-1.5"
             >
               {isExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-              Exportar CSV
+              Exportar Excel
             </Button>
           </div>
         </div>

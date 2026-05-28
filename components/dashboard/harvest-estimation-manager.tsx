@@ -900,26 +900,34 @@ export function HarvestEstimationManager() {
     else { toast.success('Cuarteles eliminados'); load() }
   }
 
-  function handleExportCount() {
+  async function handleExportCount() {
     if (countRows.length === 0) {
       toast.error('No hay conteos para exportar con los filtros actuales')
       return
     }
-    exportCountToExcel(countRows, filterSeason || undefined)
-    toast.success('Excel de conteo descargado', {
-      description: `${countRows.length} muestras exportadas`,
-    })
+    try {
+      await exportCountToExcel(countRows, filterSeason || undefined)
+      toast.success('Excel de conteo descargado', {
+        description: `${countRows.length} muestras exportadas`,
+      })
+    } catch {
+      toast.error('Error al exportar Excel de conteo')
+    }
   }
 
-  function handleExportEstimation() {
+  async function handleExportEstimation() {
     if (estimationDisplayRows.length === 0) {
       toast.error('No hay estimaciones para exportar con los filtros actuales')
       return
     }
-    exportHarvestToExcel(estimationDisplayRows, filterSeason || undefined)
-    toast.success('Excel de estimación descargado', {
-      description: `${estimationDisplayRows.length} estimaciones exportadas`,
-    })
+    try {
+      await exportHarvestToExcel(estimationDisplayRows, filterSeason || undefined)
+      toast.success('Excel de estimación descargado', {
+        description: `${estimationDisplayRows.length} estimaciones exportadas`,
+      })
+    } catch {
+      toast.error('Error al exportar Excel de estimación')
+    }
   }
 
   async function handleSyncEstimations() {

@@ -1,4 +1,12 @@
 import ExcelJS from 'exceljs'
+import {
+  UPCROP_HEADER_FILL,
+  UPCROP_SUMMARY_FILL,
+  UPCROP_THIN_BORDER,
+  UPCROP_FONT,
+  applyBrandedReportHeader,
+  triggerExcelDownload,
+} from '@/lib/excel/upcrop-excel-theme'
 
 export interface PhenologyExportImage {
   storage_path: string
@@ -95,15 +103,50 @@ async function normalizeImageForExcel(
 }
 
 function triggerDownload(buffer: ArrayBuffer, filename: string) {
-  const blob = new Blob([buffer], {
-    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  triggerExcelDownload(buffer, filename)
+}
+
+async function writePhenologyReportHeader(
+  workbook: ExcelJS.Workbook,
+  sheet: ExcelJS.Worksheet,
+  options: { crop: string; seasonLabel: string; observationCount: number; blockCount: number; imageCount: number },
+): Promise<number> {
+  const lastCol = 'H'
+
+  await applyBrandedReportHeader(workbook, sheet, {
+    lastCol,
+    title: 'REPORTE FENOLÓGICO',
+    moduleLabel: 'Estados Fenológicos',
   })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  anchor.click()
-  URL.revokeObjectURL(url)
+
+  sheet.mergeCells('A5:H5')
+  sheet.getCell('A5').value = 'Cómo leer este reporte'
+  sheet.getCell('A5').font = UPCROP_FONT.instructionsTitle
+
+  const instructions = [
+    '1. Cada bloque corresponde a un cuartel; las columnas son observaciones en campo.',
+    '2. Las filas Temporada, Fecha, Variedad y Estado resumen cada visita.',
+    '3. Las imágenes se incluyen embebidas cuando están disponibles en la bodega.',
+  ]
+  let row = 6
+  for (const line of instructions) {
+    sheet.mergeCells(`A${row}:H${row}`)
+    const cell = sheet.getCell(`A${row}`)
+    cell.value = line
+    cell.font = UPCROP_FONT.instructionsBody
+    cell.alignment = { wrapText: true }
+    row++
+  }
+
+  sheet.mergeCells(`A${row + 1}:H${row + 1}`)
+  const summaryCell = sheet.getCell(`A${row + 1}`)
+  summaryCell.value = `Resumen: ${options.crop} · Temporada ${options.seasonLabel} · ${options.observationCount} observación${options.observationCount !== 1 ? 'es' : ''} · ${options.blockCount} cuartel${options.blockCount !== 1 ? 'es' : ''} · ${options.imageCount} foto${options.imageCount !== 1 ? 's' : ''}`
+  summaryCell.font = UPCROP_FONT.summary
+  summaryCell.fill = UPCROP_SUMMARY_FILL
+  summaryCell.alignment = { vertical: 'middle', wrapText: true }
+  sheet.getRow(row + 1).height = 24
+
+  return row + 3
 }
 
 export async function exportPhenologyToExcel(
@@ -130,10 +173,21 @@ export async function exportPhenologyToExcel(
   let processedImages = 0
 
   const workbook = new ExcelJS.Workbook()
+  workbook.creator = 'UpCrop'
+  workbook.created = new Date()
   const sheetName = `${options.crop} ${options.seasonLabel}`.slice(0, 31)
-  const sheet = workbook.addWorksheet(sheetName)
+  const sheet = workbook.addWorksheet(sheetName, {
+    views: [{ showGridLines: false }],
+    properties: { defaultRowHeight: 18 },
+  })
 
-  let currentRow = 1
+  let currentRow = await writePhenologyReportHeader(workbook, sheet, {
+    crop: options.crop,
+    seasonLabel: options.seasonLabel,
+    observationCount: rows.length,
+    blockCount: byBlock.size,
+    imageCount: totalImages,
+  })
   let embedded = 0
   let skipped = 0
   let webpConverted = 0
@@ -141,7 +195,16 @@ export async function exportPhenologyToExcel(
   for (const blockName of [...byBlock.keys()].sort((a, b) => a.localeCompare(b, 'es'))) {
     const sorted = [...(byBlock.get(blockName) ?? [])].sort((a, b) => a.observed_at.localeCompare(b.observed_at))
 
-    sheet.getRow(currentRow).values = [blockName]
+    const blockTitleRow = sheet.getRow(currentRow)
+    sheet.mergeCells(currentRow, 1, currentRow, Math.max(8, sorted.length + 1))
+    blockTitleRow.values = [blockName]
+    blockTitleRow.height = 22
+    blockTitleRow.eachCell((cell) => {
+      cell.font = UPCROP_FONT.header
+      cell.fill = UPCROP_HEADER_FILL
+      cell.alignment = { vertical: 'middle', horizontal: 'left' }
+      cell.border = UPCROP_THIN_BORDER
+    })
     currentRow++
 
     const dataRows: Array<[string, ...unknown[]]> = [

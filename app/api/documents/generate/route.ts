@@ -10,6 +10,7 @@ import {
 } from '@/lib/documents/document-utils'
 import { PdfDocument } from '@/lib/documents/pdf-template'
 import { generateDocxBuffer } from '@/lib/documents/docx-template'
+import { getUpCropLogoBuffer, getUpCropLogoDataUri } from '@/lib/documents/load-logo'
 import { logAudit } from '@/lib/audit-log'
 
 export const runtime = 'nodejs'
@@ -93,9 +94,12 @@ export async function POST(request: Request) {
       metadata: { kind, format, table_id: tableId, table_name: table.name },
     })
 
+    const logoSrc = getUpCropLogoDataUri()
+    const logoBuffer = getUpCropLogoBuffer()
+
     if (format === 'pdf') {
       const pdfBuffer = await renderToBuffer(
-        React.createElement(PdfDocument, { kind, data: docData }),
+        React.createElement(PdfDocument, { kind, data: docData, logoSrc }),
       )
       return new NextResponse(pdfBuffer, {
         headers: {
@@ -105,7 +109,7 @@ export async function POST(request: Request) {
       })
     }
 
-    const docxBuffer = await generateDocxBuffer(kind, docData)
+    const docxBuffer = await generateDocxBuffer(kind, docData, logoBuffer)
     return new NextResponse(docxBuffer, {
       headers: {
         'Content-Type':

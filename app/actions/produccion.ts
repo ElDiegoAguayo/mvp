@@ -1,4 +1,4 @@
-﻿'use server'
+'use server'
 
 import { createClient } from '@/lib/supabase/server'
 import { getEffectiveUserId } from '@/lib/supabase/effective-user-server'
@@ -8,10 +8,10 @@ import type {
   ImportResult,
   MaterialLimitante,
 } from '@/types/produccion'
-
-// ─── Thresholds (adjust here) ─────────────────────────────────────────────────
-const UMBRAL_CRITICO_PALLETS = 10
-const UMBRAL_BAJO_PALLETS    = 50
+import {
+  clasificarAlertaPallets,
+  redondearPalletsAbajo,
+} from '@/lib/produccion/constants'
 
 // ─── Name normalization for fuzzy matching ────────────────────────────────────
 // Handles differences like "PAPEL SULFITO BLANCO 45X50 " vs
@@ -148,11 +148,9 @@ export async function calcularCapacidadPorReceta(
 
     const limitante = ratios[0]
     const capacidad_maxima  = limitante?.capacidad_aportada ?? 0
-    const capacidad_pallets = cajasXPallet > 0 ? Math.floor(capacidad_maxima / cajasXPallet) : 0
-
-    let estado_alerta: EstadoAlerta = 'ok'
-    if (capacidad_pallets < UMBRAL_CRITICO_PALLETS) estado_alerta = 'critico'
-    else if (capacidad_pallets < UMBRAL_BAJO_PALLETS) estado_alerta = 'bajo'
+    const palletsBrutos = cajasXPallet > 0 ? Math.floor(capacidad_maxima / cajasXPallet) : 0
+    const capacidad_pallets = redondearPalletsAbajo(palletsBrutos)
+    const estado_alerta: EstadoAlerta = clasificarAlertaPallets(palletsBrutos)
 
     return {
       codigo_receta:             receta.codigo_receta,
@@ -402,6 +400,34 @@ export async function obtenerInventario(clienteId: string) {
 
   if (error) return { ok: false, data: [], message: error.message }
   return { ok: true, data: data ?? [] }
+}
+
+export async function obtenerMetaInventario(
+  clienteId: string,
+): Promise<{ ok: boolean; updated_at: string | null; total_materiales: number }> {
+  const supabase = await createClient()
+  const { effectiveUserId } = await getEffectiveUserId(supabase)
+  if (!effectiveUserId) return { ok: false, updated_at: null, total_materiales: 0 }
+
+  const { data, error } = await supabase
+    .from('inventario_materiales')
+    .select('updated_at')
+    .eq('cliente_id', clienteId)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+
+  if (error) return { ok: false, updated_at: null, total_materiales: 0 }
+
+  const { count } = await supabase
+    .from('inventario_materiales')
+    .select('id', { count: 'exact', head: true })
+    .eq('cliente_id', clienteId)
+
+  return {
+    ok: true,
+    updated_at: data?.[0]?.updated_at ?? null,
+    total_materiales: count ?? 0,
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
