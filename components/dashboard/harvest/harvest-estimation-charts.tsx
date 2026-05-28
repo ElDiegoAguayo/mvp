@@ -6,6 +6,9 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  Legend,
+  Line,
+  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -18,13 +21,31 @@ export interface HarvestChartPoint {
   kg: number
 }
 
-/** Paleta corporativa UpCrop (ver globals.css --chart-*) */
+export interface PrePostPoint {
+  name: string
+  pre: number
+  post: number
+}
+
+export interface TimelinePoint {
+  date: string
+  estimated: number
+}
+
+export interface CountChartPoint {
+  name: string
+  samples: number
+  dardos: number
+}
+
 const UPCROP = {
   primary: '#4063ca',
   chart2: '#5b7ad6',
   chart3: '#2e4ba0',
   chart4: '#6b8de0',
   chart5: '#1f3784',
+  pre: '#7c3aed',
+  post: '#ea580c',
   axisDark: '#9eb5ef',
   axisLight: '#2e4ba0',
   gridDark: '#3d3834',
@@ -59,7 +80,29 @@ function useIsDarkMode() {
   return isDark
 }
 
-function CustomTooltip({
+function KgTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean
+  payload?: Array<{ name?: string; value?: number; color?: string }>
+  label?: string
+}) {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="rounded-lg border border-primary/30 bg-card px-3 py-2 shadow-md text-xs space-y-0.5">
+      <p className="font-medium text-foreground">{label}</p>
+      {payload.map((entry) => (
+        <p key={entry.name} style={{ color: entry.color }}>
+          {entry.name}: {formatKg(Number(entry.value ?? 0))}
+        </p>
+      ))}
+    </div>
+  )
+}
+
+function SimpleKgTooltip({
   active,
   payload,
   label,
@@ -69,11 +112,10 @@ function CustomTooltip({
   label?: string
 }) {
   if (!active || !payload?.length) return null
-  const kg = Number(payload[0]?.value ?? 0)
   return (
     <div className="rounded-lg border border-primary/30 bg-card px-3 py-2 shadow-md text-xs">
       <p className="font-medium text-foreground mb-0.5">{label}</p>
-      <p className="font-semibold" style={{ color: UPCROP.chart4 }}>{formatKg(kg)}</p>
+      <p className="font-semibold" style={{ color: UPCROP.chart4 }}>{formatKg(Number(payload[0]?.value ?? 0))}</p>
     </div>
   )
 }
@@ -122,7 +164,7 @@ function KgBarChart({
               tickFormatter={(v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v))}
               width={48}
             />
-            <Tooltip content={<CustomTooltip />} cursor={{ fill: `${UPCROP.primary}22` }} />
+            <Tooltip content={<SimpleKgTooltip />} cursor={{ fill: `${UPCROP.primary}22` }} />
             <Bar dataKey="kg" radius={[6, 6, 0, 0]} maxBarSize={48}>
               {data.map((entry, index) => (
                 <Cell key={`${entry.name}-${index}`} fill={BAR_COLORS[index % BAR_COLORS.length]} />
@@ -135,33 +177,140 @@ function KgBarChart({
   )
 }
 
-interface HarvestEstimationChartsProps {
-  totalKg: number
-  byField: HarvestChartPoint[]
-  byBlock: HarvestChartPoint[]
+function CompareBarChart({
+  title,
+  subtitle,
+  data,
+  axisColor,
+  gridColor,
+  keys,
+  colors,
+}: {
+  title: string
+  subtitle: string
+  data: Array<Record<string, string | number>>
+  axisColor: string
+  gridColor: string
+  keys: Array<{ key: string; label: string; color: string }>
+}) {
+  if (data.length === 0) return null
+
+  return (
+    <div className="rounded-xl border bg-card p-4 flex flex-col min-h-[360px]">
+      <div className="mb-3">
+        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+        <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
+      </div>
+      <div className="flex-1 min-h-[280px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} margin={{ top: 8, right: 8, left: 4, bottom: 4 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} />
+            <XAxis
+              dataKey="name"
+              stroke={axisColor}
+              tick={{ fontSize: 10, fill: axisColor }}
+              axisLine={{ stroke: axisColor }}
+              tickLine={{ stroke: axisColor }}
+              angle={data.length > 3 ? -28 : 0}
+              textAnchor={data.length > 3 ? 'end' : 'middle'}
+              height={data.length > 3 ? 64 : 32}
+              interval={0}
+            />
+            <YAxis
+              stroke={axisColor}
+              tick={{ fontSize: 10, fill: axisColor }}
+              axisLine={{ stroke: axisColor }}
+              tickLine={{ stroke: axisColor }}
+              tickFormatter={(v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v))}
+              width={48}
+            />
+            <Tooltip content={<KgTooltip />} cursor={{ fill: `${UPCROP.primary}22` }} />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            {keys.map(({ key, label, color }) => (
+              <Bar key={key} dataKey={key} name={label} fill={color} radius={[4, 4, 0, 0]} maxBarSize={36} />
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  )
 }
 
-export function HarvestEstimationCharts({ totalKg, byField, byBlock }: HarvestEstimationChartsProps) {
+function TimelineChart({
+  title,
+  subtitle,
+  data,
+  axisColor,
+  gridColor,
+}: {
+  title: string
+  subtitle: string
+  data: TimelinePoint[]
+  axisColor: string
+  gridColor: string
+}) {
+  if (data.length === 0) return null
+
+  return (
+    <div className="rounded-xl border bg-card p-4 flex flex-col min-h-[360px]">
+      <div className="mb-3">
+        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+        <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
+      </div>
+      <div className="flex-1 min-h-[280px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data} margin={{ top: 8, right: 8, left: 4, bottom: 4 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} />
+            <XAxis
+              dataKey="date"
+              stroke={axisColor}
+              tick={{ fontSize: 10, fill: axisColor }}
+              axisLine={{ stroke: axisColor }}
+              tickLine={{ stroke: axisColor }}
+            />
+            <YAxis
+              stroke={axisColor}
+              tick={{ fontSize: 10, fill: axisColor }}
+              axisLine={{ stroke: axisColor }}
+              tickLine={{ stroke: axisColor }}
+              tickFormatter={(v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v))}
+              width={48}
+            />
+            <Tooltip content={<KgTooltip />} />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            <Line type="monotone" dataKey="estimated" name="Kg estimados" stroke={UPCROP.primary} strokeWidth={2} dot={{ r: 3 }} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  )
+}
+
+interface HarvestEstimationChartsProps {
+  byField: HarvestChartPoint[]
+  byBlock: HarvestChartPoint[]
+  byVariety: HarvestChartPoint[]
+  prePostComparison: PrePostPoint[]
+  timeline: TimelinePoint[]
+}
+
+export function HarvestEstimationCharts({
+  byField,
+  byBlock,
+  byVariety,
+  prePostComparison,
+  timeline,
+}: HarvestEstimationChartsProps) {
   const isDark = useIsDarkMode()
   const axisColor = isDark ? UPCROP.axisDark : UPCROP.axisLight
   const gridColor = isDark ? UPCROP.gridDark : UPCROP.gridLight
 
-  if (byField.length === 0 && byBlock.length === 0) return null
+  if (byField.length === 0 && byBlock.length === 0 && byVariety.length === 0) {
+    return null
+  }
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-primary/20 bg-gradient-to-br from-primary/15 via-card to-card p-5">
-        <p className="text-sm text-muted-foreground mb-1">Kg totales estimados (filtros actuales)</p>
-        <p className="text-3xl font-bold tracking-tight" style={{ color: isDark ? UPCROP.chart4 : UPCROP.primary }}>
-          {formatKg(totalKg)}
-        </p>
-        <p className="text-xs text-muted-foreground mt-2">
-          {byBlock.length} cuartel{byBlock.length === 1 ? '' : 'es'}
-          {' · '}
-          {byField.length} campo{byField.length === 1 ? '' : 's'}
-        </p>
-      </div>
-
       <div className="grid gap-4 lg:grid-cols-2">
         <KgBarChart
           title="Kg por campo"
@@ -177,6 +326,109 @@ export function HarvestEstimationCharts({ totalKg, byField, byBlock }: HarvestEs
           axisColor={axisColor}
           gridColor={gridColor}
         />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        {byVariety.length > 0 && (
+          <KgBarChart
+            title="Kg por variedad"
+            subtitle="Estimación total por variedad"
+            data={byVariety}
+            axisColor={axisColor}
+            gridColor={gridColor}
+          />
+        )}
+        {prePostComparison.length > 0 && (
+          <CompareBarChart
+            title="Pre-poda vs Post-poda"
+            subtitle="Kg estimados por cuartel y variedad"
+            data={prePostComparison.map((row) => ({
+              name: row.name,
+              'Pre-poda': row.pre,
+              'Post-poda': row.post,
+            }))}
+            axisColor={axisColor}
+            gridColor={gridColor}
+            keys={[
+              { key: 'Pre-poda', label: 'Pre-poda', color: UPCROP.pre },
+              { key: 'Post-poda', label: 'Post-poda', color: UPCROP.post },
+            ]}
+          />
+        )}
+      </div>
+
+      {timeline.length > 1 && (
+        <TimelineChart
+          title="Evolución en el tiempo"
+          subtitle="Suma acumulada por fecha de registro"
+          data={timeline}
+          axisColor={axisColor}
+          gridColor={gridColor}
+        />
+      )}
+    </div>
+  )
+}
+
+interface HarvestCountChartsProps {
+  samplesByBlock: CountChartPoint[]
+  prePostDardos: PrePostPoint[]
+}
+
+export function HarvestCountCharts({ samplesByBlock, prePostDardos }: HarvestCountChartsProps) {
+  const isDark = useIsDarkMode()
+  const axisColor = isDark ? UPCROP.axisDark : UPCROP.axisLight
+  const gridColor = isDark ? UPCROP.gridDark : UPCROP.gridLight
+
+  if (samplesByBlock.length === 0 && prePostDardos.length === 0) return null
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 lg:grid-cols-2">
+        {samplesByBlock.length > 0 && (
+          <div className="rounded-xl border bg-card p-4 flex flex-col min-h-[320px]">
+            <div className="mb-3">
+              <h3 className="text-sm font-semibold text-foreground">Muestras por cuartel</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">Cantidad de árboles contados</p>
+            </div>
+            <div className="flex-1 min-h-[240px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={samplesByBlock} margin={{ top: 8, right: 8, left: 4, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} />
+                  <XAxis
+                    dataKey="name"
+                    stroke={axisColor}
+                    tick={{ fontSize: 10, fill: axisColor }}
+                    angle={samplesByBlock.length > 4 ? -28 : 0}
+                    textAnchor={samplesByBlock.length > 4 ? 'end' : 'middle'}
+                    height={samplesByBlock.length > 4 ? 64 : 32}
+                    interval={0}
+                  />
+                  <YAxis stroke={axisColor} tick={{ fontSize: 10, fill: axisColor }} width={40} />
+                  <Tooltip />
+                  <Bar dataKey="samples" name="Muestras" fill={UPCROP.primary} radius={[6, 6, 0, 0]} maxBarSize={48} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+        {prePostDardos.length > 0 && (
+          <CompareBarChart
+            title="Dardos/planta Pre vs Post"
+            subtitle="Promedio por cuartel y variedad"
+            data={prePostDardos.map((row) => ({
+              name: row.name,
+              'Pre-poda': row.pre,
+              'Post-poda': row.post,
+            }))}
+            axisColor={axisColor}
+            gridColor={gridColor}
+            keys={[
+              { key: 'Pre-poda', label: 'Pre-poda', color: UPCROP.pre },
+              { key: 'Post-poda', label: 'Post-poda', color: UPCROP.post },
+            ]}
+          />
+        )}
       </div>
     </div>
   )

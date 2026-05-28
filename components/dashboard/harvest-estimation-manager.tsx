@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { getEffectiveUserId } from '@/lib/supabase/effective-user'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -53,7 +54,15 @@ import {
   type HarvestCountState,
 } from '@/lib/agronomy/cherry-harvest-formula'
 import { currentSeasonLabel, formatKg } from '@/lib/agronomy/format'
-import { HarvestEstimationCharts } from '@/components/dashboard/harvest/harvest-estimation-charts'
+import {
+  HarvestCountCharts,
+  HarvestEstimationCharts,
+} from '@/components/dashboard/harvest/harvest-estimation-charts'
+import { HarvestSeasonSummary } from '@/components/dashboard/harvest/harvest-season-summary'
+import { HarvestPrePostTable } from '@/components/dashboard/harvest/harvest-pre-post-table'
+import { HarvestEstimationCards } from '@/components/dashboard/harvest/harvest-estimation-cards'
+import { HarvestRowBadge, isComputedHarvestRow } from '@/components/dashboard/harvest/harvest-row-badge'
+import { computePrePostDeltaRows } from '@/lib/agronomy/compute-pre-post-delta'
 
 interface HarvestField {
   id: string
@@ -100,6 +109,7 @@ interface HarvestEstimate {
   expected_start: string | null
   expected_end: string | null
   status: HarvestStatus
+  notes: string | null
 }
 
 type FormState = {
@@ -121,9 +131,9 @@ type FormState = {
   fruit_set_pct: string
   fruit_weight_kg: string
   harvested_kg: string
-  expected_start: string
-  expected_end: string
-  status: HarvestStatus
+  notes: string
+  hilera: string
+  arbol: string
 }
 
 function todayIso() {
@@ -168,16 +178,10 @@ function buildEmptyForm(season = currentSeasonLabel()): FormState {
     fruit_set_pct: '',
     fruit_weight_kg: '',
     harvested_kg: '0',
-    expected_start: '',
-    expected_end: '',
-    status: 'planificado',
+    notes: '',
+    hilera: '',
+    arbol: '',
   }
-}
-
-const STATUS_STYLE: Record<HarvestStatus, string> = {
-  planificado: 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-500/30',
-  en_curso: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30',
-  finalizado: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30',
 }
 
 const COUNT_STYLE: Record<HarvestCountState, string> = {
@@ -306,10 +310,18 @@ export function HarvestEstimationManager() {
     plants_per_ha: '',
   })
   const [filterSeason, setFilterSeason] = useState(currentSeasonLabel())
+  const [filterCrop, setFilterCrop] = useState<string>('all')
   const [filterField, setFilterField] = useState<string>('all')
   const [filterCountState, setFilterCountState] = useState<string>('all')
   const [filterVariety, setFilterVariety] = useState<string>('all')
   const [filterBlock, setFilterBlock] = useState<string>('all')
+
+  const cropsInUse = useMemo(() => {
+    const set = new Set<string>()
+    for (const r of rows) if (r.crop) set.add(r.crop)
+    for (const b of blocks) if (b.crop) set.add(b.crop)
+    return [...set].sort((a, b) => a.localeCompare(b, 'es'))
+  }, [rows, blocks])
 
   const isCherry = form.crop === 'Cerezo'
   const varietyOptions = useMemo(() => getVarietiesForCrop(form.crop), [form.crop])
@@ -421,10 +433,11 @@ export function HarvestEstimationManager() {
 
   const seasonFiltered = useMemo(() => rows.filter((r) => {
     if (filterSeason && r.season_label !== filterSeason) return false
+    if (filterCrop !== 'all' && r.crop !== filterCrop) return false
     if (filterField !== 'all' && (r.field_name ?? '') !== filterField) return false
     if (filterCountState !== 'all' && (r.count_state ?? 'Pre-poda') !== filterCountState) return false
     return true
-  }), [rows, filterSeason, filterField, filterCountState])
+  }), [rows, filterSeason, filterCrop, filterField, filterCountState])
 
   const varietiesInUse = useMemo(() => {
     const set = new Set<string>()
@@ -461,7 +474,7 @@ export function HarvestEstimationManager() {
   useEffect(() => {
     setFilterVariety('all')
     setFilterBlock('all')
-  }, [filterSeason, filterField, filterCountState])
+  }, [filterSeason, filterField, filterCountState, filterCrop])
 
   useEffect(() => {
     if (filterVariety !== 'all' && !varietiesInUse.includes(filterVariety)) {
@@ -588,6 +601,7 @@ export function HarvestEstimationManager() {
         expected_start: existing?.expected_start ?? null,
         expected_end: existing?.expected_end ?? null,
         status: existing?.status ?? 'planificado',
+        notes: existing?.notes ?? null,
       }
     })
   }, [countSummaries, blocks, estimationRows, filterSeason, seasons])
@@ -622,9 +636,126 @@ export function HarvestEstimationManager() {
       .map(([name, kg]) => ({ name, kg }))
   }, [estimationDisplayRows])
 
+  const chartByVariety = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const r of estimationDisplayRows) {
+      const key = r.variety?.trim() || r.crop
+      map.set(key, (map.get(key) ?? 0) + Number(r.estimated_kg))
+    }
+    return [...map.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, kg]) => ({ name, kg }))
+  }, [estimationDisplayRows])
+
+  const chartPrePostComparison = useMemo(() => {
+    const map = new Map<string, { name: string; pre: number; post: number }>()
+    for (const r of estimationDisplayRows) {
+      const key = `${r.field_name ?? ''}::${r.block_name}::${r.variety ?? r.crop}`
+      const label = `${r.block_name} · ${r.variety ?? r.crop}`
+      const entry = map.get(key) ?? { name: label, pre: 0, post: 0 }
+      if (r.count_state === 'Post-poda') entry.post += Number(r.estimated_kg)
+      else entry.pre += Number(r.estimated_kg)
+      map.set(key, entry)
+    }
+    return [...map.values()].filter((e) => e.pre > 0 || e.post > 0)
+  }, [estimationDisplayRows])
+
+  const chartTimeline = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const r of estimationDisplayRows) {
+      const date = r.record_date ?? 'Sin fecha'
+      map.set(date, (map.get(date) ?? 0) + Number(r.estimated_kg))
+    }
+    return [...map.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, estimated]) => ({ date, estimated }))
+  }, [estimationDisplayRows])
+
+  const countSamplesByBlock = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const r of countRows) {
+      const label = r.field_name ? `${r.field_name} · ${r.block_name}` : r.block_name
+      map.set(label, (map.get(label) ?? 0) + 1)
+    }
+    return [...map.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, samples]) => ({ name, samples, dardos: 0 }))
+  }, [countRows])
+
+  const countPrePostDardos = useMemo(() => {
+    const map = new Map<string, { name: string; pre: number; post: number; preN: number; postN: number }>()
+    for (const row of countSummaries) {
+      const key = `${row.field_name}::${row.block_name}::${row.variety}`
+      const label = `${row.block_name} · ${row.variety}`
+      const entry = map.get(key) ?? { name: label, pre: 0, post: 0, preN: 0, postN: 0 }
+      const dardos = Number(row.dardos_per_plant ?? 0)
+      if (row.count_state === 'Post-poda') {
+        entry.post += dardos
+        entry.postN += 1
+      } else {
+        entry.pre += dardos
+        entry.preN += 1
+      }
+      map.set(key, entry)
+    }
+    return [...map.values()]
+      .map((e) => ({
+        name: e.name,
+        pre: e.preN > 0 ? e.pre / e.preN : 0,
+        post: e.postN > 0 ? e.post / e.postN : 0,
+      }))
+      .filter((e) => e.pre > 0 || e.post > 0)
+  }, [countSummaries])
+
   const missingHaCount = useMemo(
     () => estimationDisplayRows.filter((r) => !r.hectares || r.hectares <= 0).length,
     [estimationDisplayRows],
+  )
+
+  const computedCount = useMemo(
+    () => estimationDisplayRows.filter((r) => isComputedHarvestRow(r.id)).length,
+    [estimationDisplayRows],
+  )
+
+  const savedCount = useMemo(
+    () => estimationDisplayRows.filter((r) => !isComputedHarvestRow(r.id)).length,
+    [estimationDisplayRows],
+  )
+
+  const lastRecordDate = useMemo(() => {
+    const dates = estimationDisplayRows
+      .map((r) => r.record_date)
+      .filter(Boolean) as string[]
+    return dates.sort().reverse()[0] ?? null
+  }, [estimationDisplayRows])
+
+  const prePostBlockCounts = useMemo(() => {
+    let pre = 0
+    let post = 0
+    const seen = new Set<string>()
+    for (const r of estimationDisplayRows) {
+      const key = `${r.field_name}::${r.block_name}::${r.variety}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      if (r.count_state === 'Post-poda') post++
+      else pre++
+    }
+    return { pre, post }
+  }, [estimationDisplayRows])
+
+  const prePostDeltaRows = useMemo(
+    () => computePrePostDeltaRows(
+      rows,
+      blocks,
+      filterSeason || seasons[0] || currentSeasonLabel(),
+      {
+        field: filterField,
+        crop: filterCrop,
+        variety: filterVariety,
+        block: filterBlock,
+      },
+    ),
+    [rows, blocks, filterSeason, seasons, filterField, filterCrop, filterVariety, filterBlock],
   )
 
   function applyBlockToForm(block: HarvestBlock) {
@@ -697,9 +828,9 @@ export function HarvestEstimationManager() {
       fruit_set_pct: numStr(row.fruit_set_pct),
       fruit_weight_kg: numStr(row.fruit_weight_kg),
       harvested_kg: String(row.harvested_kg),
-      expected_start: row.expected_start ?? '',
-      expected_end: row.expected_end ?? '',
-      status: row.status,
+      notes: row.notes ?? '',
+      hilera: row.hilera != null ? String(row.hilera) : '',
+      arbol: row.arbol != null ? String(row.arbol) : '',
     })
     setDialogOpen(true)
   }
@@ -1002,13 +1133,11 @@ export function HarvestEstimationManager() {
       hectares: Number(saveForm.hectares),
       estimated_kg: result.estimatedKg,
       harvested_kg: Number(saveForm.harvested_kg) || 0,
-      expected_start: saveForm.expected_start || null,
-      expected_end: saveForm.expected_end || null,
-      status: saveForm.status,
+      ...(dialogMode === 'conteo' ? { notes: saveForm.notes.trim() || null } : {}),
       count_state: isCherry ? saveForm.count_state : null,
       is_count_summary: isEstimation,
-      hilera: isEstimation ? null : (editing?.hilera ?? null),
-      arbol: isEstimation ? null : (editing?.arbol ?? null),
+      hilera: isEstimation ? null : (saveForm.hilera.trim() ? Number(saveForm.hilera) : null),
+      arbol: isEstimation ? null : (saveForm.arbol.trim() ? Number(saveForm.arbol) : null),
       count_sample_count: isEstimation
         ? (editing?.count_sample_count ?? 1)
         : (editing?.count_sample_count ?? 1),
@@ -1092,7 +1221,7 @@ export function HarvestEstimationManager() {
 
   const renderFilterPanel = (actions?: React.ReactNode) => (
     <div className="rounded-xl border bg-card p-4 space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
         <div className="space-y-1.5 min-w-0">
           <label className="text-xs font-medium text-muted-foreground">Temporada</label>
           <Select value={filterSeason} onValueChange={setFilterSeason}>
@@ -1102,6 +1231,16 @@ export function HarvestEstimationManager() {
                 <SelectItem value={currentSeasonLabel()}>{currentSeasonLabel()}</SelectItem>
               )}
               {seasons.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5 min-w-0">
+          <label className="text-xs font-medium text-muted-foreground">Cultivo</label>
+          <Select value={filterCrop} onValueChange={setFilterCrop}>
+            <SelectTrigger className="w-full h-9"><SelectValue placeholder="Cultivo" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los cultivos</SelectItem>
+              {cropsInUse.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
@@ -1176,19 +1315,46 @@ export function HarvestEstimationManager() {
         </TabsList>
 
         <TabsContent value="conteo" className="space-y-4 mt-4">
-          {renderFilterPanel(
-            <>
-              <Button variant="outline" size="sm" onClick={handleExportCount} className="gap-2" disabled={countRows.length === 0}>
+          {renderFilterPanel()}
+
+          {(countRows.length > 0 || countSummaries.length > 0) && (
+            <HarvestSeasonSummary
+              totalKg={totals}
+              fieldCount={new Set(estimationDisplayRows.map((r) => r.field_name).filter(Boolean)).size}
+              blockCount={new Set(estimationDisplayRows.map((r) => r.block_name)).size}
+              preBlockCount={prePostBlockCounts.pre}
+              postBlockCount={prePostBlockCounts.post}
+              missingHaCount={missingHaCount}
+              lastRecordDate={lastRecordDate}
+              computedCount={computedCount}
+              savedCount={savedCount}
+            />
+          )}
+
+          {(countRows.length > 0 || countSummaries.length > 0) &&
+            (countSamplesByBlock.length > 0 || countPrePostDardos.length > 0) && (
+            <HarvestCountCharts
+              samplesByBlock={countSamplesByBlock}
+              prePostDardos={countPrePostDardos}
+            />
+          )}
+
+          <div className="flex flex-col lg:flex-row lg:items-center gap-3 justify-between">
+            <p className="text-sm text-muted-foreground">
+              Tabla de conteos según los filtros seleccionados.
+            </p>
+            <div className="flex gap-2 shrink-0 flex-wrap">
+              <Button variant="outline" onClick={handleExportCount} className="gap-2" disabled={countRows.length === 0}>
                 <Download className="w-4 h-4" /> Exportar Excel
               </Button>
-              <Button variant="outline" size="sm" onClick={() => openImportDialog('conteo')} className="gap-2">
+              <Button variant="outline" onClick={() => openImportDialog('conteo')} className="gap-2">
                 <Upload className="w-4 h-4" /> Importar Excel
               </Button>
-              <Button size="sm" onClick={openCreateCount} className="gap-2">
+              <Button onClick={openCreateCount} className="gap-2">
                 <Plus className="w-4 h-4" /> Nuevo conteo
               </Button>
-            </>,
-          )}
+            </div>
+          </div>
 
           {countRows.length === 0 && countSummaries.length === 0 ? (
             <div className="rounded-xl border border-dashed p-12 text-center text-muted-foreground">
@@ -1198,9 +1364,6 @@ export function HarvestEstimationManager() {
                 Registra dardos, primordios y % cuaja por cuartel. Los kg se calculan automáticamente.
               </p>
               <div className="flex gap-2 justify-center flex-wrap">
-                <Button variant="outline" onClick={() => openImportDialog('conteo')} className="gap-2">
-                  <Upload className="w-4 h-4" /> Importar Excel
-                </Button>
                 <Button variant="outline" onClick={() => setFieldsDialogOpen(true)}>Agregar campos</Button>
                 <Button onClick={openCreateCount}>Nuevo conteo</Button>
               </div>
@@ -1328,10 +1491,30 @@ export function HarvestEstimationManager() {
           {renderFilterPanel()}
 
           {estimationDisplayRows.length > 0 && (
-            <HarvestEstimationCharts
+            <HarvestSeasonSummary
               totalKg={totals}
+              fieldCount={totalsByField.length}
+              blockCount={chartByBlock.length}
+              preBlockCount={prePostBlockCounts.pre}
+              postBlockCount={prePostBlockCounts.post}
+              missingHaCount={missingHaCount}
+              lastRecordDate={lastRecordDate}
+              computedCount={computedCount}
+              savedCount={savedCount}
+            />
+          )}
+
+          {prePostDeltaRows.length > 0 && (
+            <HarvestPrePostTable rows={prePostDeltaRows} />
+          )}
+
+          {estimationDisplayRows.length > 0 && (
+            <HarvestEstimationCharts
               byField={chartByField}
               byBlock={chartByBlock}
+              byVariety={chartByVariety}
+              prePostComparison={chartPrePostComparison}
+              timeline={chartTimeline}
             />
           )}
 
@@ -1340,6 +1523,17 @@ export function HarvestEstimationManager() {
               Tabla detallada de estimaciones según los filtros seleccionados.
             </p>
             <div className="flex gap-2 shrink-0 flex-wrap">
+              {computedCount > 0 && (
+                <Button
+                  variant="default"
+                  onClick={handleSyncEstimations}
+                  disabled={countSummaries.length === 0 || saving}
+                  className="gap-2"
+                >
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <BarChart3 className="w-4 h-4" />}
+                  Guardar {computedCount} calculada(s)
+                </Button>
+              )}
               <Button
                 variant="outline"
                 onClick={handleSyncEstimations}
@@ -1375,19 +1569,24 @@ export function HarvestEstimationManager() {
                 Importa conteos, calcula desde promedios o crea una estimación manualmente.
               </p>
               <div className="flex gap-2 justify-center flex-wrap">
-                <Button variant="outline" onClick={() => openImportDialog('estimacion')} className="gap-2">
-                  <Upload className="w-4 h-4" /> Importar Excel
-                </Button>
                 <Button variant="outline" onClick={() => setActiveTab('conteo')}>Ir a Conteo</Button>
                 <Button onClick={openCreateEstimation}>Nueva estimación</Button>
               </div>
             </div>
           ) : (
-            <div className="rounded-xl border overflow-hidden">
+            <>
+            <HarvestEstimationCards
+              rows={estimationDisplayRows}
+              countStyle={COUNT_STYLE}
+              onEdit={(row) => openEditEstimation(row as HarvestEstimate)}
+              onDelete={(row) => handleDelete(row as HarvestEstimate)}
+            />
+            <div className="rounded-xl border overflow-hidden hidden md:block">
               <div className="overflow-x-auto">
-                <table className="w-full text-sm min-w-[1400px]">
+                <table className="w-full text-sm min-w-[1600px]">
                   <thead>
                     <tr className="border-b bg-muted/40 text-left">
+                      <th className="px-3 py-3 font-medium w-28">Estado</th>
                       <th className="px-3 py-3 font-medium">Campo</th>
                       <th className="px-3 py-3 font-medium">Cuartel</th>
                       <th className="px-3 py-3 font-medium">Variedad</th>
@@ -1400,8 +1599,8 @@ export function HarvestEstimationManager() {
                       <th className="px-3 py-3 font-medium">Frutos/pl</th>
                       <th className="px-3 py-3 font-medium">Kg/pl</th>
                       <th className="px-3 py-3 font-medium">Kg/ha</th>
-                      <th className="px-3 py-3 font-medium">Kg totales</th>
-                      <th className="px-3 py-3 font-medium">Estado</th>
+                      <th className="px-3 py-3 font-medium">Kg estimados</th>
+                      <th className="px-3 py-3 font-medium">Conteo</th>
                       <th className="px-3 py-3 w-20" />
                     </tr>
                   </thead>
@@ -1411,6 +1610,9 @@ export function HarvestEstimationManager() {
                       const canDelete = !row.id.startsWith('computed-')
                       return (
                       <tr key={row.id} className="border-b last:border-0 hover:bg-muted/20">
+                        <td className="px-3 py-3">
+                          <HarvestRowBadge rowId={row.id} />
+                        </td>
                         <td className="px-3 py-3 text-muted-foreground">{row.field_name ?? '—'}</td>
                         <td className="px-3 py-3 font-medium">{row.block_name}</td>
                         <td className="px-3 py-3">{row.variety ?? row.crop}</td>
@@ -1445,6 +1647,7 @@ export function HarvestEstimationManager() {
                 </table>
               </div>
             </div>
+            </>
           )}
         </TabsContent>
       </Tabs>
@@ -1847,6 +2050,18 @@ export function HarvestEstimationManager() {
                   </Select>
                 </div>
               )}
+              {dialogMode === 'conteo' && (
+                <>
+                  <div>
+                    <label className="text-xs text-muted-foreground">Hilera</label>
+                    <Input type="number" min="0" value={form.hilera} onChange={(e) => setForm({ ...form, hilera: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground">Árbol</label>
+                    <Input type="number" min="0" value={form.arbol} onChange={(e) => setForm({ ...form, arbol: e.target.value })} />
+                  </div>
+                </>
+              )}
             </div>
 
             {isCherry ? (
@@ -1901,6 +2116,18 @@ export function HarvestEstimationManager() {
                   <p className="font-medium">Kg totales: {formatKg(computedLive.estimatedKg)}</p>
                 </div>
               )
+            )}
+
+            {dialogMode === 'conteo' && (
+              <div>
+                <label className="text-xs text-muted-foreground">Notas</label>
+                <Textarea
+                  rows={2}
+                  value={form.notes}
+                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                  placeholder="Observaciones del conteo…"
+                />
+              </div>
             )}
 
               </>

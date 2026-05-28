@@ -19,7 +19,12 @@ import {
 import { toast } from 'sonner'
 import { COMMON_CROPS, DEFAULT_PHENOLOGY_STAGES } from '@/lib/agronomy/constants'
 import { currentSeasonLabel } from '@/lib/agronomy/format'
-import { parsePhenologyFile } from '@/lib/agronomy/parse-phenology-xlsx'
+import {
+  parsePhenologyFile,
+  phenologyObservationKey,
+  resolveStageFromCatalog,
+  type ParsedEmbeddedImage,
+} from '@/lib/agronomy/parse-phenology-xlsx'
 import { exportPhenologyToExcel } from '@/lib/agronomy/export-phenology-xlsx'
 import { getVarietiesForCrop } from '@/lib/agronomy/harvest-yields'
 import {
@@ -28,6 +33,24 @@ import {
   type PhenologyTimelineImage,
   type PhenologyTimelineObservation,
 } from '@/components/dashboard/phenology/block-timeline-grid'
+import { PhenologySeasonSummary } from '@/components/dashboard/phenology/phenology-season-summary'
+import {
+  buildPhenologyAlerts,
+  suggestsHarvestCount,
+  predictNextStage,
+  fmtShortDate,
+} from '@/lib/agronomy/phenology-predictions'
+import Link from 'next/link'
+
+interface HarvestBlockRef {
+  id: string
+  field_name: string
+  block_name: string
+  crop: string
+  variety: string | null
+}
+
+const MANUAL_BLOCK = '__manual__'
 
 interface PhenologyStage {
   id: string
@@ -91,6 +114,7 @@ export function PhenologicalStatesManager() {
   const [ownerId, setOwnerId] = useState<string | null>(null)
   const [tab, setTab] = useState<'observations' | 'catalog'>('observations')
   const [stages, setStages] = useState<PhenologyStage[]>([])
+  const [harvestBlocks, setHarvestBlocks] = useState<HarvestBlockRef[]>([])
   const [observations, setObservations] = useState<PhenologyObservation[]>([])
   const [filterCrop, setFilterCrop] = useState('Arándano')
   const [filterSeason, setFilterSeason] = useState(currentSeasonLabel())
@@ -122,7 +146,7 @@ export function PhenologicalStatesManager() {
     }
     setOwnerId(effectiveUserId)
 
-    const [stRes, obRes, imgRes] = await Promise.all([
+    const [stRes, obRes, imgRes, blockRes] = await Promise.all([
       supabase
         .from('phenology_stages')
         .select('*')
@@ -136,13 +160,21 @@ export function PhenologicalStatesManager() {
         .order('observed_at', { ascending: true }),
       supabase
         .from('phenology_observation_images')
-        .select('id, observation_id, storage_path, file_name, sort_order')
+        .select('id, observation_id, storage_path, file_name, mime_type, sort_order')
         .eq('user_id', effectiveUserId)
         .order('sort_order'),
+      supabase
+        .from('harvest_blocks')
+        .select('id, field_name, block_name, crop, variety')
+        .eq('user_id', effectiveUserId)
+        .order('field_name')
+        .order('block_name'),
     ])
 
     if (stRes.error) toast.error('Error al cargar etapas')
     else setStages((stRes.data ?? []) as PhenologyStage[])
+
+    if (!blockRes.error) setHarvestBlocks((blockRes.data ?? []) as HarvestBlockRef[])
 
     if (obRes.error) {
       toast.error('Error al cargar observaciones')
@@ -156,6 +188,7 @@ export function PhenologicalStatesManager() {
             id: String(img.id),
             storage_path: String(img.storage_path),
             file_name: String(img.file_name),
+            mime_type: img.mime_type ? String(img.mime_type) : null,
           })
           imagesByObs.set(String(img.observation_id), list)
         }
@@ -232,16 +265,50 @@ export function PhenologicalStatesManager() {
     return cropSeasonObservations.filter((o) => (o.variety ?? '') === filterVariety)
   }, [cropSeasonObservations, filterVariety])
 
-  const blocksInUse = useMemo(() => {
-    const set = new Set<string>()
-    for (const obs of seasonObservations) set.add(obs.block_name)
-    return [...set].sort((a, b) => a.localeCompare(b, 'es'))
-  }, [seasonObservations])
+  const catalogBlocksForCrop = useMemo(
+    () => harvestBlocks.filter((b) => b.crop === filterCrop),
+    [harvestBlocks, filterCrop],
+  )
 
   const stagesForCrop = useMemo(
     () => stages.filter((s) => s.crop === filterCrop).sort((a, b) => a.sort_order - b.sort_order),
     [stages, filterCrop],
   )
+
+  const phenologyAlerts = useMemo(
+    () => buildPhenologyAlerts(
+      seasonObservations.map((o) => ({
+        block_name: o.block_name,
+        stage_name: o.stage_name,
+        stage_id: o.stage_id,
+        observed_at: o.observed_at,
+        season_label: o.season_label,
+        images: o.images,
+      })),
+      stagesForCrop,
+    ),
+    [seasonObservations, stagesForCrop],
+  )
+
+  const harvestHintCount = useMemo(() => {
+    const blocks = new Set<string>()
+    for (const obs of seasonObservations) {
+      if (suggestsHarvestCount(obs.stage_name, obs.crop)) blocks.add(obs.block_name)
+    }
+    return blocks.size
+  }, [seasonObservations])
+
+  const photoCount = useMemo(
+    () => seasonObservations.reduce((sum, o) => sum + (o.images?.length ?? 0), 0),
+    [seasonObservations],
+  )
+
+  const blocksInUse = useMemo(() => {
+    const set = new Set<string>()
+    for (const obs of seasonObservations) set.add(obs.block_name)
+    for (const b of catalogBlocksForCrop) set.add(b.block_name)
+    return [...set].sort((a, b) => a.localeCompare(b, 'es'))
+  }, [seasonObservations, catalogBlocksForCrop])
 
   const timelineByBlock = useMemo(() => {
     const map = new Map<string, PhenologyObservation[]>()
@@ -598,6 +665,47 @@ export function PhenologicalStatesManager() {
     setRenameDialog(true)
   }
 
+  async function uploadEmbeddedImages(
+    observationId: string,
+    images: ParsedEmbeddedImage[],
+    startOrder: number,
+  ) {
+    if (!ownerId || images.length === 0) return
+
+    for (let i = 0; i < images.length; i++) {
+      if (startOrder + i >= MAX_IMAGES) break
+      const img = images[i]
+      const mime =
+        img.extension === 'png'
+          ? 'image/png'
+          : img.extension === 'gif'
+            ? 'image/gif'
+            : img.extension === 'webp'
+              ? 'image/webp'
+              : 'image/jpeg'
+      const ext = img.extension === 'jpeg' ? 'jpg' : img.extension
+      const fileName = `import-${Date.now()}-${i}.${ext}`
+      const storagePath = `${ownerId}/phenology/${observationId}/${fileName}`
+      const blob = new Blob([img.buffer], { type: mime })
+
+      const { error: upErr } = await supabase.storage.from('fenologia').upload(storagePath, blob, {
+        contentType: mime,
+        upsert: false,
+      })
+      if (upErr) throw upErr
+
+      const { error: dbErr } = await supabase.from('phenology_observation_images').insert({
+        observation_id: observationId,
+        user_id: ownerId,
+        storage_path: storagePath,
+        file_name: fileName,
+        mime_type: mime,
+        sort_order: startOrder + i,
+      })
+      if (dbErr) throw dbErr
+    }
+  }
+
   async function handleImport(file: File) {
     if (!ownerId) return
     setSaving(true)
@@ -607,22 +715,94 @@ export function PhenologicalStatesManager() {
         toast.error('No se encontraron lecturas en el Excel')
         return
       }
-      const rows = parsed.map((r) => ({
-        user_id: ownerId,
-        block_name: r.block_name,
-        crop: r.crop,
-        variety: r.variety,
-        stage_id: null,
-        stage_name: r.stage_name,
-        observed_at: r.observed_at,
-        season_label: r.season_label,
-        hilera: r.hilera,
-        arbol: r.arbol,
-        notes: null,
-      }))
-      const { error } = await supabase.from('phenology_observations').insert(rows)
-      if (error) throw error
-      toast.success(`${rows.length} lecturas importadas`)
+
+      const catalogStages = stages.filter((s) => s.crop === filterCrop)
+      const existingByKey = new Map<string, PhenologyObservation>()
+      for (const obs of observations.filter((o) => o.crop === filterCrop)) {
+        existingByKey.set(phenologyObservationKey(obs), obs)
+      }
+
+      let created = 0
+      let updated = 0
+      let unchanged = 0
+      let unmatchedStages = 0
+      let imagesImported = 0
+
+      for (const row of parsed) {
+        const resolved = resolveStageFromCatalog(row.stage_name, catalogStages)
+        if (!resolved.catalogMatch) unmatchedStages++
+
+        const key = phenologyObservationKey(row)
+        const existing = existingByKey.get(key)
+        const payload = {
+          user_id: ownerId,
+          block_name: row.block_name,
+          crop: row.crop,
+          variety: row.variety,
+          stage_id: resolved.stage_id,
+          stage_name: resolved.stage_name,
+          observed_at: row.observed_at,
+          season_label: row.season_label.trim() || filterSeason,
+          hilera: row.hilera,
+          arbol: row.arbol,
+          notes: row.notes,
+        }
+
+        if (existing) {
+          const sameData =
+            existing.stage_name === payload.stage_name &&
+            existing.stage_id === payload.stage_id &&
+            (existing.notes ?? null) === (payload.notes ?? null) &&
+            existing.hilera === payload.hilera &&
+            existing.arbol === payload.arbol
+          const hasImages = (existing.images?.length ?? 0) > 0
+          const wantsImages = row.embeddedImages.length > 0 && !hasImages
+
+          if (sameData && !wantsImages) {
+            unchanged++
+            continue
+          }
+
+          const { error } = await supabase
+            .from('phenology_observations')
+            .update(payload)
+            .eq('id', existing.id)
+          if (error) throw error
+          updated++
+
+          if (wantsImages) {
+            await uploadEmbeddedImages(existing.id, row.embeddedImages, existing.images?.length ?? 0)
+            imagesImported += row.embeddedImages.length
+          }
+        } else {
+          const { data, error } = await supabase
+            .from('phenology_observations')
+            .insert(payload)
+            .select('id')
+            .single()
+          if (error) throw error
+
+          const observationId = String(data.id)
+          created++
+
+          if (row.embeddedImages.length > 0) {
+            await uploadEmbeddedImages(observationId, row.embeddedImages, 0)
+            imagesImported += row.embeddedImages.length
+          }
+        }
+      }
+
+      const parts = [`${created} nuevas`, `${updated} actualizadas`]
+      if (unchanged > 0) parts.push(`${unchanged} sin cambios`)
+      if (imagesImported > 0) parts.push(`${imagesImported} foto(s)`)
+      toast.success(`Importación: ${parts.join(', ')}`)
+
+      if (unmatchedStages > 0) {
+        toast.warning(
+          `${unmatchedStages} lectura(s) con etapa fuera del catálogo — revisa la pestaña Catálogo`,
+        )
+      }
+
       load()
     } catch (e) {
       console.error(e)
@@ -653,9 +833,11 @@ export function PhenologicalStatesManager() {
           stage_name: o.stage_name,
           hilera: o.hilera,
           arbol: o.arbol,
+          notes: o.notes,
           images: o.images?.map((img) => ({
             storage_path: img.storage_path,
             file_name: img.file_name,
+            mime_type: img.mime_type,
           })),
         })),
         {
@@ -673,9 +855,11 @@ export function PhenologicalStatesManager() {
       if (result.embedded === 0 && result.skipped > 0) {
         toast.warning('Excel exportado sin fotos (no se pudieron descargar)')
       } else if (result.skipped > 0) {
-        toast.success(`Excel exportado con ${result.embedded} foto(s); ${result.skipped} omitida(s)`)
+        const webpNote = result.webpConverted > 0 ? `; ${result.webpConverted} WebP convertida(s)` : ''
+        toast.success(`Excel exportado con ${result.embedded} foto(s); ${result.skipped} omitida(s)${webpNote}`)
       } else if (result.embedded > 0) {
-        toast.success(`Excel exportado con ${result.embedded} foto(s)`)
+        const webpNote = result.webpConverted > 0 ? ` (${result.webpConverted} WebP convertida(s))` : ''
+        toast.success(`Excel exportado con ${result.embedded} foto(s)${webpNote}`)
       } else {
         toast.success('Excel exportado')
       }
@@ -832,6 +1016,20 @@ export function PhenologicalStatesManager() {
 
       {tab === 'observations' && (
         <>
+          <PhenologySeasonSummary
+            blockCount={blocksInUse.length}
+            readingCount={seasonObservations.length}
+            photoCount={photoCount}
+            alerts={phenologyAlerts}
+            harvestHintCount={harvestHintCount}
+          />
+          {harvestHintCount > 0 && filterCrop === 'Cerezo' && (
+            <p className="text-sm">
+              <Link href="/dashboard/estimacion-cosecha" className="text-primary font-medium hover:underline">
+                Ir a Estimación de cosecha →
+              </Link>
+            </p>
+          )}
           <div className="flex flex-wrap gap-2 justify-between items-center">
             <p className="text-sm text-muted-foreground">
               Misma estructura que el Excel: Temporada, Fecha, Variedad, Estado, Hilera, Árbol e Imágenes por semana.
@@ -886,10 +1084,9 @@ export function PhenologicalStatesManager() {
                 {' · '}{filterSeason}
               </p>
               <p className="text-sm mb-4">
-                Importa el Excel, registra una lectura o elige otra temporada.
+                Registra una lectura o elige otra temporada.
               </p>
               <div className="flex gap-2 justify-center flex-wrap">
-                <Button variant="outline" onClick={() => fileInputRef.current?.click()}>Importar Excel</Button>
                 <Button onClick={() => openObsCreate()}>Registrar lectura</Button>
               </div>
             </div>
@@ -1058,11 +1255,55 @@ export function PhenologicalStatesManager() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs text-muted-foreground">Cuartel *</label>
-                <Input
-                  value={obsForm.block_name}
-                  onChange={(e) => setObsForm({ ...obsForm, block_name: e.target.value })}
-                  placeholder="Legacy C1"
-                />
+                {catalogBlocksForCrop.length > 0 ? (
+                  <>
+                    <Select
+                      value={
+                        obsForm.block_name &&
+                        catalogBlocksForCrop.some((b) => b.block_name === obsForm.block_name)
+                          ? obsForm.block_name
+                          : MANUAL_BLOCK
+                      }
+                      onValueChange={(v) => {
+                        if (v === MANUAL_BLOCK) {
+                          setObsForm({ ...obsForm, block_name: '' })
+                          return
+                        }
+                        const block = catalogBlocksForCrop.find((b) => b.block_name === v)
+                        setObsForm({
+                          ...obsForm,
+                          block_name: v,
+                          variety: block?.variety ?? obsForm.variety,
+                        })
+                      }}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Seleccionar cuartel" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={MANUAL_BLOCK}>Escribir manualmente…</SelectItem>
+                        {catalogBlocksForCrop.map((b) => (
+                          <SelectItem key={b.id} value={b.block_name}>
+                            {b.block_name}{b.field_name ? ` · ${b.field_name}` : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {(obsForm.block_name === '' ||
+                      !catalogBlocksForCrop.some((b) => b.block_name === obsForm.block_name)) && (
+                      <Input
+                        className="mt-2"
+                        value={obsForm.block_name}
+                        onChange={(e) => setObsForm({ ...obsForm, block_name: e.target.value })}
+                        placeholder="Nombre del cuartel"
+                      />
+                    )}
+                  </>
+                ) : (
+                  <Input
+                    value={obsForm.block_name}
+                    onChange={(e) => setObsForm({ ...obsForm, block_name: e.target.value })}
+                    placeholder="Legacy C1"
+                  />
+                )}
               </div>
               <div>
                 <label className="text-xs text-muted-foreground">Temporada</label>
@@ -1132,6 +1373,21 @@ export function PhenologicalStatesManager() {
                 </SelectContent>
               </Select>
             </div>
+            {obsForm.stage_id && (() => {
+              const st = stages.find((s) => s.id === obsForm.stage_id)
+              const prediction = st && obsForm.observed_at
+                ? predictNextStage(
+                  { block_name: obsForm.block_name, stage_name: obsForm.stage_name, stage_id: obsForm.stage_id, observed_at: obsForm.observed_at, season_label: obsForm.season_label },
+                  stagesForCrop,
+                )
+                : null
+              if (!prediction) return null
+              return (
+                <p className="text-xs text-muted-foreground rounded-lg border bg-muted/20 px-3 py-2">
+                  Próxima etapa esperada: <strong>{prediction.nextStageName}</strong> ~{fmtShortDate(prediction.expectedDate)}
+                </p>
+              )
+            })()}
             <div>
               <label className="text-xs text-muted-foreground">Estado Fenologico *</label>
               <Textarea
@@ -1215,12 +1471,13 @@ export function PhenologicalStatesManager() {
                 ref={imageInputRef}
                 type="file"
                 accept="image/jpeg,image/png,image/webp,image/gif"
+                capture="environment"
                 multiple
                 className="hidden"
                 onChange={(e) => handleImagePick(e.target.files)}
               />
               <p className="text-xs text-muted-foreground">
-                Toca <strong>×</strong> para quitar una foto y agrega otra. JPG, PNG o WebP · máx. 10 MB.
+                Usa la cámara del celular o galería. JPG, PNG o WebP · máx. 10 MB.
               </p>
             </div>
           </div>

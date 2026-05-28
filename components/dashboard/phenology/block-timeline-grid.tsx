@@ -24,6 +24,7 @@ export interface PhenologyTimelineImage {
   id: string
   storage_path: string
   file_name: string
+  mime_type?: string | null
   url?: string
 }
 
@@ -123,6 +124,14 @@ export function BlockTimelineGrid({
     {
       label: 'Arbol',
       render: (o) => o.arbol ?? '—',
+    },
+    {
+      label: 'Notas',
+      render: (o) => (
+        <span className="whitespace-pre-wrap leading-snug text-muted-foreground">
+          {o.notes?.trim() ? o.notes : '—'}
+        </span>
+      ),
     },
     {
       label: 'Imagenes',

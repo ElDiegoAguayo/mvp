@@ -14,12 +14,18 @@ export interface PhenologyExportRow {
   stage_name: string
   hilera: number | null
   arbol: number | null
+  notes: string | null
   images?: PhenologyExportImage[]
 }
 
 const IMAGE_WIDTH = 200
 const IMAGE_HEIGHT = 200
 const ROWS_PER_IMAGE = 15
+
+function isWebp(path: string, mime?: string | null): boolean {
+  const lower = `${path} ${mime ?? ''}`.toLowerCase()
+  return lower.includes('webp')
+}
 
 function imageExtension(path: string, mime?: string | null): 'jpeg' | 'png' | 'gif' | null {
   const lower = `${path} ${mime ?? ''}`.toLowerCase()
@@ -28,6 +34,64 @@ function imageExtension(path: string, mime?: string | null): 'jpeg' | 'png' | 'g
   if (lower.includes('webp')) return null
   if (lower.includes('jpeg') || lower.includes('jpg')) return 'jpeg'
   return 'jpeg'
+}
+
+async function convertWebpToJpeg(buffer: ArrayBuffer): Promise<ArrayBuffer | null> {
+  if (typeof document === 'undefined') return null
+
+  return new Promise((resolve) => {
+    const blob = new Blob([buffer], { type: 'image/webp' })
+    const url = URL.createObjectURL(blob)
+    const img = new Image()
+
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = img.naturalWidth || img.width
+      canvas.height = img.naturalHeight || img.height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        URL.revokeObjectURL(url)
+        resolve(null)
+        return
+      }
+      ctx.drawImage(img, 0, 0)
+      canvas.toBlob(
+        (jpegBlob) => {
+          URL.revokeObjectURL(url)
+          if (!jpegBlob) {
+            resolve(null)
+            return
+          }
+          jpegBlob.arrayBuffer().then(resolve).catch(() => resolve(null))
+        },
+        'image/jpeg',
+        0.92,
+      )
+    }
+
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      resolve(null)
+    }
+
+    img.src = url
+  })
+}
+
+async function normalizeImageForExcel(
+  buffer: ArrayBuffer,
+  path: string,
+  mime?: string | null,
+): Promise<{ buffer: ArrayBuffer; ext: 'jpeg' | 'png' | 'gif' } | null> {
+  const ext = imageExtension(path, mime)
+  if (ext) return { buffer, ext }
+
+  if (isWebp(path, mime)) {
+    const jpeg = await convertWebpToJpeg(buffer)
+    if (jpeg) return { buffer: jpeg, ext: 'jpeg' }
+  }
+
+  return null
 }
 
 function triggerDownload(buffer: ArrayBuffer, filename: string) {
@@ -50,8 +114,8 @@ export async function exportPhenologyToExcel(
     onProgress?: (message: string) => void
   },
   fetchImage: (path: string) => Promise<ArrayBuffer | null>,
-): Promise<{ embedded: number; skipped: number }> {
-  if (rows.length === 0) return { embedded: 0, skipped: 0 }
+): Promise<{ embedded: number; skipped: number; webpConverted: number }> {
+  if (rows.length === 0) return { embedded: 0, skipped: 0, webpConverted: 0 }
 
   options.onProgress?.('Preparando exportación…')
 
@@ -72,6 +136,7 @@ export async function exportPhenologyToExcel(
   let currentRow = 1
   let embedded = 0
   let skipped = 0
+  let webpConverted = 0
 
   for (const blockName of [...byBlock.keys()].sort((a, b) => a.localeCompare(b, 'es'))) {
     const sorted = [...(byBlock.get(blockName) ?? [])].sort((a, b) => a.observed_at.localeCompare(b.observed_at))
@@ -86,6 +151,7 @@ export async function exportPhenologyToExcel(
       ['Estado Fenologico', ...sorted.map((o) => o.stage_name)],
       ['Hilera', ...sorted.map((o) => o.hilera ?? '')],
       ['Arbol', ...sorted.map((o) => o.arbol ?? '')],
+      ['Notas', ...sorted.map((o) => o.notes ?? '')],
       ['Imagenes', ...sorted.map(() => '')],
     ]
 
@@ -110,15 +176,21 @@ export async function exportPhenologyToExcel(
         if (totalImages > 0) {
           options.onProgress?.(`Descargando fotos (${processedImages} de ${totalImages})…`)
         }
-        const buffer = await fetchImage(img.storage_path)
-        const ext = imageExtension(img.storage_path, img.mime_type)
-        if (!buffer || !ext) {
+        const rawBuffer = await fetchImage(img.storage_path)
+        if (!rawBuffer) {
           skipped++
           continue
         }
 
-        const imageId = workbook.addImage({ buffer, extension: ext })
-        // Col A = etiquetas; primera lectura en B (tl.col 0-based = 1)
+        const wasWebp = isWebp(img.storage_path, img.mime_type)
+        const normalized = await normalizeImageForExcel(rawBuffer, img.storage_path, img.mime_type)
+        if (!normalized) {
+          skipped++
+          continue
+        }
+        if (wasWebp) webpConverted++
+
+        const imageId = workbook.addImage({ buffer: normalized.buffer, extension: normalized.ext })
         sheet.addImage(imageId, {
           tl: {
             col: col + 1,
@@ -140,5 +212,5 @@ export async function exportPhenologyToExcel(
   const buffer = await workbook.xlsx.writeBuffer()
   triggerDownload(buffer, filename)
 
-  return { embedded, skipped }
+  return { embedded, skipped, webpConverted }
 }
