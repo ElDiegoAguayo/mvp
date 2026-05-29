@@ -3,8 +3,8 @@ import { redirect } from 'next/navigation'
 import { DashboardShell } from '@/components/dashboard/dashboard-shell'
 import { ViewAsProvider } from '@/components/dashboard/view-as-provider'
 import { SupportModeBanner } from '@/components/dashboard/support-mode-banner'
-import { getEffectiveUserId } from '@/lib/supabase/effective-user'
 import { getViewAsContext } from '@/lib/impersonation'
+import { compareModulesByAreaThenName } from '@/lib/modules/areas'
 
 export const dynamic = 'force-dynamic'
 
@@ -34,32 +34,33 @@ export default async function DashboardLayout({
   const viewAs = await getViewAsContext()
   const isSupportMode = !!viewAs.viewAsUserId
 
-  const { effectiveUserId } = await getEffectiveUserId(
-    supabase,
-    viewAs.viewAsUserId ?? undefined,
-  )
+  const moduleAccessUserId = viewAs.viewAsUserId ?? user.id
 
-  let accessUserIds: string[]
-  if (viewAs.viewAsUserId) {
-    accessUserIds =
-      effectiveUserId && effectiveUserId !== viewAs.viewAsUserId
-        ? [viewAs.viewAsUserId, effectiveUserId]
-        : [viewAs.viewAsUserId]
-  } else {
-    accessUserIds =
-      effectiveUserId && effectiveUserId !== user.id
-        ? [user.id, effectiveUserId]
-        : [user.id]
-  }
+  const { data: viewerProfile } = await supabase
+    .from('profiles')
+    .select('parent_user_id')
+    .eq('id', moduleAccessUserId)
+    .maybeSingle()
 
-  // Get modules that user has access to via user_module_access table
   const { data: userAccessData } = await supabase
     .from('user_module_access')
     .select('module_id, enabled, display_order')
-    .in('user_id', accessUserIds)
+    .eq('user_id', moduleAccessUserId)
     .eq('enabled', true)
 
-  const enabledModuleIds = (userAccessData ?? []).map((a) => a.module_id)
+  let enabledModuleIds = (userAccessData ?? []).map((a) => a.module_id)
+
+  // Subusers only see modules enabled for them AND active on the parent account.
+  if (viewerProfile?.parent_user_id) {
+    const { data: parentAccessData } = await supabase
+      .from('user_module_access')
+      .select('module_id')
+      .eq('user_id', viewerProfile.parent_user_id)
+      .eq('enabled', true)
+
+    const parentModuleIds = new Set((parentAccessData ?? []).map((a) => a.module_id))
+    enabledModuleIds = enabledModuleIds.filter((id) => parentModuleIds.has(id))
+  }
   const moduleOrderMap = new Map(
     (userAccessData ?? []).map((row) => [row.module_id, row.display_order ?? 0]),
   )
@@ -72,7 +73,7 @@ export default async function DashboardLayout({
 
     const { data: d1, error: e1 } = await supabase
       .from('modules')
-      .select('id, slug, name, icon, color, text_color, icon_shape, description')
+      .select('id, slug, name, icon, color, text_color, icon_shape, description, area_id, area:module_areas(id, name, display_order)')
       .eq('is_active', true)
       .in('id', enabledModuleIds)
       .order('created_at', { ascending: true })
@@ -80,23 +81,28 @@ export default async function DashboardLayout({
     if (!e1) {
       modulesData = d1
     } else {
-      const { data: d2 } = await supabase
+      const { data: d2, error: e2 } = await supabase
         .from('modules')
-        .select('id, slug, name, icon, description')
+        .select('id, slug, name, icon, color, text_color, icon_shape, description, area_id')
         .eq('is_active', true)
         .in('id', enabledModuleIds)
         .order('created_at', { ascending: true })
-      modulesData = d2
+      if (!e2) {
+        modulesData = d2
+      } else {
+        const { data: d3 } = await supabase
+          .from('modules')
+          .select('id, slug, name, icon, description')
+          .eq('is_active', true)
+          .in('id', enabledModuleIds)
+          .order('created_at', { ascending: true })
+        modulesData = d3
+      }
     }
 
     allowedModules = (modulesData ?? [])
       .filter((m: { slug?: string }) => m.slug !== 'inicio')
-      .sort((a: any, b: any) => {
-      const orderA = moduleOrderMap.get(a.id) ?? 0
-      const orderB = moduleOrderMap.get(b.id) ?? 0
-      if (orderA !== orderB) return orderA - orderB
-      return a.name.localeCompare(b.name)
-    })
+      .sort((a: any, b: any) => compareModulesByAreaThenName(a, b, moduleOrderMap))
   }
 
   // In support mode, show target client identity in the shell sidebar

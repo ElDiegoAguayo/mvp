@@ -28,6 +28,7 @@ import {
 } from '@/lib/module-icons'
 import { logAudit } from '@/lib/audit-log'
 import { cn } from '@/lib/utils'
+import { ModuleAreaSelect } from './module-area-select'
 
 interface CreateModuleDialogProps {
   open: boolean
@@ -144,6 +145,7 @@ export function CreateModuleDialog({ open, onOpenChange }: CreateModuleDialogPro
   const [iconShape, setIconShape] = useState('rounded')
   const [description, setDescription] = useState('')
   const [embedUrl, setEmbedUrl] = useState('')
+  const [areaId, setAreaId] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [slugTouched, setSlugTouched] = useState(false)
   const [iconSearch, setIconSearch] = useState('')
@@ -163,7 +165,7 @@ export function CreateModuleDialog({ open, onOpenChange }: CreateModuleDialogPro
   const reset = () => {
     setName(''); setSlug(''); setIcon('Package'); setColor('blue')
     setTextColor(''); setIconShape('rounded'); setDescription('')
-    setEmbedUrl(''); setSlugTouched(false); setIconSearch('')
+    setEmbedUrl(''); setAreaId(null); setSlugTouched(false); setIconSearch('')
     setActiveCategory('Todos')
   }
 
@@ -203,6 +205,7 @@ export function CreateModuleDialog({ open, onOpenChange }: CreateModuleDialogPro
         icon_shape: iconShape,
         description: description.trim() || null,
         embed_url: embedUrl.trim() || null,
+        area_id: areaId,
         user_id: user.id,
       })
       .select('id, name, slug')
@@ -265,6 +268,8 @@ export function CreateModuleDialog({ open, onOpenChange }: CreateModuleDialogPro
               <p className="text-[11px] text-muted-foreground font-mono">/dashboard/{slug || 'mi-modulo'}</p>
             </div>
           </div>
+
+          <ModuleAreaSelect value={areaId} onChange={setAreaId} disabled={isSaving} />
 
           {/* Color del icono + Forma */}
           <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-5 items-start">

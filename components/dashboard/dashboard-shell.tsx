@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -8,6 +8,7 @@ import { LogoutButton } from '@/components/auth/logout-button'
 import { getModuleIcon, getIconShape, resolveIconStyle, resolveTextStyle, resolveIconContainerStyle } from '@/lib/module-icons'
 import { GlobalAIAssistant } from '@/components/dashboard/global-ai-assistant'
 import { isModuleRouteActive, resolveModuleHref } from '@/lib/dashboard/module-routes'
+import { groupModulesByArea, type ModuleArea } from '@/lib/modules/areas'
 import { cn } from '@/lib/utils'
 import {
   Shield,
@@ -36,6 +37,8 @@ interface ShellModule {
   text_color?: string | null
   icon_shape?: string | null
   description: string | null
+  area_id?: string | null
+  area?: ModuleArea | null
 }
 
 interface DashboardShellProps {
@@ -61,6 +64,52 @@ export function DashboardShell({
   const [userMenuOpenMobile, setUserMenuOpenMobile] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
   const isAdmin = adminRole || user.role === 'admin'
+  const moduleGroups = useMemo(() => groupModulesByArea(modules), [modules])
+
+  const renderModuleLink = (m: ShellModule, onNavigate?: () => void, compact = collapsed) => {
+    const Icon = getModuleIcon(m.icon)
+    const shapeCfg = getIconShape(m.icon_shape)
+    const iconContainer = resolveIconContainerStyle(m.color, shapeCfg.className)
+    const iconStyle = resolveIconStyle(m.color)
+    const textStyle = resolveTextStyle(m.text_color ?? null, m.color)
+    const href = resolveModuleHref(m.slug, m.name)
+    const active = isModuleRouteActive(pathname, m.slug, m.name)
+    return (
+      <Link
+        key={m.id}
+        href={href}
+        onClick={onNavigate}
+        title={compact ? m.name : undefined}
+        className={cn(
+          'flex items-center rounded-lg text-sm transition-colors',
+          compact ? 'justify-center w-10 h-10 mx-auto' : 'gap-3 px-3 py-2',
+          active ? 'bg-secondary/60' : 'hover:bg-secondary',
+        )}
+      >
+        <div
+          className={cn('w-7 h-7 flex items-center justify-center shrink-0', iconContainer.className)}
+          style={iconContainer.style}
+        >
+          <Icon
+            className={cn('w-4 h-4 shrink-0', iconStyle.className)}
+            style={iconStyle.style}
+          />
+        </div>
+        {!compact && (
+          <span
+            className={cn(
+              'truncate font-medium',
+              textStyle.className,
+              !textStyle.style && !active && 'text-muted-foreground',
+            )}
+            style={textStyle.style}
+          >
+            {m.name}
+          </span>
+        )}
+      </Link>
+    )
+  }
 
   // Persist collapsed state in localStorage
   useEffect(() => {
@@ -131,14 +180,8 @@ export function DashboardShell({
             {!collapsed && <span className="truncate">Inicio</span>}
           </Link>
 
-          {!collapsed && (
-            <div className="pt-3 pb-1 px-3">
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                Módulos
-              </p>
-            </div>
-          )}
-          {collapsed && <div className="pt-2" />}
+          {!collapsed && modules.length > 0 && <div className="pt-3" />}
+          {collapsed && modules.length > 0 && <div className="pt-2" />}
 
           {modules.length === 0 ? (
             !collapsed && (
@@ -146,47 +189,19 @@ export function DashboardShell({
                 Sin módulos asignados.
               </p>
             )
+          ) : collapsed ? (
+            moduleGroups.flatMap((group) => group.modules.map((m) => renderModuleLink(m)))
           ) : (
-            modules.map((m) => {
-              const Icon = getModuleIcon(m.icon)
-              const shapeCfg = getIconShape(m.icon_shape)
-              const iconContainer = resolveIconContainerStyle(m.color, shapeCfg.className)
-              const iconStyle = resolveIconStyle(m.color)
-              const textStyle = resolveTextStyle(m.text_color ?? null, m.color)
-              const href = resolveModuleHref(m.slug, m.name)
-              const active = isModuleRouteActive(pathname, m.slug, m.name)
-              return (
-                <Link
-                  key={m.id}
-                  href={href}
-                  title={collapsed ? m.name : undefined}
-                  className={cn(
-                    'flex items-center rounded-lg text-sm transition-colors',
-                    collapsed ? 'justify-center w-10 h-10 mx-auto' : 'gap-3 px-3 py-2',
-                    active ? 'bg-secondary/60' : 'hover:bg-secondary'
-                  )}
-                >
-                  {/* Icon with color + shape container */}
-                  <div
-                    className={cn('w-7 h-7 flex items-center justify-center shrink-0', iconContainer.className)}
-                    style={iconContainer.style}
-                  >
-                    <Icon
-                      className={cn('w-4 h-4 shrink-0', iconStyle.className)}
-                      style={iconStyle.style}
-                    />
-                  </div>
-                  {!collapsed && (
-                    <span
-                      className={cn('truncate font-medium', textStyle.className, !textStyle.style && !active && 'text-muted-foreground')}
-                      style={textStyle.style}
-                    >
-                      {m.name}
-                    </span>
-                  )}
-                </Link>
-              )
-            })
+            moduleGroups.map((group) => (
+              <div key={group.area.id} className="mb-1">
+                <div className="pt-3 pb-1 px-3">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                    {group.area.name}
+                  </p>
+                </div>
+                {group.modules.map((m) => renderModuleLink(m))}
+              </div>
+            ))
           )}
 
           {isAdmin && (
@@ -296,45 +311,20 @@ export function DashboardShell({
                   Inicio
                 </Link>
 
-                <div className="pt-3 pb-1 px-3">
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                    Módulos
-                  </p>
-                </div>
-
-                {modules.map((m) => {
-                  const Icon = getModuleIcon(m.icon)
-                  const shapeCfg = getIconShape(m.icon_shape)
-                  const iconContainer = resolveIconContainerStyle(m.color, shapeCfg.className)
-                  const iconStyle = resolveIconStyle(m.color)
-                  const textStyle = resolveTextStyle(m.text_color ?? null, m.color)
-                  const href = resolveModuleHref(m.slug, m.name)
-                  const active = isModuleRouteActive(pathname, m.slug, m.name)
-                  return (
-                    <Link
-                      key={m.id}
-                      href={href}
-                      onClick={() => setMobileOpen(false)}
-                      className={cn(
-                        'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
-                        active ? 'bg-secondary/60' : 'hover:bg-secondary'
-                      )}
-                    >
-                      <div
-                        className={cn('w-7 h-7 flex items-center justify-center shrink-0', iconContainer.className)}
-                        style={iconContainer.style}
-                      >
-                        <Icon className={cn('w-4 h-4', iconStyle.className)} style={iconStyle.style} />
+                {modules.length === 0 ? (
+                  <p className="text-xs text-muted-foreground px-3 py-2">Sin módulos asignados.</p>
+                ) : (
+                  moduleGroups.map((group) => (
+                    <div key={group.area.id}>
+                      <div className="pt-3 pb-1 px-3">
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                          {group.area.name}
+                        </p>
                       </div>
-                      <span
-                        className={cn('font-medium', textStyle.className, !textStyle.style && !active && 'text-muted-foreground')}
-                        style={textStyle.style}
-                      >
-                        {m.name}
-                      </span>
-                    </Link>
-                  )
-                })}
+                      {group.modules.map((m) => renderModuleLink(m, () => setMobileOpen(false), false))}
+                    </div>
+                  ))
+                )}
 
                 {isAdmin && (
                   <>

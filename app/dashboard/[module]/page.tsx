@@ -5,6 +5,7 @@ import { ShieldAlert, ArrowLeft, AlertTriangle } from 'lucide-react'
 import { getModuleIcon } from '@/lib/module-icons'
 import { ModuleDataView } from '@/components/dashboard/module-data-view'
 import { resolveModuleHref } from '@/lib/dashboard/module-routes'
+import { userCanAccessModule } from '@/lib/dashboard/module-access'
 
 export const dynamic = 'force-dynamic'
 
@@ -56,6 +57,11 @@ export default async function DynamicModulePage({
     const canonicalHref = resolveModuleHref(slug, moduleRow.name)
     if (canonicalHref !== `/dashboard/${slug}`) {
       redirect(canonicalHref)
+    }
+
+    const hasAccess = await userCanAccessModule(supabase, user.id, moduleRow.id)
+    if (!hasAccess) {
+      return <AccessDenied reason="forbidden" moduleName={moduleRow.name} />
     }
 
     const Icon = getModuleIcon(moduleRow.icon)

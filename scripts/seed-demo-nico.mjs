@@ -332,7 +332,7 @@ async function seedComercioExteriorDemo(uid, moduleId) {
     'Comercio Exterior',
     checklistColumns,
     checklistRows,
-    'Demo — Check list exportación',
+    'Demo — Check List exportación',
   )
   if (!checklistRes.ok) return checklistRes
 
@@ -364,7 +364,7 @@ async function seedComercioExteriorDemo(uid, moduleId) {
       user_id: uid,
       module_id: moduleId,
       table_id: checklistRes.tableId,
-      name: 'Check list',
+      name: 'Check List',
       chart_type: 'data_table',
       config: {
         xAxis: [],
@@ -1129,7 +1129,7 @@ async function main() {
         log(
           `Módulo dinámico: ${mod.name}`,
           'ok',
-          `${res.rowCount} filas demo (embarque + check list)`,
+          `${res.rowCount} filas demo (embarque + Check List)`,
         )
         log(`Vistas: ${mod.name}`, 'ok', `${res.chartCount} tablas (sin gráficos extra)`)
       }

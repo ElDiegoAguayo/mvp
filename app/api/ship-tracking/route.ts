@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 export const runtime = 'nodejs'
 
 const IMO_PATTERN = /^\d{7}$/
-const DEFAULT_COORDS = { lat: 8.983, lng: -79.516 }
+const DEFAULT_API_BASE = 'https://api.jsoncargo.com/api/v1'
 
 const formatUpstreamError = (value: unknown) => {
   if (typeof value === 'string') return value
@@ -20,6 +20,12 @@ const formatUpstreamError = (value: unknown) => {
   return 'Error al consultar JsonCargo.'
 }
 
+function resolveApiBase() {
+  const configured = process.env.JSONCARGO_SHIP_TRACKING_URL?.trim()
+  if (!configured) return DEFAULT_API_BASE
+  return configured.replace(/\/+$/, '')
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
@@ -28,17 +34,22 @@ export async function GET(request: Request) {
 
     if (!query) {
       return NextResponse.json(
-        { error: 'Falta el parametro de busqueda.' },
+        { error: 'Falta el parametro de busqueda.', code: 'MISSING_QUERY' },
         { status: 400 },
       )
     }
 
-    const apiKey = process.env.JSONCARGO_API_KEY
-    const apiBase = 'https://api.jsoncargo.com/api/v1'
+    const apiKey = process.env.JSONCARGO_API_KEY?.trim()
+    const apiBase = resolveApiBase()
 
     if (!apiKey) {
+      console.error('Ship tracking: JSONCARGO_API_KEY is not configured')
       return NextResponse.json(
-        { error: 'No se encontro la configuracion de JsonCargo.' },
+        {
+          error:
+            'Rastreo no configurado en el servidor. Falta la variable de entorno JSONCARGO_API_KEY en produccion.',
+          code: 'MISSING_API_KEY',
+        },
         { status: 500 },
       )
     }
@@ -52,7 +63,10 @@ export async function GET(request: Request) {
     } else {
       if (!shippingLine) {
         return NextResponse.json(
-          { error: 'El parametro shipping_line es obligatorio para contenedores.' },
+          {
+            error: 'El parametro shipping_line es obligatorio para contenedores.',
+            code: 'MISSING_SHIPPING_LINE',
+          },
           { status: 400 },
         )
       }
@@ -62,7 +76,7 @@ export async function GET(request: Request) {
     const upstreamResponse = await fetch(finalUrl, {
       method: 'GET',
       headers: {
-        'x-api-key': process.env.JSONCARGO_API_KEY ?? '',
+        'x-api-key': apiKey,
         Accept: 'application/json',
       },
       cache: 'no-store',
@@ -72,7 +86,14 @@ export async function GET(request: Request) {
     const rawBody = await upstreamResponse.text()
 
     if (upstreamResponse.status === 404) {
-      const errorData = rawBody ? JSON.parse(rawBody) : {}
+      let errorData: { title?: string } = {}
+      if (rawBody) {
+        try {
+          errorData = JSON.parse(rawBody)
+        } catch {
+          errorData = {}
+        }
+      }
       return NextResponse.json(
         {
           error: `JsonCargo dice 404: ${errorData.title || 'No encontrado'}`,
@@ -85,8 +106,9 @@ export async function GET(request: Request) {
     }
 
     if (!contentType.includes('application/json')) {
+      console.error('JsonCargo non-JSON response:', upstreamResponse.status, rawBody.slice(0, 200))
       return NextResponse.json(
-        { error: 'La API devolvio una respuesta no valida.' },
+        { error: 'La API devolvio una respuesta no valida.', code: 'INVALID_UPSTREAM_RESPONSE' },
         { status: upstreamResponse.ok ? 502 : upstreamResponse.status },
       )
     }
@@ -97,7 +119,7 @@ export async function GET(request: Request) {
     } catch (parseError) {
       console.error('JsonCargo parse error:', parseError)
       return NextResponse.json(
-        { error: 'No se pudo interpretar la respuesta de JsonCargo.' },
+        { error: 'No se pudo interpretar la respuesta de JsonCargo.', code: 'PARSE_ERROR' },
         { status: 502 },
       )
     }
@@ -107,8 +129,9 @@ export async function GET(request: Request) {
         typeof data === 'object' && data !== null && 'error' in data
           ? formatUpstreamError((data as { error?: unknown }).error)
           : 'Error al consultar JsonCargo.'
+      console.error('JsonCargo upstream error:', upstreamResponse.status, errorMessage)
       return NextResponse.json(
-        { error: errorMessage },
+        { error: errorMessage, code: 'UPSTREAM_ERROR' },
         { status: upstreamResponse.status },
       )
     }
@@ -141,7 +164,10 @@ export async function GET(request: Request) {
   } catch (error) {
     console.error('Ship tracking error:', error)
     return NextResponse.json(
-      { error: 'Error inesperado al consultar JsonCargo.' },
+      {
+        error: 'Error inesperado al consultar JsonCargo.',
+        code: 'UNEXPECTED_ERROR',
+      },
       { status: 500 },
     )
   }

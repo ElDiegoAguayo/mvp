@@ -28,6 +28,7 @@ import {
 } from '@/lib/module-icons'
 import { logAudit } from '@/lib/audit-log'
 import { cn } from '@/lib/utils'
+import { ModuleAreaSelect } from './module-area-select'
 
 interface Module {
   id: string
@@ -39,6 +40,7 @@ interface Module {
   icon_shape?: string | null
   description: string | null
   embed_url?: string | null
+  area_id?: string | null
 }
 
 interface EditModuleDialogProps {
@@ -157,6 +159,7 @@ export function EditModuleDialog({ open, onOpenChange, module }: EditModuleDialo
   const [iconShape, setIconShape] = useState('rounded')
   const [description, setDescription] = useState('')
   const [embedUrl, setEmbedUrl] = useState('')
+  const [areaId, setAreaId] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [iconSearch, setIconSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState('Todos')
@@ -171,6 +174,7 @@ export function EditModuleDialog({ open, onOpenChange, module }: EditModuleDialo
       setIconShape(module.icon_shape || 'rounded')
       setDescription(module.description || '')
       setEmbedUrl(module.embed_url || '')
+      setAreaId(module.area_id ?? null)
       setIconSearch('')
       setActiveCategory('Todos')
     }
@@ -214,6 +218,7 @@ export function EditModuleDialog({ open, onOpenChange, module }: EditModuleDialo
         icon_shape: iconShape,
         description: description.trim() || null,
         embed_url: embedUrl.trim() || null,
+        area_id: areaId,
       })
       .eq('id', module.id)
 
@@ -274,6 +279,8 @@ export function EditModuleDialog({ open, onOpenChange, module }: EditModuleDialo
               <p className="text-[11px] text-muted-foreground font-mono">/dashboard/{slug || 'mi-modulo'}</p>
             </div>
           </div>
+
+          <ModuleAreaSelect value={areaId} onChange={setAreaId} disabled={isSaving} />
 
           {/* Color del icono + Forma */}
           <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-5 items-start">

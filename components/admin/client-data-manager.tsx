@@ -73,6 +73,7 @@ import { ChartPreview } from './chart-preview'
 import { ExcelImporter, ColumnDef } from './excel-importer'
 import { getModuleIcon, getIconShape, resolveIconContainerStyle, resolveIconStyle, resolveTextStyle } from '@/lib/module-icons'
 import { cn } from '@/lib/utils'
+import { compareModulesByAreaThenName, groupModulesByArea, type ModuleArea } from '@/lib/modules/areas'
 import { InventoryManager } from '@/components/admin/inventory-manager'
 import { SiiCostosSection } from '@/components/admin/sii-costos-section'
 import { ProduccionUploader } from '@/components/admin/produccion-uploader'
@@ -217,6 +218,8 @@ interface Module {
   color?: string | null
   text_color?: string | null
   icon_shape?: string | null
+  area_id?: string | null
+  area?: ModuleArea | null
 }
 
 type ViewLevel = 'clients' | 'modules' | 'module-detail'
@@ -369,15 +372,30 @@ export function ClientDataManager({ initialClientId, initialModuleId }: ClientDa
     const dataUserId = client.id
     const { data: accessData } = await supabase
       .from('user_module_access')
-      .select('module_id, enabled, module:modules(id, name, slug, icon, color, text_color, icon_shape)')
+      .select('module_id, enabled, module:modules(id, name, slug, icon, color, text_color, icon_shape, area_id, area:module_areas(id, name, display_order))')
       .eq('user_id', dataUserId)
       .eq('enabled', true)
 
-    const modules = (accessData || [])
+    let modules = (accessData || [])
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .filter((a: any) => a.module !== null)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .map((a: any) => a.module as Module)
+
+    if (modules.length === 0) {
+      const { data: fallbackAccess } = await supabase
+        .from('user_module_access')
+        .select('module_id, enabled, module:modules(id, name, slug, icon, color, text_color, icon_shape, area_id)')
+        .eq('user_id', dataUserId)
+        .eq('enabled', true)
+      modules = (fallbackAccess || [])
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .filter((a: any) => a.module !== null)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .map((a: any) => a.module as Module)
+    }
+
+    modules.sort((a, b) => compareModulesByAreaThenName(a, b))
     
     setClientModules(modules)
     setLoadingModules(false)
@@ -1039,8 +1057,25 @@ export function ClientDataManager({ initialClientId, initialModuleId }: ClientDa
             <p className="text-sm">Asigna módulos en la pestaña Usuarios</p>
           </div>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {clientModules.map(module => {
+          <div className="space-y-6">
+            {groupModulesByArea(clientModules).map((group, groupIndex) => (
+              <div
+                key={group.area.id}
+                className={cn(
+                  'rounded-2xl border-2 border-border overflow-hidden',
+                  groupIndex % 2 === 0 ? 'bg-sky-500/[0.04]' : 'bg-violet-500/[0.04]',
+                )}
+              >
+                <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border bg-secondary/50">
+                  <h2 className="text-sm font-bold text-foreground uppercase tracking-wider">
+                    {group.area.name}
+                  </h2>
+                  <span className="text-xs text-muted-foreground shrink-0">
+                    {group.modules.length} módulo{group.modules.length !== 1 ? 's' : ''}
+                  </span>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 p-4">
+                  {group.modules.map((module) => {
               const Icon = getModuleIcon(module.icon)
               const shapeCfg = getIconShape(module.icon_shape)
               const iconContainer = resolveIconContainerStyle(module.color, shapeCfg.className)
@@ -1066,6 +1101,9 @@ export function ClientDataManager({ initialClientId, initialModuleId }: ClientDa
                 </button>
               )
             })}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>

@@ -126,9 +126,6 @@ export function ShipTrackerWidget({ moduleId, moduleSlug }: { moduleId?: string,
         if (response.status === 404) {
           throw new Error('No se encontro el contenedor o IMO solicitado.')
         }
-        if (response.status === 500) {
-          throw new Error('Error interno al consultar la API de rastreo.')
-        }
         if (!isJson) {
           throw new Error('La API devolvio una respuesta no valida.')
         }
@@ -146,6 +143,9 @@ export function ShipTrackerWidget({ moduleId, moduleSlug }: { moduleId?: string,
                 return 'Error al buscar el contenedor en la red satelital'
               }
             }
+          }
+          if (response.status === 500) {
+            return 'Error interno al consultar la API de rastreo.'
           }
           return 'Error al buscar el contenedor en la red satelital'
         })()

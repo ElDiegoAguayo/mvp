@@ -44,9 +44,15 @@ import {
   ListOrdered,
   Clock,
   Eye,
+  Layers,
 } from 'lucide-react'
 import { getModuleIcon, getIconShape, resolveIconContainerStyle, resolveIconStyle, resolveTextStyle } from '@/lib/module-icons'
 import { cn } from '@/lib/utils'
+import {
+  canEnableSubuserModule,
+  isSubuserModuleSwitchDisabled,
+  subuserModuleSwitchTitle,
+} from '@/lib/admin/subuser-module-access'
 import { exportStyledReportExcel } from '@/lib/excel/upcrop-excel-theme'
 import { CreateModuleDialog } from './create-module-dialog'
 import { EditModuleDialog } from './edit-module-dialog'
@@ -54,7 +60,9 @@ import { EditUserDialog } from './edit-user-dialog'
 import { UserDataAccessDialog } from './user-data-access-dialog'
 import { CreateSubuserDialog } from './create-subuser-dialog'
 import { ModuleOrderDialog } from './module-order-dialog'
+import { ManageModuleAreasDialog } from './manage-module-areas-dialog'
 import { logAudit } from '@/lib/audit-log'
+import { compareModulesByAreaThenName, groupModulesByArea, buildModuleAreaCellMeta, moduleAreaCellClassName, type ModuleArea } from '@/lib/modules/areas'
 import { startImpersonationAction } from '@/app/admin/impersonation-actions'
 
 interface ModuleRow {
@@ -69,6 +77,8 @@ interface ModuleRow {
   is_active: boolean
   is_core?: boolean
   embed_url?: string | null
+  area_id?: string | null
+  area?: ModuleArea | null
 }
 
 interface AccessRow {
@@ -91,6 +101,17 @@ interface UserRow {
 }
 
 const PAGE_SIZE = 10
+const AREA_HEADER_ROW_HEIGHT = 52
+const MODULE_HEADER_ROW_HEIGHT = 112
+
+const STICKY_USER_HEAD =
+  'sticky left-0 z-[50] w-[340px] min-w-[340px] max-w-[340px] bg-card border-r border-border shadow-[4px_0_8px_-4px_rgba(0,0,0,0.18)]'
+const STICKY_ACTIVITY_HEAD =
+  'sticky left-[340px] z-[50] w-[140px] min-w-[140px] max-w-[140px] bg-card border-r border-border shadow-[4px_0_8px_-4px_rgba(0,0,0,0.18)]'
+const STICKY_USER_BODY =
+  'sticky left-0 z-[40] w-[340px] min-w-[340px] max-w-[340px] bg-card border-r border-border shadow-[4px_0_8px_-4px_rgba(0,0,0,0.18)]'
+const STICKY_ACTIVITY_BODY =
+  'sticky left-[340px] z-[40] w-[140px] min-w-[140px] max-w-[140px] bg-card border-r border-border shadow-[4px_0_8px_-4px_rgba(0,0,0,0.18)]'
 
 type FilterValue = 'all' | 'blocked' | 'admins' | 'clients' | 'principal' | 'sub'
 
@@ -256,6 +277,7 @@ export function UserPermissionsTable() {
 
   const [blockTarget, setBlockTarget] = useState<UserRow | null>(null)
   const [moduleDialogOpen, setModuleDialogOpen] = useState(false)
+  const [areasDialogOpen, setAreasDialogOpen] = useState(false)
   const [editModuleTarget, setEditModuleTarget] = useState<ModuleRow | null>(null)
   const [deleteModuleTarget, setDeleteModuleTarget] = useState<ModuleRow | null>(null)
   const [isDeletingModule, setIsDeletingModule] = useState(false)
@@ -287,13 +309,22 @@ export function UserPermissionsTable() {
     try {
       const resWithCore = await supabase
         .from('modules')
-        .select('id, slug, name, icon, color, text_color, icon_shape, description, is_active, is_core, embed_url')
+        .select('id, slug, name, icon, color, text_color, icon_shape, description, is_active, is_core, embed_url, area_id, area:module_areas(id, name, display_order)')
           .eq('is_active', true)
           .order('created_at', { ascending: true })
 
       if (!resWithCore.error) {
         modulesRes = resWithCore
       } else {
+        // Fallback: try without area join
+        const resWithCoreNoArea = await supabase
+          .from('modules')
+          .select('id, slug, name, icon, color, text_color, icon_shape, description, is_active, is_core, embed_url, area_id')
+          .eq('is_active', true)
+          .order('created_at', { ascending: true })
+        if (!resWithCoreNoArea.error) {
+          modulesRes = resWithCoreNoArea
+        } else {
         // Fallback: try without is_core
         const res2 = await supabase
           .from('modules')
@@ -311,6 +342,7 @@ export function UserPermissionsTable() {
             .order('created_at', { ascending: true })
           modulesRes = res3
         }
+        }
       }
     } catch {
       // Last resort: bare minimum columns
@@ -326,7 +358,9 @@ export function UserPermissionsTable() {
     if (accessRes.error) console.error('[v0] access error:', accessRes.error)
 
     setUsers((usersRes.data ?? []) as UserRow[])
-    setModules(((modulesRes.data ?? []) as ModuleRow[]).filter(m => m.slug !== 'inicio'))
+    const loadedModules = ((modulesRes.data ?? []) as ModuleRow[]).filter(m => m.slug !== 'inicio')
+    loadedModules.sort((a, b) => compareModulesByAreaThenName(a, b))
+    setModules(loadedModules)
 
 
     const map: Record<string, boolean> = {}
@@ -463,6 +497,16 @@ export function UserPermissionsTable() {
     const module = modules.find((m) => m.id === moduleId)
     if (module?.is_core) return
 
+    const user = users.find((u) => u.id === userId)
+    if (!user) return
+
+    if (user.parent_user_id && checked && !canEnableSubuserModule(access, user.parent_user_id, moduleId)) {
+      toast.error('No se puede activar el módulo', {
+        description: 'El cliente principal no tiene este módulo activo.',
+      })
+      return
+    }
+
     const key = accessKey(userId, moduleId)
     const previous = !!access[key]
     setLoadingStates((prev) => ({ ...prev, [key]: true }))
@@ -490,16 +534,47 @@ export function UserPermissionsTable() {
       return
     }
 
-    const user = users.find((u) => u.id === userId)
+    if (!user.parent_user_id && !checked) {
+      const subs = users.filter((u) => u.parent_user_id === userId)
+      const subUpdates = subs
+        .filter((sub) => access[accessKey(sub.id, moduleId)])
+        .map((sub) => ({
+          user_id: sub.id,
+          module_id: moduleId,
+          enabled: false,
+          updated_at: new Date().toISOString(),
+        }))
+
+      if (subUpdates.length > 0) {
+        const { error: cascadeError } = await supabase
+          .from('user_module_access')
+          .upsert(subUpdates, { onConflict: 'user_id,module_id' })
+
+        if (cascadeError) {
+          toast.error('Módulo desactivado para el cliente, pero falló en subusuarios', {
+            description: cascadeError.message,
+          })
+        } else {
+          setAccess((prev) => {
+            const next = { ...prev, [key]: checked }
+            for (const sub of subs) {
+              next[accessKey(sub.id, moduleId)] = false
+            }
+            return next
+          })
+        }
+      }
+    }
+
     const moduleObj = modules.find((m) => m.id === moduleId)
-    const userLabel = user?.full_name || user?.email || 'usuario'
+    const userLabel = user.full_name || user.email || 'usuario'
     const moduleLabel = moduleObj?.name ?? 'módulo'
     logAudit(supabase, {
       action_type: 'UPDATE_PERMISSION',
       target_type: 'user_module_access',
       target_id: userId,
       target_label: `${userLabel} / ${moduleLabel}`,
-      description: `${checked ? 'Activó' : 'Desactivó'} el módulo "${moduleLabel}" para ${userLabel} (${user?.email ?? ''}).`,
+      description: `${checked ? 'Activó' : 'Desactivó'} el módulo "${moduleLabel}" para ${userLabel} (${user.email ?? ''}).`,
       metadata: {
         user_id: userId,
         module_id: moduleId,
@@ -651,6 +726,21 @@ export function UserPermissionsTable() {
     return map
   }, [users])
 
+  const sortedModules = useMemo(
+    () => [...modules].sort((a, b) => compareModulesByAreaThenName(a, b)),
+    [modules],
+  )
+
+  const moduleGroups = useMemo(
+    () => groupModulesByArea(sortedModules),
+    [sortedModules],
+  )
+
+  const moduleAreaMeta = useMemo(
+    () => buildModuleAreaCellMeta(moduleGroups),
+    [moduleGroups],
+  )
+
   useEffect(() => {
     setPage(1)
   }, [debouncedSearch, filter])
@@ -674,15 +764,15 @@ export function UserPermissionsTable() {
       <colgroup>
         <col style={{ width: 340 }} />
         <col style={{ width: 140 }} />
-        {modules.map((module) => (
+        {sortedModules.map((module) => (
           <col key={module.id} style={{ width: 120 }} />
         ))}
       </colgroup>
     ),
-    [modules],
+    [sortedModules],
   )
 
-  const tableMinWidth = 340 + 140 + modules.length * 120
+  const tableMinWidth = 340 + 140 + sortedModules.length * 120
 
   const handleExportExcel = async () => {
     const headers = [
@@ -692,7 +782,7 @@ export function UserPermissionsTable() {
       'Estado',
       'Ultima Actividad',
       'Creado',
-      ...modules.map((m) => m.name),
+      ...sortedModules.map((m) => m.name),
     ]
     const excelRows = filteredUsers.map((u) => {
       const cols: (string | number)[] = [
@@ -726,7 +816,7 @@ export function UserPermissionsTable() {
       summary: `Resumen: ${filteredUsers.length} usuario${filteredUsers.length !== 1 ? 's' : ''} · ${activos} activo${activos !== 1 ? 's' : ''} · ${modules.length} módulo${modules.length !== 1 ? 's' : ''}`,
       columnWidths: [
         20, 28, 14, 12, 18, 18,
-        ...modules.map(() => 12),
+        ...sortedModules.map(() => 12),
       ],
     })
   }
@@ -761,6 +851,14 @@ export function UserPermissionsTable() {
         </div>
         <div className="flex items-center gap-2">
           <Button
+            onClick={() => setAreasDialogOpen(true)}
+            variant="outline"
+            className="border-border hover:bg-primary hover:text-primary-foreground hover:border-primary"
+          >
+            <Layers className="w-4 h-4 mr-2" />
+            Áreas
+          </Button>
+          <Button
             onClick={() => setModuleDialogOpen(true)}
             className="bg-primary/15 hover:bg-primary text-primary hover:text-primary-foreground border border-primary/30"
           >
@@ -781,100 +879,151 @@ export function UserPermissionsTable() {
       <div className="bg-card border border-border rounded-xl">
         {/* Desktop: sticky block — header fijo arriba, filas con scroll interno */}
         <div className="hidden lg:flex lg:flex-col sticky top-16 z-40 max-h-[calc(100dvh-4rem)] bg-card shadow-[0_4px_16px_-6px_rgba(0,0,0,0.35)]">
-          <div className="shrink-0 border-b border-border">
-            <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-secondary/50">
-              <div className="flex items-center gap-2">
-                <Radio
-                  className={`w-4 h-4 ${isConnected ? 'text-primary' : 'text-muted-foreground'}`}
-                />
-                <span className="text-xs text-muted-foreground">
-                  {isConnected ? 'Conectado en tiempo real' : 'Conectando...'}
-                </span>
-                {isConnected && (
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
-                  </span>
-                )}
-              </div>
+          <div className="shrink-0 flex items-center justify-between px-4 py-2.5 border-b border-border bg-secondary/50">
+            <div className="flex items-center gap-2">
+              <Radio
+                className={`w-4 h-4 ${isConnected ? 'text-primary' : 'text-muted-foreground'}`}
+              />
               <span className="text-xs text-muted-foreground">
-                {filteredUsers.length} de {users.length}{' '}
-                {users.length === 1 ? 'usuario' : 'usuarios'}
+                {isConnected ? 'Conectado en tiempo real' : 'Conectando...'}
               </span>
+              {isConnected && (
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+                </span>
+              )}
             </div>
-
-            <div
-              ref={headerScrollRef}
-              className="overflow-x-auto overflow-y-hidden bg-secondary/95 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-              onScroll={(e) => syncScrollLeft('header', e.currentTarget.scrollLeft)}
-            >
-              <table className="w-full table-fixed border-collapse" style={{ minWidth: tableMinWidth }}>
-                {tableColGroup}
-                <thead>
-                  <tr className="border-b border-border">
-                    <th className="text-left p-4 font-semibold text-foreground w-[340px] min-w-[340px]">
-                      Usuario
-                    </th>
-                    <th className="text-center p-4 font-semibold text-foreground text-xs whitespace-nowrap w-[140px] min-w-[140px]">
-                      Última Actividad
-                    </th>
-                    {modules.map((module) => {
-                      const Icon = getModuleIcon(module.icon)
-                      const shapeCfg = getIconShape(module.icon_shape)
-                      const iconContainer = resolveIconContainerStyle(module.color, shapeCfg.className)
-                      const iconStyle = resolveIconStyle(module.color)
-                      const textStyle = resolveTextStyle(module.text_color ?? null, module.color)
-                      return (
-                        <th
-                          key={module.id}
-                          className="text-center p-4 font-semibold text-foreground w-[120px] min-w-[120px]"
-                        >
-                          <div className="flex flex-col items-center gap-1.5">
-                            <div
-                              className={cn('w-8 h-8 flex items-center justify-center', iconContainer.className)}
-                              style={iconContainer.style}
-                            >
-                              <Icon className={cn('w-4 h-4', iconStyle.className)} style={iconStyle.style} />
-                            </div>
-                            <span className={cn('text-xs font-semibold', textStyle.className)} style={textStyle.style}>{module.name}</span>
-                            <div className="flex items-center gap-1">
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setEditModuleTarget(module)}
-                                aria-label={`Editar modulo ${module.name}`}
-                                title={`Editar modulo ${module.name}`}
-                                className="h-6 w-6 p-0 text-muted-foreground hover:text-primary hover:bg-primary/10"
-                              >
-                                <Pencil className="w-3.5 h-3.5" />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setDeleteModuleTarget(module)}
-                                aria-label={`Eliminar modulo ${module.name}`}
-                                title={`Eliminar modulo ${module.name}`}
-                                className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </Button>
-                            </div>
-                          </div>
-                        </th>
-                      )
-                    })}
-                  </tr>
-                </thead>
-              </table>
-            </div>
+            <span className="text-xs text-muted-foreground">
+              {filteredUsers.length} de {users.length}{' '}
+              {users.length === 1 ? 'usuario' : 'usuarios'}
+            </span>
           </div>
 
+          {/* Cabecera fija: áreas + módulos (no hace scroll vertical) */}
+          <div
+            ref={headerScrollRef}
+            className="shrink-0 overflow-x-auto overflow-y-hidden border-b border-border bg-card shadow-[0_2px_8px_-2px_rgba(0,0,0,0.12)] [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+            onScroll={(e) => syncScrollLeft('header', e.currentTarget.scrollLeft)}
+          >
+            <table
+              className="table-fixed border-separate border-spacing-0"
+              style={{ width: tableMinWidth, minWidth: tableMinWidth }}
+            >
+              {tableColGroup}
+              <thead>
+                <tr>
+                  <th
+                    rowSpan={2}
+                    className={cn(
+                      STICKY_USER_HEAD,
+                      'text-left p-4 font-semibold text-foreground align-middle',
+                    )}
+                    style={{ height: AREA_HEADER_ROW_HEIGHT + MODULE_HEADER_ROW_HEIGHT }}
+                  >
+                    Usuario
+                  </th>
+                  <th
+                    rowSpan={2}
+                    className={cn(
+                      STICKY_ACTIVITY_HEAD,
+                      'text-center p-4 font-semibold text-foreground text-xs whitespace-nowrap align-middle',
+                    )}
+                    style={{ height: AREA_HEADER_ROW_HEIGHT + MODULE_HEADER_ROW_HEIGHT }}
+                  >
+                    Última Actividad
+                  </th>
+                  {moduleGroups.map((group) => (
+                    <th
+                      key={group.area.id}
+                      colSpan={group.modules.length}
+                      className={cn(
+                        'p-0 align-middle border-l-[3px] border-l-border',
+                        moduleAreaMeta.areaHeaderTintClass.get(group.area.id),
+                      )}
+                      style={{ height: AREA_HEADER_ROW_HEIGHT }}
+                    >
+                      <div className="h-full px-2 flex flex-col items-center justify-center gap-0.5 border-b border-border">
+                        <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-foreground leading-tight text-center px-1 line-clamp-2">
+                          {group.area.name}
+                        </span>
+                        <span className="inline-flex items-center rounded-full bg-background/80 px-2 py-0.5 text-[10px] font-medium text-muted-foreground border border-border/60">
+                          {group.modules.length} módulo{group.modules.length !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                    </th>
+                  ))}
+                </tr>
+                <tr>
+                  {sortedModules.map((module) => {
+                    const Icon = getModuleIcon(module.icon)
+                    const shapeCfg = getIconShape(module.icon_shape)
+                    const iconContainer = resolveIconContainerStyle(module.color, shapeCfg.className)
+                    const iconStyle = resolveIconStyle(module.color)
+                    const textStyle = resolveTextStyle(module.text_color ?? null, module.color)
+                    return (
+                      <th
+                        key={module.id}
+                        className={cn(
+                          'text-center p-3 font-semibold text-foreground w-[120px] min-w-[120px] bg-card align-middle',
+                          moduleAreaCellClassName(module.id, moduleAreaMeta),
+                        )}
+                        style={{ height: MODULE_HEADER_ROW_HEIGHT }}
+                      >
+                        <div className="flex flex-col items-center justify-center gap-1 h-full">
+                          <div
+                            className={cn('w-8 h-8 flex items-center justify-center shrink-0', iconContainer.className)}
+                            style={iconContainer.style}
+                          >
+                            <Icon className={cn('w-4 h-4', iconStyle.className)} style={iconStyle.style} />
+                          </div>
+                          <span
+                            className={cn('text-xs font-semibold leading-tight line-clamp-2 px-0.5', textStyle.className)}
+                            style={textStyle.style}
+                          >
+                            {module.name}
+                          </span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setEditModuleTarget(module)}
+                              aria-label={`Editar modulo ${module.name}`}
+                              title={`Editar modulo ${module.name}`}
+                              className="h-6 w-6 p-0 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setDeleteModuleTarget(module)}
+                              aria-label={`Eliminar modulo ${module.name}`}
+                              title={`Eliminar modulo ${module.name}`}
+                              className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      </th>
+                    )
+                  })}
+                </tr>
+              </thead>
+            </table>
+          </div>
+
+          {/* Filas de usuarios: scroll vertical + horizontal sincronizado con cabecera */}
           <div
             ref={bodyScrollRef}
-            className="flex-1 min-h-0 overflow-auto overscroll-contain"
+            className="flex-1 min-h-0 overflow-auto overscroll-contain isolate bg-card"
             onScroll={(e) => syncScrollLeft('body', e.currentTarget.scrollLeft)}
           >
-            <table className="w-full table-fixed border-collapse" style={{ minWidth: tableMinWidth }}>
+            <table
+              className="table-fixed border-separate border-spacing-0"
+              style={{ width: tableMinWidth, minWidth: tableMinWidth }}
+            >
               {tableColGroup}
               <tbody>
               {pageUsers.map((user, index) => {
@@ -895,7 +1044,7 @@ export function UserPermissionsTable() {
                     } ${!user.is_active ? 'opacity-60' : ''}`}
                   >
                     {/* ── Sticky user cell ── */}
-                    <td className="p-3 sticky left-0 bg-card z-20 w-[340px] min-w-[340px] border-r border-border/50 shadow-[1px_0_0_0_hsl(var(--border))]">
+                    <td className={cn('p-3', STICKY_USER_BODY)}>
                       <div className="flex items-start gap-3">
                         {/* Avatar with status ring */}
                         <div className="relative shrink-0 mt-0.5">
@@ -1055,7 +1204,7 @@ export function UserPermissionsTable() {
                     </td>
 
                     {/* Última Actividad */}
-                    <td className="p-4 text-center">
+                    <td className={cn('p-4 text-center', STICKY_ACTIVITY_BODY)}>
                       <div className="flex flex-col items-center gap-1">
                         {online && user.is_active ? (
                           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-600 border border-emerald-500/30">
@@ -1079,12 +1228,20 @@ export function UserPermissionsTable() {
                     </td>
 
                     {/* Module toggles */}
-                    {modules.map((module) => {
+                    {sortedModules.map((module) => {
                       const key = accessKey(user.id, module.id)
                       const isChecked = !!access[key]
                       const loading = loadingStates[key]
+                      const switchDisabled = isSubuserModuleSwitchDisabled(access, user, module.id, isChecked)
+                      const switchTitle = subuserModuleSwitchTitle(access, user, module.id, isChecked)
                       return (
-                        <td key={module.id} className="p-4 text-center">
+                        <td
+                          key={module.id}
+                          className={cn(
+                            'p-4 text-center bg-card',
+                            moduleAreaCellClassName(module.id, moduleAreaMeta),
+                          )}
+                        >
                            <div className="flex justify-center">
                              {loading ? (
                                <Loader2 className="w-5 h-5 animate-spin text-primary" />
@@ -1096,14 +1253,16 @@ export function UserPermissionsTable() {
                                  Obligatorio
                                </span>
                              ) : (
-                               <Switch
-                                 checked={isChecked}
-                                 disabled={!user.is_active}
-                                 onCheckedChange={(checked) =>
-                                   handleAccessChange(user.id, module.id, checked)
-                                 }
-                                 className="data-[state=checked]:bg-primary"
-                               />
+                               <span title={switchTitle}>
+                                 <Switch
+                                   checked={isChecked}
+                                   disabled={switchDisabled}
+                                   onCheckedChange={(checked) =>
+                                     handleAccessChange(user.id, module.id, checked)
+                                   }
+                                   className="data-[state=checked]:bg-primary"
+                                 />
+                               </span>
                              )}
                            </div>
                         </td>
@@ -1146,38 +1305,58 @@ export function UserPermissionsTable() {
         {/* Mobile Cards */}
         <div className="lg:hidden divide-y divide-border">
           <div className="sticky top-16 z-30 bg-card/95 backdrop-blur-sm border-b border-border p-4 space-y-3 shadow-sm">
-            {modules.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {modules.map((module) => {
-                  const Icon = getModuleIcon(module.icon)
-                  return (
-                    <div
-                      key={module.id}
-                      className="flex items-center gap-1.5 bg-secondary/60 border border-border rounded-full pl-3 pr-1.5 py-1"
-                    >
-                      <Icon className="w-3.5 h-3.5 text-muted-foreground" />
-                      <span className="text-xs text-foreground">{module.name}</span>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setEditModuleTarget(module)}
-                        aria-label={`Editar módulo ${module.name}`}
-                        className="h-6 w-6 p-0 text-muted-foreground hover:text-primary hover:bg-primary/10"
-                      >
-                        <Pencil className="w-3 h-3" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setDeleteModuleTarget(module)}
-                        aria-label={`Eliminar módulo ${module.name}`}
-                        className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </Button>
+            {sortedModules.length > 0 && (
+              <div className="space-y-3">
+                {moduleGroups.map((group) => (
+                  <div
+                    key={group.area.id}
+                    className={cn(
+                      'rounded-xl border-2 border-border overflow-hidden',
+                      moduleAreaMeta.areaHeaderTintClass.get(group.area.id),
+                    )}
+                  >
+                    <div className="px-3 py-2 border-b border-border flex items-center justify-between gap-2">
+                      <p className="text-[11px] font-bold text-foreground uppercase tracking-wider">
+                        {group.area.name}
+                      </p>
+                      <span className="text-[10px] text-muted-foreground shrink-0">
+                        {group.modules.length} mód.
+                      </span>
                     </div>
-                  )
-                })}
+                    <div className="flex flex-wrap gap-2 p-3 bg-background/40">
+                      {group.modules.map((module) => {
+                        const Icon = getModuleIcon(module.icon)
+                        return (
+                          <div
+                            key={module.id}
+                            className="flex items-center gap-1.5 bg-secondary/60 border border-border rounded-full pl-3 pr-1.5 py-1"
+                          >
+                            <Icon className="w-3.5 h-3.5 text-muted-foreground" />
+                            <span className="text-xs text-foreground">{module.name}</span>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setEditModuleTarget(module)}
+                              aria-label={`Editar módulo ${module.name}`}
+                              className="h-6 w-6 p-0 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                            >
+                              <Pencil className="w-3 h-3" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setDeleteModuleTarget(module)}
+                              aria-label={`Eliminar módulo ${module.name}`}
+                              className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </Button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -1325,37 +1504,63 @@ export function UserPermissionsTable() {
                 )}
 
                 <div className="grid grid-cols-2 gap-3">
-                  {modules.map((module) => {
-                    const Icon = getModuleIcon(module.icon)
-                    const key = accessKey(user.id, module.id)
-                    const isChecked = !!access[key]
-                    const loading = loadingStates[key]
-                    return (
-                      <div
-                        key={module.id}
-                        className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg"
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <Icon className="w-4 h-4 text-muted-foreground shrink-0" />
-                          <span className="text-sm text-foreground truncate">
-                            {module.name}
-                          </span>
-                        </div>
-                        {loading ? (
-                          <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                        ) : (
-                          <Switch
-                            checked={isChecked}
-                            disabled={!user.is_active}
-                            onCheckedChange={(checked) =>
-                              handleAccessChange(user.id, module.id, checked)
-                            }
-                            className="data-[state=checked]:bg-primary scale-90"
-                          />
-                        )}
+                  {moduleGroups.map((group) => (
+                    <div
+                      key={group.area.id}
+                      className={cn(
+                        'col-span-2 rounded-xl border-2 border-border overflow-hidden',
+                        moduleAreaMeta.areaHeaderTintClass.get(group.area.id),
+                      )}
+                    >
+                      <div className="px-3 py-2 border-b border-border flex items-center justify-between">
+                        <p className="text-[11px] font-bold text-foreground uppercase tracking-wider">
+                          {group.area.name}
+                        </p>
+                        <span className="text-[10px] text-muted-foreground">
+                          {group.modules.length} mód.
+                        </span>
                       </div>
-                    )
-                  })}
+                      <div className="grid grid-cols-2 gap-2 p-3 bg-background/30">
+                        {group.modules.map((module) => {
+                          const Icon = getModuleIcon(module.icon)
+                          const key = accessKey(user.id, module.id)
+                          const isChecked = !!access[key]
+                          const loading = loadingStates[key]
+                          const switchDisabled = isSubuserModuleSwitchDisabled(access, user, module.id, isChecked)
+                          const switchTitle = subuserModuleSwitchTitle(access, user, module.id, isChecked)
+                          return (
+                            <div
+                              key={module.id}
+                              className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <Icon className="w-4 h-4 text-muted-foreground shrink-0" />
+                                <span className="text-sm text-foreground truncate" title={switchTitle}>
+                                  {module.name}
+                                </span>
+                              </div>
+                              {loading ? (
+                                <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                              ) : module.is_core ? (
+                                <span className="text-[10px] text-emerald-600">Obligatorio</span>
+                              ) : (
+                                <span title={switchTitle}>
+                                  <Switch
+                                    checked={isChecked}
+                                    disabled={switchDisabled}
+                                    onCheckedChange={(checked) =>
+                                      handleAccessChange(user.id, module.id, checked)
+                                    }
+                                    className="data-[state=checked]:bg-primary scale-90"
+                                  />
+                                </span>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             )
@@ -1516,7 +1721,7 @@ export function UserPermissionsTable() {
         open={!!orderTarget}
         onOpenChange={(open) => !open && setOrderTarget(null)}
         user={orderTarget}
-        modules={modules}
+        modules={sortedModules}
         accessRows={Object.entries(access).map(([key, enabled]) => {
           const [user_id, module_id] = key.split(':')
           return {
@@ -1527,6 +1732,12 @@ export function UserPermissionsTable() {
           }
         })}
         onOrderSaved={fetchAll}
+      />
+
+      <ManageModuleAreasDialog
+        open={areasDialogOpen}
+        onOpenChange={setAreasDialogOpen}
+        onAreasChanged={fetchAll}
       />
     </div>
   )
