@@ -26,6 +26,10 @@ export default async function DynamicModulePage({
     const { module: slug } = await params
     const supabase = await createClient()
 
+    if (slug === 'inicio') {
+      redirect('/dashboard')
+    }
+
     const {
       data: { user },
       error: authError,

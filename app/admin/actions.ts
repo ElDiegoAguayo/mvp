@@ -229,56 +229,6 @@ export async function createUserAction(
     }
   }
 
-  // === CORE MODULE PROVISIONING: Ensure "Inicio" (mandatory dashboard) is granted ===
-  try {
-    // 1. Ensure the "inicio" core module exists
-    let { data: inicioModule } = await adminClient
-      .from('modules')
-      .select('id, is_core')
-      .eq('slug', 'inicio')
-      .maybeSingle()
-
-    if (!inicioModule) {
-      const { data: createdModule, error: createModuleErr } = await adminClient
-        .from('modules')
-        .insert({
-          slug: 'inicio',
-          name: 'Inicio',
-          icon: 'Home',
-          description: 'Dashboard principal con widgets, indicadores y alertas',
-          is_active: true,
-          is_core: false,   // Normal module - can be toggled per client like "mercado"
-        })
-        .select('id, is_core')
-        .single()
-
-      if (createModuleErr) {
-        console.error('[v0] Failed to create core "inicio" module:', createModuleErr)
-      } else {
-        inicioModule = createdModule
-      }
-    }
-
-    // Note: "inicio" is treated as a normal toggleable module (like "mercado").
-    // Admins can enable/disable it per client in Gestión de Usuarios.
-    // Do not force is_core = true for it.
-
-    if (inicioModule?.id) {
-      // 2. Grant permanent access to this core module for the new user
-      await adminClient.from('user_module_access').upsert(
-        {
-          user_id: created.user.id,
-          module_id: inicioModule.id,
-          enabled: true,
-        },
-        { onConflict: 'user_id,module_id' }
-      )
-    }
-  } catch (coreErr) {
-    console.error('[v0] Core module provisioning error (non-fatal):', coreErr)
-    // Do not fail user creation because of this
-  }
-
   // Resolve the caller's display name for the audit log
   const { data: callerForLog } = await supabase
     .from('profiles')

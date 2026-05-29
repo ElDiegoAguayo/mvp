@@ -2,6 +2,9 @@ import { isCostosGastosModule, isProduccionModule } from '@/lib/dashboard/costos
 
 /** Maps a module slug/name to its dedicated app route (when one exists). */
 export function resolveModuleHref(slug: string, name?: string | null): string {
+  if (slug === 'inicio') {
+    return '/dashboard'
+  }
   if (isCostosGastosModule(slug, name)) {
     return '/dashboard/costos-y-gastos/clasificacion'
   }

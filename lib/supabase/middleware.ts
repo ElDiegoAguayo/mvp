@@ -1,6 +1,16 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
+/** Server Actions POST to the current page; middleware redirects break their response. */
+function isServerActionRequest(request: NextRequest): boolean {
+  if (request.method !== 'POST') return false
+  return (
+    request.headers.has('next-action') ||
+    request.headers.has('Next-Action') ||
+    request.headers.has('x-action')
+  )
+}
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
@@ -89,7 +99,8 @@ export async function updateSession(request: NextRequest) {
       }
     } else if (
       (pathname.startsWith('/auth/login') || pathname.startsWith('/auth/registro')) &&
-      !(maintenanceActive && isClientUser)
+      !(maintenanceActive && isClientUser) &&
+      !isServerActionRequest(request)
     ) {
       const url = request.nextUrl.clone()
       url.pathname = '/dashboard'

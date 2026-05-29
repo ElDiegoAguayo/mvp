@@ -57,6 +57,13 @@ const ROW_LABEL_KEYS = [
   'referencia',
 ]
 
+function formatTableLabel(table: TableOption) {
+  return `${table.name}${table.moduleName ? ` (${table.moduleName})` : ''}`
+}
+
+const selectTriggerClass =
+  'w-full min-w-0 overflow-hidden [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate'
+
 export function DocumentGenerator() {
   const supabase = useMemo(() => createClient(), [])
   const [tables, setTables] = useState<TableOption[]>([])
@@ -211,6 +218,8 @@ export function DocumentGenerator() {
   }, [rowSearch, rows])
 
   const selectedRow = rows.find((row) => row.id === rowId)
+  const selectedTable = tables.find((table) => table.id === tableId)
+  const selectedTableLabel = selectedTable ? formatTableLabel(selectedTable) : undefined
   const columnLabelMap = useMemo(() => {
     return new Map(tableColumns.map((col) => [col.id, col.name]))
   }, [tableColumns])
@@ -389,11 +398,11 @@ export function DocumentGenerator() {
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
-          <div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl">
+          <div className="min-w-0">
             <label className="text-xs text-muted-foreground mb-1 block">Tipo</label>
             <Select value={docType} onValueChange={(value) => setDocType(value as DocumentKind)}>
-              <SelectTrigger>
+              <SelectTrigger className={selectTriggerClass}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -405,10 +414,10 @@ export function DocumentGenerator() {
               </SelectContent>
             </Select>
           </div>
-          <div>
+          <div className="min-w-0">
             <label className="text-xs text-muted-foreground mb-1 block">Formato</label>
             <Select value={format} onValueChange={(value) => setFormat(value as DocumentFormat)}>
-              <SelectTrigger>
+              <SelectTrigger className={selectTriggerClass}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -420,37 +429,43 @@ export function DocumentGenerator() {
               </SelectContent>
             </Select>
           </div>
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">Tabla</label>
-            <Select value={tableId} onValueChange={setTableId} disabled={isLoadingTables}>
-              <SelectTrigger>
-                <SelectValue placeholder={isLoadingTables ? 'Cargando...' : 'Selecciona tabla'} />
-              </SelectTrigger>
-              <SelectContent>
-                {tables.map((table) => (
-                  <SelectItem key={table.id} value={table.id}>
-                    {table.name}{table.moduleName ? ` (${table.moduleName})` : ''}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
+        </div>
+
+        <div className="min-w-0">
+          <label className="text-xs text-muted-foreground mb-1 block">Tabla</label>
+          <Select value={tableId} onValueChange={setTableId} disabled={isLoadingTables}>
+            <SelectTrigger
+              className={selectTriggerClass}
+              title={selectedTableLabel}
+            >
+              <SelectValue placeholder={isLoadingTables ? 'Cargando...' : 'Selecciona tabla'} />
+            </SelectTrigger>
+            <SelectContent>
+              {tables.map((table) => (
+                <SelectItem key={table.id} value={table.id} title={formatTableLabel(table)}>
+                  <span className="block truncate max-w-[min(100vw-3rem,42rem)]">
+                    {formatTableLabel(table)}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
+          <div className="min-w-0 lg:col-span-3">
             <label className="text-xs text-muted-foreground mb-1 block">Buscar registro</label>
             <Input
               value={rowSearch}
               onChange={(event) => setRowSearch(event.target.value)}
               placeholder="Buscar en registros"
-              className="h-9"
+              className="h-9 w-full min-w-0"
             />
           </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-          <div className="lg:col-span-2">
+          <div className="min-w-0 lg:col-span-6">
             <label className="text-xs text-muted-foreground mb-1 block">Registro</label>
             <Select value={rowId} onValueChange={setRowId} disabled={!tableId || isLoadingRows}>
-              <SelectTrigger className="bg-background">
+              <SelectTrigger className={`${selectTriggerClass} bg-background`}>
                 <SelectValue
                   placeholder={
                     !tableId
@@ -464,9 +479,9 @@ export function DocumentGenerator() {
               <SelectContent>
                 {filteredRows.map((row, index) => (
                   <SelectItem key={row.id} value={row.id}>
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-sm font-medium">{getRowLabel(row, index)}</span>
-                      <span className="text-[11px] text-muted-foreground line-clamp-1">
+                    <div className="flex flex-col gap-0.5 min-w-0 max-w-[min(100vw-3rem,36rem)]">
+                      <span className="text-sm font-medium truncate">{getRowLabel(row, index)}</span>
+                      <span className="text-[11px] text-muted-foreground truncate">
                         {getRowPreview(row) || 'Sin datos visibles'}
                       </span>
                     </div>
@@ -475,7 +490,7 @@ export function DocumentGenerator() {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex items-end">
+          <div className="flex items-end lg:col-span-3">
             <Button
               className="w-full gap-2"
               onClick={handleGenerate}

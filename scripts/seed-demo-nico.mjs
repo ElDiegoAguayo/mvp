@@ -156,16 +156,242 @@ const CHART_SPECS_BY_SLUG = {
       display_order: 10,
     },
   ],
-  'comercio-exterior': () => [
-    { name: 'Valor USD por puerto', chart_type: 'bar', config: { x_column: 'puerto', y_column: 'valor' }, display_order: 0 },
-    { name: 'Estado operaciones', chart_type: 'donut', config: { label_column: 'estado', value_column: 'valor' }, display_order: 1 },
+}
+
+const COMERCIO_CHECKLIST_STEPS = [
+  'Recepción solicitud booking',
+  'Cotización tarifas destino',
+  'Solicitar Booking/espacio a forwarder',
+  'Confirmación booking por forwarder',
+  'Coordinar llegada camión a planta',
+  'Definir detalle de la carga',
+  'Solicitar inspección SAG',
+  'Instructivo de Embarque',
+  'Enviar SPS a planta',
+  'Carga contenedor',
+  'Revisar documentos de despacho',
+  'Confirmar ETD real',
+  'Factura Proforma',
+  'Enviar documentos de embarque a cliente',
+  'Documentos de embarque aprobados',
+  'Pago anticipo',
+  'Confirmar fecha arribo (ETA)',
+  'Liquidación cliente',
+]
+
+function buildComercioChecklistColumns() {
+  return [
+    { id: 'codigo_embarque', name: 'Código de embarque', type: 'text', isFilter: true, clientEditable: true },
+    ...COMERCIO_CHECKLIST_STEPS.map((name, i) => ({
+      id: `paso_${i + 1}`,
+      name,
+      type: 'select',
+      options: ['OK', 'NO'],
+      isFilter: false,
+      clientEditable: true,
+    })),
+  ]
+}
+
+function buildComercioChecklistRow(codigo, statuses) {
+  const row = { codigo_embarque: codigo }
+  COMERCIO_CHECKLIST_STEPS.forEach((_, i) => {
+    row[`paso_${i + 1}`] = statuses[i] ?? 'NO'
+  })
+  return row
+}
+
+async function seedComercioExteriorDemo(uid, moduleId) {
+  await sb.from('dynamic_charts').delete().eq('user_id', uid).eq('module_id', moduleId)
+
+  const { data: oldTables } = await sb
+    .from('dynamic_tables')
+    .select('id')
+    .eq('user_id', uid)
+    .eq('module_id', moduleId)
+
+  if (oldTables?.length) {
+    const ids = oldTables.map((t) => t.id)
+    await sb.from('dynamic_table_rows').delete().in('table_id', ids)
+    await sb.from('dynamic_tables').delete().in('id', ids)
+  }
+
+  const embarqueColumns = [
+    { id: 'contenedor', name: 'N° contenedor', type: 'text' },
+    { id: 'fecha_carga', name: 'Fecha de carga', type: 'date' },
+    { id: 'naviera', name: 'Compañía naviera', type: 'text' },
+    { id: 'booking', name: 'N° booking', type: 'text' },
+    { id: 'bl', name: 'N° BL', type: 'text' },
+    { id: 'cliente', name: 'Cliente', type: 'text' },
+    { id: 'puerto_salida', name: 'Puerto de salida', type: 'text' },
+    { id: 'destino', name: 'Destino final', type: 'country' },
+    { id: 'productor', name: 'Productor', type: 'text' },
+    { id: 'producto', name: 'Producto', type: 'text' },
+    { id: 'cajas', name: 'Cajas', type: 'number' },
+    { id: 'kilos', name: 'Kilos', type: 'number' },
+    { id: 'etd', name: 'ETD', type: 'date' },
+    { id: 'eta', name: 'ETA', type: 'date' },
+  ]
+
+  const embarqueRows = [
     {
-      name: 'Tabla comercio exterior',
-      chart_type: 'data_table',
-      config: { visible_columns: ['ref', 'descripcion', 'valor', 'puerto', 'estado'] },
-      display_order: 10,
+      contenedor: 'DEMO-CTR-001',
+      fecha_carga: '2026-03-08',
+      naviera: 'MAERSK',
+      booking: 'BK-DEMO-7781',
+      bl: 'BL-DEMO-9001',
+      cliente: 'Importadora Shanghai Demo Ltda.',
+      puerto_salida: 'Valparaíso',
+      destino: 'China',
+      productor: 'Agrícola Demo Norte SpA',
+      producto: 'Cereza Lapins 5kg',
+      cajas: 1200,
+      kilos: 6000,
+      etd: '2026-03-10',
+      eta: '2026-04-02',
     },
-  ],
+    {
+      contenedor: 'DEMO-CTR-002',
+      fecha_carga: '2026-03-11',
+      naviera: 'MSC',
+      booking: 'BK-DEMO-7782',
+      bl: 'BL-DEMO-9002',
+      cliente: 'Pacific Fruit USA Demo Inc.',
+      puerto_salida: 'San Antonio',
+      destino: 'Estados Unidos',
+      productor: 'Frutícola Demo Sur Ltda.',
+      producto: 'Cereza Regina 2.5kg',
+      cajas: 800,
+      kilos: 2000,
+      etd: '2026-03-12',
+      eta: '2026-03-28',
+    },
+    {
+      contenedor: 'DEMO-CTR-003',
+      fecha_carga: '2026-03-14',
+      naviera: 'CMA CGM',
+      booking: 'BK-DEMO-7783',
+      bl: 'BL-DEMO-9003',
+      cliente: 'Euro Cherry Demo BV',
+      puerto_salida: 'Valparaíso',
+      destino: 'Países Bajos (Holanda)',
+      productor: 'Valle Cherry Demo SA',
+      producto: 'Cereza Santina 5kg',
+      cajas: 950,
+      kilos: 4750,
+      etd: '2026-03-15',
+      eta: '2026-04-05',
+    },
+    {
+      contenedor: 'DEMO-CTR-004',
+      fecha_carga: '2026-03-18',
+      naviera: 'HAPAG-LLOYD',
+      booking: 'BK-DEMO-7784',
+      bl: 'BL-DEMO-9004',
+      cliente: 'Gulf Produce Demo FZE',
+      puerto_salida: 'San Antonio',
+      destino: 'Emiratos Árabes Unidos',
+      productor: 'Export Cherry Demo SpA',
+      producto: 'Mix Kordia + Skeena',
+      cajas: 720,
+      kilos: 3600,
+      etd: '2026-03-20',
+      eta: '2026-04-08',
+    },
+  ]
+
+  const checklistColumns = buildComercioChecklistColumns()
+  const checklistRows = [
+    buildComercioChecklistRow('EXP-DEMO-001', [
+      'OK', 'OK', 'OK', 'OK', 'OK', 'OK', 'OK', 'OK', 'NO', 'NO', 'OK', 'OK', 'OK', 'NO', 'NO', 'OK', 'OK', 'NO',
+    ]),
+    buildComercioChecklistRow('EXP-DEMO-002', [
+      'OK', 'OK', 'OK', 'OK', 'OK', 'NO', 'NO', 'OK', 'OK', 'OK', 'OK', 'OK', 'OK', 'OK', 'OK', 'OK', 'NO', 'NO',
+    ]),
+    buildComercioChecklistRow('EXP-DEMO-003', [
+      'OK', 'OK', 'NO', 'NO', 'OK', 'OK', 'OK', 'NO', 'NO', 'OK', 'OK', 'OK', 'NO', 'NO', 'OK', 'OK', 'OK', 'NO',
+    ]),
+    buildComercioChecklistRow('EXP-DEMO-004', [
+      'OK', 'NO', 'NO', 'NO', 'NO', 'NO', 'NO', 'NO', 'NO', 'NO', 'NO', 'NO', 'NO', 'NO', 'NO', 'NO', 'NO', 'NO',
+    ]),
+  ]
+
+  const embarqueRes = await seedDynamicTable(
+    uid,
+    moduleId,
+    'Comercio Exterior',
+    embarqueColumns,
+    embarqueRows,
+    'Demo — Información de embarque',
+  )
+  if (!embarqueRes.ok) return embarqueRes
+
+  const checklistRes = await seedDynamicTable(
+    uid,
+    moduleId,
+    'Comercio Exterior',
+    checklistColumns,
+    checklistRows,
+    'Demo — Check list exportación',
+  )
+  if (!checklistRes.ok) return checklistRes
+
+  const embarqueColIds = embarqueColumns.map((c) => c.id)
+  const checklistColIds = checklistColumns.map((c) => c.id)
+
+  const chartRows = [
+    {
+      user_id: uid,
+      module_id: moduleId,
+      table_id: embarqueRes.tableId,
+      name: 'Información de embarque',
+      chart_type: 'data_table',
+      config: {
+        xAxis: [],
+        yAxis: [],
+        colors: ['#4A6CF7'],
+        columns: embarqueColIds,
+        allowAddRows: false,
+        allowAddColumns: false,
+        editableColumns: embarqueColIds,
+        allowEditColumns: false,
+        allowDeleteColumns: false,
+      },
+      filters_config: [],
+      display_order: 0,
+    },
+    {
+      user_id: uid,
+      module_id: moduleId,
+      table_id: checklistRes.tableId,
+      name: 'Check list',
+      chart_type: 'data_table',
+      config: {
+        xAxis: [],
+        yAxis: [],
+        colors: ['#4A6CF7'],
+        columns: checklistColIds,
+        allowAddRows: true,
+        allowAddColumns: false,
+        editableColumns: checklistColIds.filter((id) => id !== 'codigo_embarque'),
+        allowEditColumns: false,
+        allowDeleteColumns: false,
+      },
+      filters_config: [],
+      display_order: 1,
+    },
+  ]
+
+  const { error } = await sb.from('dynamic_charts').insert(chartRows)
+  if (error) return { ok: false, message: error.message }
+
+  return {
+    ok: true,
+    embarqueTableId: embarqueRes.tableId,
+    checklistTableId: checklistRes.tableId,
+    chartCount: chartRows.length,
+    rowCount: embarqueRows.length + checklistRows.length,
+  }
 }
 
 async function seedModuleCharts(uid, moduleId, slug, tableId) {
@@ -890,26 +1116,26 @@ async function main() {
         { codigo: 'PROD-D-12', nombre: 'Cooperativa Demo Central', rut: '78.330.440-4', comuna: 'Machalí', hectareas: 35, especie: 'Cerezo', variedad_principal: 'Mix', contrato: 'CTR-2026-012', contacto: 'Coordinación demo', estado: 'Activo' },
       ],
     },
-    'comercio-exterior': {
-      columns: [
-        { id: 'ref', name: 'Referencia', type: 'text' },
-        { id: 'descripcion', name: 'Descripción', type: 'text' },
-        { id: 'valor', name: 'Valor USD', type: 'number' },
-        { id: 'puerto', name: 'Puerto', type: 'text' },
-        { id: 'estado', name: 'Estado', type: 'text' },
-      ],
-      rows: [
-        { ref: 'EXP-DEMO-001', descripcion: 'Embarque cereza Lapins — China', valor: 185000, puerto: 'Shanghai', estado: 'En tránsito' },
-        { ref: 'EXP-DEMO-002', descripcion: 'Embarque cereza Regina — USA', valor: 92000, puerto: 'Los Angeles', estado: 'Facturado' },
-        { ref: 'EXP-DEMO-003', descripcion: 'Embarque cereza Santina — Europa', valor: 134000, puerto: 'Rotterdam', estado: 'Documentado' },
-        { ref: 'EXP-DEMO-004', descripcion: 'Embarque mixto Kordia/Skeena', valor: 76000, puerto: 'Dubai', estado: 'Planificado' },
-      ],
-    },
   }
 
   const seededTables = {}
 
   for (const mod of modules ?? []) {
+    if (mod.slug === 'comercio-exterior') {
+      const res = await seedComercioExteriorDemo(uid, mod.id)
+      if (!res.ok) log(`Módulo dinámico: ${mod.name}`, 'error', res.message)
+      else {
+        seededTables[mod.slug] = res
+        log(
+          `Módulo dinámico: ${mod.name}`,
+          'ok',
+          `${res.rowCount} filas demo (embarque + check list)`,
+        )
+        log(`Vistas: ${mod.name}`, 'ok', `${res.chartCount} tablas (sin gráficos extra)`)
+      }
+      continue
+    }
+
     const spec = dynamicSpecs[mod.slug]
     if (!spec) continue
     const res = await seedDynamicTable(uid, mod.id, mod.name, spec.columns, spec.rows)

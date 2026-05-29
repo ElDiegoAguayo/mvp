@@ -89,7 +89,9 @@ export default async function DashboardLayout({
       modulesData = d2
     }
 
-    allowedModules = (modulesData ?? []).sort((a: any, b: any) => {
+    allowedModules = (modulesData ?? [])
+      .filter((m: { slug?: string }) => m.slug !== 'inicio')
+      .sort((a: any, b: any) => {
       const orderA = moduleOrderMap.get(a.id) ?? 0
       const orderB = moduleOrderMap.get(b.id) ?? 0
       if (orderA !== orderB) return orderA - orderB

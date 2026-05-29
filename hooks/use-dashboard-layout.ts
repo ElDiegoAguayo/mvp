@@ -73,21 +73,6 @@ export function useDashboardLayout(userId: string): UseDashboardLayoutResult {
       const userPermissions = createPermissions(enabledModuleIds, coreModuleIds)
       setPermissions(userPermissions)
 
-      // Resolve the "inicio" core module for tagging home widgets
-      const { data: inicioModule } = await supabase
-        .from('modules')
-        .select('id')
-        .eq('slug', 'inicio')
-        .maybeSingle()
-
-      const homeModuleId = inicioModule?.id ?? null
-
-      const tagHomeWidgets = (widgets: WidgetConfig[]) =>
-        widgets.map((w) =>
-          w.moduleId || !homeModuleId ? w : { ...w, moduleId: homeModuleId }
-        )
-
-      // Step 2: Try to fetch custom layout configuration (future feature)
       const { data: layoutData } = await supabase
         .from('dashboard_layouts')
         .select('*')
@@ -104,7 +89,7 @@ export function useDashboardLayout(userId: string): UseDashboardLayoutResult {
         }
       }
 
-      layoutWidgets = tagHomeWidgets(layoutWidgets)
+      layoutWidgets = layoutWidgets.map((w) => ({ ...w, moduleId: undefined }))
 
       // Step 3: Filter widgets based on permissions
       const filteredWidgets = filterWidgetsByPermissions(layoutWidgets, userPermissions)
