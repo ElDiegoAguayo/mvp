@@ -1589,6 +1589,20 @@
 }
 .login-v30-btn:hover:not(:disabled) { background-position: right center; }
 
+/* Login — Split panel (Up Crop) */
+.login-v16-watermark {
+  position: absolute;
+  z-index: 0;
+}
+.login-v16-watermark-left {
+  left: -2.5rem;
+  top: 22%;
+}
+.login-v16-watermark-right {
+  right: -1.25rem;
+  bottom: 16%;
+}
+
 @media (max-height: 780px) {
   .login-fusion-brand,
   .login-v30-pills {

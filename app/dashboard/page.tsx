@@ -31,7 +31,8 @@ export default async function DashboardPage() {
     <>
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-foreground mb-2 text-balance">
-          Bienvenido a UpCrop, <span className="text-primary">{fullName}</span>
+          Bienvenido a Up <span className="text-primary">Crop</span>,{' '}
+          <span className="text-primary">{fullName}</span>
         </h1>
         <p className="text-muted-foreground">
           Monitorea tus operaciones agrícolas y recibe alertas en tiempo real.

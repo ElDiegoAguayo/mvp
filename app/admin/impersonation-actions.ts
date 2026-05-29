@@ -8,6 +8,12 @@ import { VIEW_AS_COOKIE } from '@/lib/impersonation'
 
 const VIEW_AS_MAX_AGE = 60 * 60 * 4 // 4 hours
 
+/** Clears support-mode cookie (e.g. on logout) without redirect or audit. */
+export async function clearViewAsCookieAction(): Promise<void> {
+  const cookieStore = await cookies()
+  cookieStore.delete(VIEW_AS_COOKIE)
+}
+
 export async function startImpersonationAction(targetUserId: string): Promise<{ ok: boolean; message: string }> {
   if (!targetUserId?.trim()) {
     return { ok: false, message: 'Usuario inválido.' }

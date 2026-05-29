@@ -1,9 +1,10 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { cookies } from 'next/headers'
 import { DashboardShell } from '@/components/dashboard/dashboard-shell'
 import { ViewAsProvider } from '@/components/dashboard/view-as-provider'
 import { SupportModeBanner } from '@/components/dashboard/support-mode-banner'
-import { getViewAsContext } from '@/lib/impersonation'
+import { getViewAsContext, VIEW_AS_COOKIE } from '@/lib/impersonation'
 import { compareModulesByAreaThenName } from '@/lib/modules/areas'
 
 export const dynamic = 'force-dynamic'
@@ -28,6 +29,8 @@ export default async function DashboardLayout({
 
   if (profile?.is_active === false) {
     await supabase.auth.signOut()
+    const cookieStore = await cookies()
+    cookieStore.delete(VIEW_AS_COOKIE)
     redirect('/auth/login?blocked=1')
   }
 

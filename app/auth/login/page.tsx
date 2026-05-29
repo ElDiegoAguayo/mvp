@@ -4,12 +4,12 @@ import { useEffect, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Loader2 } from 'lucide-react'
+import { clearViewAsCookieAction } from '@/app/admin/impersonation-actions'
 import { checkLoginLockout, checkIpBlocked, getLoginClientIpAction, recordLoginAttempt, auditSecurityEvent } from '@/app/auth/login-actions'
 import { getMaintenanceModePublicAction } from '@/app/admin/maintenance-actions'
-import { LoginShowcase, useLoginVariant } from '@/components/auth/login-showcase'
+import { LoginLayout } from '@/components/auth/login-layout'
 
 function LoginContent() {
-  const { variant, changeVariant } = useLoginVariant()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -224,6 +224,13 @@ function LoginContent() {
           console.error('[v0] Audit error (non-blocking):', auditError)
         }
 
+        // Fresh session: never resume a stale support-mode cookie from a prior admin session
+        try {
+          await clearViewAsCookieAction()
+        } catch {
+          /* non-blocking */
+        }
+
         // Full navigation so session cookies sync reliably in production (avoids RSC redirect issues)
         window.location.assign('/dashboard')
         return
@@ -237,19 +244,15 @@ function LoginContent() {
   }
 
   return (
-    <LoginShowcase
-      variant={variant}
-      onVariantChange={changeVariant}
-      formProps={{
-        email,
-        setEmail,
-        password,
-        setPassword,
-        error,
-        lockoutMinutes,
-        isLoading,
-        onSubmit: handleLogin,
-      }}
+    <LoginLayout
+      email={email}
+      setEmail={setEmail}
+      password={password}
+      setPassword={setPassword}
+      error={error}
+      lockoutMinutes={lockoutMinutes}
+      isLoading={isLoading}
+      onSubmit={handleLogin}
     />
   )
 }

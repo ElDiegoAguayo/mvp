@@ -2,11 +2,9 @@
 
 import { useTheme } from 'next-themes'
 import { useEffect, useState } from 'react'
-import { usePathname } from 'next/navigation'
 import { Moon, Sun } from 'lucide-react'
 
 export function ThemeToggleFloat() {
-  const pathname = usePathname()
   const { setTheme, resolvedTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
 
@@ -14,7 +12,7 @@ export function ThemeToggleFloat() {
     setMounted(true)
   }, [])
 
-  if (!mounted || pathname?.startsWith('/auth')) {
+  if (!mounted) {
     return null
   }
 

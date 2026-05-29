@@ -141,13 +141,15 @@ export function DashboardShell({
         >
           <Image
             src="/logo-upcrop.png"
-            alt="UpCrop Logo"
+            alt="Up Crop"
             width={32}
             height={32}
             className="rounded-lg shrink-0"
           />
           {!collapsed && (
-            <span className="text-xl font-bold text-primary truncate">UpCrop</span>
+            <span className="text-xl font-bold text-foreground truncate">
+              Up <span className="text-primary">Crop</span>
+            </span>
           )}
         </div>
 
@@ -290,12 +292,14 @@ export function DashboardShell({
               <div className="h-16 px-4 flex items-center gap-3 border-b border-border shrink-0">
                 <Image
                   src="/logo-upcrop.png"
-                  alt="UpCrop Logo"
+                  alt="Up Crop"
                   width={32}
                   height={32}
                   className="rounded-lg"
                 />
-                <span className="text-xl font-bold text-primary">UpCrop</span>
+                <span className="text-xl font-bold text-foreground">
+                  Up <span className="text-primary">Crop</span>
+                </span>
               </div>
               <nav className="flex-1 overflow-y-auto p-3 space-y-1">
                 <Link
@@ -398,12 +402,14 @@ export function DashboardShell({
             <div className="flex items-center gap-2">
               <Image
                 src="/logo-upcrop.png"
-                alt="UpCrop Logo"
+                alt="Up Crop"
                 width={28}
                 height={28}
                 className="rounded-lg"
               />
-              <span className="font-bold text-primary">UpCrop</span>
+              <span className="font-bold text-foreground">
+                Up <span className="text-primary">Crop</span>
+              </span>
             </div>
             <div className="w-9" />
           </div>

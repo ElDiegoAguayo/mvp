@@ -1,6 +1,8 @@
 'use client'
 
+import { clearViewAsCookieAction } from '@/app/admin/impersonation-actions'
 import { createClient } from '@/lib/supabase/client'
+import { setClientViewAsUserId } from '@/lib/supabase/effective-user'
 import { Button } from '@/components/ui/button'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
@@ -12,11 +14,16 @@ export function LogoutButton() {
 
   const handleLogout = async () => {
     setIsLoading(true)
-    const supabase = createClient()
-    
-    await supabase.auth.signOut()
-    router.push('/auth/login')
-    router.refresh()
+    try {
+      await clearViewAsCookieAction()
+      setClientViewAsUserId(null)
+      const supabase = createClient()
+      await supabase.auth.signOut()
+      router.push('/auth/login')
+      router.refresh()
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (

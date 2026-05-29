@@ -1,3 +1,4 @@
+import { VIEW_AS_COOKIE } from '@/lib/impersonation'
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
@@ -50,7 +51,9 @@ export async function updateSession(request: NextRequest) {
   if (isProtected && !user) {
     const url = request.nextUrl.clone()
     url.pathname = '/auth/login'
-    return NextResponse.redirect(url)
+    const response = NextResponse.redirect(url)
+    response.cookies.delete(VIEW_AS_COOKIE)
+    return response
   }
 
   // If the user is authenticated, verify their account is still active.
@@ -106,6 +109,10 @@ export async function updateSession(request: NextRequest) {
       url.pathname = '/dashboard'
       return NextResponse.redirect(url)
     }
+  }
+
+  if (!user && request.cookies.get(VIEW_AS_COOKIE)) {
+    supabaseResponse.cookies.delete(VIEW_AS_COOKIE)
   }
 
   return supabaseResponse
