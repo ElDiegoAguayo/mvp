@@ -23,7 +23,6 @@ export function isCostosGastosModule(slug?: string | null, name?: string | null)
 export function isProduccionModule(slug?: string | null, name?: string | null): boolean {
   const s = (slug ?? '').trim().toLowerCase()
   const n = (name ?? '').trim().toLowerCase()
-  if (s.includes('plan-de-cosecha')) return false
   if (
     s === 'produccion'
     || s.includes('embalaje')

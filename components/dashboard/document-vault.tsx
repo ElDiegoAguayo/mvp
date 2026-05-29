@@ -913,6 +913,7 @@ export function DocumentVault() {
             <VaultStorageBar
               usedBytes={storageInfo.usedBytes}
               quotaBytes={storageInfo.quotaBytes}
+              modules={storageInfo.modules}
             />
           </div>
         )}

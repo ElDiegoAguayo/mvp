@@ -19,8 +19,7 @@ import { countGroupKey, listCountGroupSummaries } from '@/lib/agronomy/count-gro
 import { buildEstimationFromCountSummary } from '@/lib/agronomy/build-estimation-from-count'
 import { currentSeasonLabel, formatKg } from '@/lib/agronomy/format'
 import { HARVEST_CROPS } from '@/lib/agronomy/harvest-yields'
-import { buildHarvestPlanRows, formatWindowRange, WINDOW_SOURCE_LABELS, type HarvestPlanRow } from '@/lib/agronomy/harvest-plan-windows'
-import type { PhenologyStageRef } from '@/lib/agronomy/phenology-predictions'
+import { buildHarvestPlanRows, formatWindowRange, isCountSampleRow, WINDOW_SOURCE_LABELS, type HarvestPlanRow } from '@/lib/agronomy/harvest-plan-windows'
 import { HarvestPlanGantt, HarvestPlanTable } from '@/components/dashboard/harvest-plan/harvest-plan-gantt'
 import { HarvestPlanSummary, HarvestPlanWeekBuckets } from '@/components/dashboard/harvest-plan/harvest-plan-summary'
 
@@ -31,6 +30,7 @@ interface HarvestEstimate {
   crop: string
   variety: string | null
   season_label: string
+  record_date: string | null
   hectares: number | null
   plants_per_ha: number | null
   dardos_per_plant: number | null
@@ -55,34 +55,19 @@ interface HarvestBlock {
   plants_per_ha: number | null
 }
 
-interface PhenologyObservation {
-  block_name: string
-  crop: string
-  season_label: string
-  stage_name: string
-  stage_id: string | null
-  observed_at: string
-}
-
-interface PhenologyStage {
-  id: string
-  crop: string
-  stage_name: string
-  stage_code: string | null
-  sort_order: number
-  typical_days: number | null
-}
-
 const ALL = 'all'
 
-export function HarvestPlanManager() {
+interface HarvestPlanManagerProps {
+  /** Dentro de Estimación de cosecha (pestaña integrada). */
+  embedded?: boolean
+}
+
+export function HarvestPlanManager({ embedded = false }: HarvestPlanManagerProps) {
   const supabase = useMemo(() => createClient(), [])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [rows, setRows] = useState<HarvestEstimate[]>([])
   const [blocks, setBlocks] = useState<HarvestBlock[]>([])
-  const [observations, setObservations] = useState<PhenologyObservation[]>([])
-  const [stages, setStages] = useState<PhenologyStage[]>([])
   const [filterSeason, setFilterSeason] = useState('')
   const [filterCrop, setFilterCrop] = useState(ALL)
   const [filterField, setFilterField] = useState(ALL)
@@ -100,19 +85,15 @@ export function HarvestPlanManager() {
       return
     }
 
-    const [estRes, blockRes, obsRes, stageRes] = await Promise.all([
+    const [estRes, blockRes] = await Promise.all([
       supabase.from('harvest_estimates').select('*').eq('user_id', effectiveUserId).order('record_date', { ascending: false }),
       supabase.from('harvest_blocks').select('field_name, block_name, crop, variety, hectares, plants_per_ha').eq('user_id', effectiveUserId),
-      supabase.from('phenology_observations').select('block_name, crop, season_label, stage_name, stage_id, observed_at').eq('user_id', effectiveUserId),
-      supabase.from('phenology_stages').select('id, crop, stage_name, stage_code, sort_order, typical_days').eq('user_id', effectiveUserId),
     ])
 
     if (estRes.error) toast.error('No se pudieron cargar las estimaciones')
     else setRows((estRes.data ?? []) as HarvestEstimate[])
 
     if (!blockRes.error) setBlocks((blockRes.data ?? []) as HarvestBlock[])
-    if (!obsRes.error) setObservations((obsRes.data ?? []) as PhenologyObservation[])
-    if (!stageRes.error) setStages((stageRes.data ?? []) as PhenologyStage[])
 
     setLoading(false)
   }, [supabase])
@@ -228,24 +209,22 @@ export function HarvestPlanManager() {
     })
   }, [estimationDisplayRows, filterCrop, filterField, filterBlock, filterVariety])
 
-  const stagesByCrop = useMemo(() => {
-    const map = new Map<string, PhenologyStageRef[]>()
-    for (const crop of [...new Set(filteredEstimates.map((r) => r.crop))]) {
-      map.set(
-        crop,
-        stages
-          .filter((s) => s.crop === crop)
-          .map((s) => ({
-            id: s.id,
-            stage_name: s.stage_name,
-            stage_code: s.stage_code,
-            sort_order: s.sort_order,
-            typical_days: s.typical_days,
-          })),
-      )
-    }
-    return map
-  }, [stages, filteredEstimates])
+  const countRecordsForPlan = useMemo(
+    () => seasonRows
+      .filter((r) => isCountSampleRow(r))
+      .map((r) => ({
+        field_name: r.field_name,
+        block_name: r.block_name,
+        crop: r.crop,
+        season_label: r.season_label,
+        record_date: r.record_date,
+        count_state: r.count_state,
+        hilera: r.hilera,
+        arbol: r.arbol,
+        is_count_summary: r.is_count_summary,
+      })),
+    [seasonRows],
+  )
 
   const planRows = useMemo(
     () => buildHarvestPlanRows(
@@ -260,10 +239,9 @@ export function HarvestPlanManager() {
         expected_start: r.expected_start,
         expected_end: r.expected_end,
       })),
-      observations.filter((o) => !filterSeason || o.season_label === filterSeason),
-      stagesByCrop,
+      countRecordsForPlan,
     ),
-    [filteredEstimates, observations, filterSeason, stagesByCrop],
+    [filteredEstimates, countRecordsForPlan],
   )
 
   const fieldsInUse = useMemo(
@@ -290,7 +268,7 @@ export function HarvestPlanManager() {
       blockCount: new Set(planRows.map((r) => r.block_name)).size,
       fieldCount: new Set(planRows.map((r) => r.field_name)).size,
       manualCount: planRows.filter((r) => r.source === 'manual').length,
-      phenologyCount: planRows.filter((r) => r.source === 'phenology').length,
+      countSourceCount: planRows.filter((r) => r.source === 'count').length,
       earliestStart: planRows.length > 0 ? planRows.reduce((min, r) => (r.window_start < min ? r.window_start : min), planRows[0]!.window_start) : null,
       latestEnd: planRows.length > 0 ? planRows.reduce((max, r) => (r.window_end > max ? r.window_end : max), planRows[0]!.window_end) : null,
     }
@@ -402,11 +380,18 @@ export function HarvestPlanManager() {
           <CalendarRange className="w-10 h-10 mx-auto mb-3 opacity-40" />
           <p className="font-medium text-foreground mb-1">Sin plan de cosecha para esta temporada</p>
           <p className="text-sm mb-4 max-w-md mx-auto">
-            Necesitas estimaciones de kg por cuartel. Las fechas se calculan desde fenología o referencia de variedad.
+            Necesitas estimaciones de kg por cuartel. Las fechas se calculan desde el inicio y término del conteo de cada cuartel.
           </p>
-          <Button asChild>
-            <Link href="/dashboard/estimacion-cosecha">Ir a Estimación de cosecha</Link>
-          </Button>
+          {!embedded && (
+            <Button asChild>
+              <Link href="/dashboard/estimacion-cosecha?tab=estimacion">Ir a Estimación de cosecha</Link>
+            </Button>
+          )}
+          {embedded && (
+            <p className="text-xs text-muted-foreground">
+              Registra conteos o estimaciones en las pestañas anteriores.
+            </p>
+          )}
         </div>
       ) : (
         <>
@@ -446,10 +431,10 @@ export function HarvestPlanManager() {
 
           <p className="text-xs text-muted-foreground flex items-center gap-1.5">
             <ExternalLink className="w-3.5 h-3.5" />
-            Las fechas manuales se guardan en la estimación. Sin fechas guardadas, se infieren desde
+            Las fechas manuales se guardan en la estimación. Sin fechas guardadas, se usan la primera y última fecha de
             {' '}
-            <Link href="/dashboard/estados-fenologicos" className="text-primary hover:underline">estados fenológicos</Link>
-            {' '}o ventanas típicas por variedad.
+            <Link href="/dashboard/estimacion-cosecha?tab=conteo" className="text-primary hover:underline">conteo</Link>
+            {' '}del cuartel, o ventanas típicas por variedad si no hay conteos.
           </p>
         </>
       )}

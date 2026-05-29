@@ -1,10 +1,10 @@
 'use server'
 
-import { getMyVaultDataAction, type VaultStorageInfo } from '@/app/actions/vault-documents-actions'
+import { getMyClientStorageAction, type ClientStorageInfo } from '@/app/actions/client-storage-actions'
+import type { VaultStorageInfo } from '@/app/actions/vault-documents-actions'
 
-export type { VaultStorageInfo }
+export type { ClientStorageInfo, VaultStorageInfo }
 
-export async function getMyVaultStorageAction(): Promise<VaultStorageInfo | null> {
-  const data = await getMyVaultDataAction()
-  return data?.storage ?? null
+export async function getMyVaultStorageAction(): Promise<ClientStorageInfo | null> {
+  return getMyClientStorageAction()
 }

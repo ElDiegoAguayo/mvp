@@ -11,22 +11,27 @@ import {
   storageBarTone,
   storageUsagePercent,
 } from '@/lib/vault-storage'
+import type { ClientStorageModule } from '@/lib/client-storage'
+import { formatModuleStorageLine } from '@/lib/client-storage'
 
-interface VaultStorageBarProps {
+interface ClientStorageBarProps {
   usedBytes: number
   quotaBytes: number
+  modules?: ClientStorageModule[]
   className?: string
   compact?: boolean
 }
 
-export function VaultStorageBar({
+export function ClientStorageBar({
   usedBytes,
   quotaBytes,
+  modules,
   className,
   compact = false,
-}: VaultStorageBarProps) {
+}: ClientStorageBarProps) {
   const percent = storageUsagePercent(usedBytes, quotaBytes)
   const tone = storageBarTone(percent)
+  const visibleModules = (modules ?? []).filter((m) => m.bytes > 0 || m.files > 0)
 
   const barClass =
     tone === 'critical'
@@ -46,7 +51,7 @@ export function VaultStorageBar({
             <p className="text-sm font-medium text-foreground">Almacenamiento</p>
             {!compact && (
               <p className="text-xs text-muted-foreground">
-                Espacio compartido de tu empresa en Mis documentos
+                Cuota compartida de tu empresa en todos los módulos
               </p>
             )}
           </div>
@@ -61,6 +66,29 @@ export function VaultStorageBar({
         <span>{formatStorageUsageLabel(usedBytes, quotaBytes)}</span>
         <span>{formatAvailableStorage(usedBytes, quotaBytes)} disponibles</span>
       </div>
+
+      {visibleModules.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-border/60 space-y-1.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Uso por módulo
+          </p>
+          {visibleModules.map((mod) => {
+            const modPct = usedBytes > 0 ? Math.max(1, Math.round((mod.bytes / usedBytes) * 100)) : 0
+            return (
+              <div key={mod.id} className="flex items-center justify-between gap-3 text-xs">
+                <span className="text-foreground truncate">{mod.label}</span>
+                <span className="text-muted-foreground shrink-0 tabular-nums">
+                  {formatModuleStorageLine(mod)}
+                  {usedBytes > 0 && mod.bytes > 0 && (
+                    <span className="ml-1 text-muted-foreground/70">({modPct}%)</span>
+                  )}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
       {tone === 'critical' && (
         <p className="mt-2 text-xs text-red-600 dark:text-red-400">
           Cuota casi agotada. Elimina archivos o contacta a soporte para ampliar tu plan.
@@ -73,4 +101,9 @@ export function VaultStorageBar({
       )}
     </div>
   )
+}
+
+/** @deprecated Usar ClientStorageBar */
+export function VaultStorageBar(props: Omit<ClientStorageBarProps, 'modules'>) {
+  return <ClientStorageBar {...props} />
 }

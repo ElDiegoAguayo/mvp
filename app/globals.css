@@ -127,9 +127,23 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    /* Evita que fixed (ej. botón sol) salte cuando un Select/Dialog oculta el scroll */
+    scrollbar-gutter: stable;
+  }
   body {
     @apply bg-background text-foreground;
   }
+  /* Radix añade padding-right al bloquear scroll; con gutter estable eso mueve la UI */
+  body[data-scroll-locked] {
+    padding-right: 0 !important;
+    margin-right: 0 !important;
+  }
+}
+
+/* Posición fija derecha: mismo offset que right-6, estable al abrir overlays */
+.fixed-right-safe {
+  right: calc(1.5rem + env(safe-area-inset-right, 0px));
 }
 
 /* Custom scrollbar */

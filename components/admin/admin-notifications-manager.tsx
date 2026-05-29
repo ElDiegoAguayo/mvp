@@ -117,7 +117,7 @@ function emptyForm(): NotifFormState {
   return {
     title: '', message: '', severity: 'info',
     activeFrom: todayInputValue(), activeUntil: weekFromNowInputValue(),
-    targetRole: 'all',
+    targetRole: 'admin',
   }
 }
 

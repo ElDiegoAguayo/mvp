@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { getEffectiveUserId } from '@/lib/supabase/effective-user'
 import { Button } from '@/components/ui/button'
@@ -63,6 +64,13 @@ import { HarvestPrePostTable } from '@/components/dashboard/harvest/harvest-pre-
 import { HarvestEstimationCards } from '@/components/dashboard/harvest/harvest-estimation-cards'
 import { HarvestRowBadge, isComputedHarvestRow } from '@/components/dashboard/harvest/harvest-row-badge'
 import { computePrePostDeltaRows } from '@/lib/agronomy/compute-pre-post-delta'
+import { HarvestPlanManager } from '@/components/dashboard/harvest-plan/harvest-plan-manager'
+
+export type HarvestEstimationTab = 'conteo' | 'estimacion' | 'plan'
+
+function isHarvestEstimationTab(value: string | null | undefined): value is HarvestEstimationTab {
+  return value === 'conteo' || value === 'estimacion' || value === 'plan'
+}
 
 interface HarvestField {
   id: string
@@ -278,7 +286,8 @@ function computeFromForm(form: FormState, forSave = false) {
   }
 }
 
-export function HarvestEstimationManager() {
+export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab?: HarvestEstimationTab } = {}) {
+  const router = useRouter()
   const supabase = useMemo(() => createClient(), [])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -289,7 +298,19 @@ export function HarvestEstimationManager() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [blocksDialogOpen, setBlocksDialogOpen] = useState(false)
   const [fieldsDialogOpen, setFieldsDialogOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState<'conteo' | 'estimacion'>('conteo')
+  const [activeTab, setActiveTab] = useState<HarvestEstimationTab>(initialTab)
+
+  useEffect(() => {
+    if (isHarvestEstimationTab(initialTab)) setActiveTab(initialTab)
+  }, [initialTab])
+
+  function handleMainTabChange(tab: HarvestEstimationTab) {
+    setActiveTab(tab)
+    const href = tab === 'conteo'
+      ? '/dashboard/estimacion-cosecha'
+      : `/dashboard/estimacion-cosecha?tab=${tab}`
+    router.replace(href, { scroll: false })
+  }
   const [countView, setCountView] = useState<'promedios' | 'muestras'>('promedios')
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [importMode, setImportMode] = useState<'conteo' | 'estimacion'>('conteo')
@@ -1312,13 +1333,16 @@ export function HarvestEstimationManager() {
         </Button>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'conteo' | 'estimacion')}>
-        <TabsList className="w-full sm:w-auto">
+      <Tabs value={activeTab} onValueChange={(v) => handleMainTabChange(v as HarvestEstimationTab)}>
+        <TabsList className="w-full sm:w-auto h-auto flex-wrap">
           <TabsTrigger value="conteo" className="gap-2">
             <ClipboardList className="w-4 h-4" /> Conteo
           </TabsTrigger>
           <TabsTrigger value="estimacion" className="gap-2">
             <BarChart3 className="w-4 h-4" /> Estimación de cosecha
+          </TabsTrigger>
+          <TabsTrigger value="plan" className="gap-2">
+            <CalendarRange className="w-4 h-4" /> Plan de cosecha
           </TabsTrigger>
         </TabsList>
 
@@ -1577,7 +1601,7 @@ export function HarvestEstimationManager() {
                 Importa conteos, calcula desde promedios o crea una estimación manualmente.
               </p>
               <div className="flex gap-2 justify-center flex-wrap">
-                <Button variant="outline" onClick={() => setActiveTab('conteo')}>Ir a Conteo</Button>
+                <Button variant="outline" onClick={() => handleMainTabChange('conteo')}>Ir a Conteo</Button>
                 <Button onClick={openCreateEstimation}>Nueva estimación</Button>
               </div>
             </div>
@@ -1657,6 +1681,10 @@ export function HarvestEstimationManager() {
             </div>
             </>
           )}
+        </TabsContent>
+
+        <TabsContent value="plan" className="space-y-4 mt-4">
+          <HarvestPlanManager embedded />
         </TabsContent>
       </Tabs>
 

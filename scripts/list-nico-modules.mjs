@@ -38,7 +38,7 @@ const { data: access } = await sb
 const slugs = (access ?? []).map((a) => a.modules).filter(Boolean)
 
 const checks = {
-  'estimacion-cosecha / plan-de-cosecha': async () => {
+  'estimacion-cosecha': async () => {
     const { count } = await sb.from('harvest_estimates').select('*', { count: 'exact', head: true }).eq('user_id', uid)
     return count > 0
   },
@@ -68,7 +68,7 @@ const checks = {
 
 function matchCheck(slug, name) {
   const s = `${slug} ${name}`.toLowerCase()
-  if (s.includes('estimacion') || s.includes('plan-de-cosecha') || s.includes('plan de cosecha') || s.includes('cosecha')) return 'estimacion-cosecha / plan-de-cosecha'
+  if (s.includes('estimacion') || (s.includes('cosecha') && !s.includes('plan de cosecha') && !s.includes('plan-de-cosecha'))) return 'estimacion-cosecha'
   if (s.includes('fenolog')) return 'estados-fenologicos'
   if (s.includes('costo') || s.includes('gasto')) return 'costos-y-gastos'
   if (s.includes('produccion') || s.includes('producción') || s.includes('planificacion') || s.includes('embalaje')) return 'produccion / planificacion'

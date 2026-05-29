@@ -47,13 +47,13 @@ export default async function ProduccionPage() {
       </div>
 
       {ok && data.length > 0 && (critCount > 0 || bajCount > 0) && (
-        <div className="rounded-xl border border-red-500/40 bg-red-950/20 p-4 flex items-start gap-3">
+        <div className="rounded-xl border border-red-200 dark:border-red-500/40 bg-red-50 dark:bg-red-950/20 p-4 flex items-start gap-3">
           <span className="text-2xl">🚨</span>
           <div>
-            <p className="font-semibold text-red-200 text-sm">
+            <p className="font-semibold text-red-900 dark:text-red-200 text-sm">
               Atención: {critCount + bajCount} código{critCount + bajCount > 1 ? 's' : ''} con stock insuficiente
             </p>
-            <p className="text-xs text-red-300/70 mt-0.5">
+            <p className="text-xs text-red-700/90 dark:text-red-300/70 mt-0.5">
               {critCount > 0 && `${critCount} crítico${critCount > 1 ? 's' : ''} (< ${UMBRAL_CRITICO_PALLETS} pallets) · `}
               {bajCount > 0 && `${bajCount} bajo${bajCount > 1 ? 's' : ''} (< ${UMBRAL_BAJO_PALLETS} pallets)`}
             </p>

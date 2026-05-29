@@ -15,7 +15,7 @@ import { cn } from '@/lib/utils'
 
 const SOURCE_STYLE = {
   manual: 'bg-emerald-500/80 border-emerald-400',
-  phenology: 'bg-violet-500/80 border-violet-400',
+  count: 'bg-amber-500/80 border-amber-400',
   variety: 'bg-sky-500/70 border-sky-400',
 } as const
 
@@ -156,7 +156,7 @@ export function HarvestPlanTable({ rows, onEdit }: HarvestPlanTableProps) {
               <th className="px-3 py-3 font-medium">Inicio</th>
               <th className="px-3 py-3 font-medium">Fin</th>
               <th className="px-3 py-3 font-medium">Origen</th>
-              <th className="px-3 py-3 font-medium">Fenología</th>
+              <th className="px-3 py-3 font-medium">Conteo</th>
               {onEdit && <th className="px-3 py-3 w-20" />}
             </tr>
           </thead>
@@ -174,7 +174,7 @@ export function HarvestPlanTable({ rows, onEdit }: HarvestPlanTableProps) {
                     {WINDOW_SOURCE_LABELS[row.source]}
                   </Badge>
                 </td>
-                <td className="px-3 py-3 text-muted-foreground text-xs">{row.phenology_stage ?? '—'}</td>
+                <td className="px-3 py-3 text-muted-foreground text-xs">{row.count_label ?? '—'}</td>
                 {onEdit && (
                   <td className="px-3 py-3">
                     {row.id && !row.id.startsWith('computed-') && (

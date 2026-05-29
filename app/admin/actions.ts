@@ -878,7 +878,7 @@ export async function createAdminNotificationAction(
     return { ok: false, message: 'La fecha de fin debe ser posterior a la de inicio.' }
   }
 
-  const targetRole = String(formData.get('target_role') ?? 'all')
+  const targetRole = String(formData.get('target_role') ?? 'admin')
   if (!['all', 'admin', 'user'].includes(targetRole)) {
     return { ok: false, message: 'Rol de destino inválido.' }
   }
@@ -950,7 +950,7 @@ export async function updateAdminNotificationAction(
   const severity    = String(formData.get('severity') ?? 'info')
   const activeFrom  = String(formData.get('active_from') ?? '')
   const activeUntil = String(formData.get('active_until') ?? '')
-  const targetRole  = String(formData.get('target_role') ?? 'all')
+  const targetRole  = String(formData.get('target_role') ?? 'admin')
 
   if (!title || !message || !activeFrom || !activeUntil) {
     return { ok: false, message: 'Todos los campos son obligatorios.' }
@@ -1488,7 +1488,7 @@ export async function getVaultClientsSummaryAction(): Promise<VaultClientSummary
 
   const { adminClient } = ctx
 
-  const [clientsRes, docsRes, foldersRes, linksRes, userProfilesRes] = await Promise.all([
+  const [clientsRes, docsRes, phenologyRes, foldersRes, linksRes, userProfilesRes] = await Promise.all([
     adminClient
       .from('profiles')
       .select('id, full_name, email, storage_quota_gb, storage_quota_bytes')
@@ -1496,6 +1496,7 @@ export async function getVaultClientsSummaryAction(): Promise<VaultClientSummary
       .is('parent_user_id', null)
       .order('full_name', { ascending: true }),
     adminClient.from('documentos').select('user_id, size'),
+    adminClient.from('phenology_observation_images').select('user_id, file_size'),
     adminClient.from('carpetas').select('user_id'),
     adminClient.from('shared_links').select('user_id, expires_at'),
     adminClient.from('profiles').select('id, parent_user_id').eq('role', 'user'),
@@ -1521,6 +1522,13 @@ export async function getVaultClientsSummaryAction(): Promise<VaultClientSummary
     const s = ensure(ownerId)
     s.files += 1
     s.bytes += Number(row.size) || 0
+  }
+  for (const row of phenologyRes.data ?? []) {
+    const ownerId = ownerOf(row.user_id as string)
+    if (!principalIds.has(ownerId)) continue
+    const s = ensure(ownerId)
+    s.files += 1
+    s.bytes += Number(row.file_size) || 0
   }
   for (const row of foldersRes.data ?? []) {
     const ownerId = ownerOf(row.user_id as string)

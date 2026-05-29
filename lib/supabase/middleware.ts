@@ -46,11 +46,37 @@ export async function updateSession(request: NextRequest) {
   // If the user is authenticated, verify their account is still active.
   // A blocked account must be signed out everywhere, including stale sessions.
   if (user) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('is_active')
-      .eq('id', user.id)
-      .maybeSingle()
+    const [{ data: profile }, { data: maintenance }] = await Promise.all([
+      supabase
+        .from('profiles')
+        .select('is_active, role')
+        .eq('id', user.id)
+        .maybeSingle(),
+      supabase
+        .from('platform_maintenance')
+        .select('enabled, message')
+        .eq('id', 1)
+        .maybeSingle(),
+    ])
+
+    const maintenanceActive = Boolean(maintenance?.enabled)
+    const isClientUser = profile?.role === 'user'
+
+    if (maintenanceActive && isClientUser) {
+      const onAuthPage =
+        pathname.startsWith('/auth/login') || pathname.startsWith('/auth/registro')
+
+      if (pathname.startsWith('/dashboard') || onAuthPage) {
+        await supabase.auth.signOut()
+
+        if (!pathname.startsWith('/auth/login') || request.nextUrl.searchParams.get('maintenance') !== '1') {
+          const url = request.nextUrl.clone()
+          url.pathname = '/auth/login'
+          url.searchParams.set('maintenance', '1')
+          return NextResponse.redirect(url)
+        }
+      }
+    }
 
     if (profile && profile.is_active === false) {
       await supabase.auth.signOut()
@@ -62,8 +88,8 @@ export async function updateSession(request: NextRequest) {
         return NextResponse.redirect(url)
       }
     } else if (
-      pathname.startsWith('/auth/login') ||
-      pathname.startsWith('/auth/registro')
+      (pathname.startsWith('/auth/login') || pathname.startsWith('/auth/registro')) &&
+      !(maintenanceActive && isClientUser)
     ) {
       const url = request.nextUrl.clone()
       url.pathname = '/dashboard'

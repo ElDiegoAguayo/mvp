@@ -7,9 +7,35 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Mail, Lock, AlertCircle, Loader2, ArrowRight, ShieldAlert, ExternalLink } from 'lucide-react'
+import { Mail, Lock, AlertCircle, Loader2, ArrowRight, ShieldAlert, ExternalLink, Sun, Moon } from 'lucide-react'
+import { useTheme } from 'next-themes'
 import { checkLoginLockout, checkIpBlocked, getLoginClientIpAction, recordLoginAttempt, auditSecurityEvent } from '@/app/auth/login-actions'
+import { getMaintenanceModePublicAction } from '@/app/admin/maintenance-actions'
 import Image from 'next/image'
+
+function LoginThemeToggle() {
+  const { setTheme, resolvedTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => setMounted(true), [])
+
+  if (!mounted) {
+    return <div className="w-11 h-11" aria-hidden />
+  }
+
+  const isDark = resolvedTheme === 'dark'
+
+  return (
+    <button
+      type="button"
+      onClick={() => setTheme(isDark ? 'light' : 'dark')}
+      className="w-11 h-11 rounded-full bg-[#4A6CF7] text-white shadow-md hover:bg-[#3B5DE7] flex items-center justify-center transition-colors"
+      aria-label={isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+    >
+      {isDark ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
+    </button>
+  )
+}
 
 function LoginContent() {
   const [email, setEmail] = useState('')
@@ -26,6 +52,11 @@ function LoginContent() {
       setError(
         'Acceso denegado. Tu cuenta se encuentra suspendida por pagos pendientes. Por favor, comunícate con administración.',
       )
+    }
+    if (searchParams.get('maintenance') === '1') {
+      void getMaintenanceModePublicAction().then((state) => {
+        if (state.enabled) setError(state.message)
+      })
     }
   }, [searchParams])
 
@@ -153,11 +184,13 @@ function LoginContent() {
         return // ABORT on login failure
       }
 
-      // STEP 5: Verify the account is active
+      // STEP 5: Verify the account is active and maintenance mode
       if (data.user) {
+        const maintenance = await getMaintenanceModePublicAction()
+
         const { data: profile, error: profileError } = await supabase
           .from('profiles')
-          .select('is_active')
+          .select('is_active, role')
           .eq('id', data.user.id)
           .maybeSingle()
 
@@ -167,6 +200,25 @@ function LoginContent() {
           setError('No se pudo verificar el estado de tu cuenta. Intenta de nuevo.')
           setIsLoading(false)
           return // ABORT
+        }
+
+        if (maintenance.enabled && profile?.role === 'user') {
+          console.log('[v0] Maintenance block - Email:', data.user.email)
+          await supabase.auth.signOut()
+          setError(maintenance.message)
+          try {
+            await recordLoginAttempt(cleanEmail, clientIp, userAgent, false)
+            await auditSecurityEvent(
+              cleanEmail,
+              'Anónimo',
+              'LOGIN_BLOCKED_MAINTENANCE',
+              'Intento de inicio de sesión bloqueado por modo mantenimiento',
+              clientIp,
+              userAgent,
+            )
+          } catch { /* non-blocking */ }
+          setIsLoading(false)
+          return
         }
 
         if (profile && profile.is_active === false) {
@@ -214,182 +266,175 @@ function LoginContent() {
   }
 
   return (
-    <div className="min-h-screen bg-background bg-grid flex">
-      {/* Left side - Branding */}
-      <div className="hidden lg:flex lg:w-1/2 flex-col justify-between p-12 relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-[#4A6CF7]/5 via-transparent to-transparent" />
-        
-        <div className="relative z-10 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-[#4A6CF7]/10 border border-[#4A6CF7]/20 flex items-center justify-center overflow-hidden">
-              <Image 
-                src="/logo-upcrop.png" 
-                alt="UpCrop Logo" 
-                width={32} 
-                height={32}
-                className="object-contain"
-              />
-            </div>
-            <span className="text-2xl font-bold text-[#4A6CF7]">UpCrop</span>
-          </div>
-          <a 
-            href="https://www.upcrop-ia.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#4A6CF7]/10 border border-[#4A6CF7]/20 text-[#4A6CF7] hover:bg-[#4A6CF7] hover:text-white transition-all duration-200"
-          >
-            <span className="text-sm font-medium">Ir al sitio</span>
-            <ExternalLink className="w-4 h-4" />
-          </a>
+    <div className="min-h-screen bg-white text-slate-900 bg-grid flex flex-col">
+      {/* Header */}
+      <header className="grid grid-cols-[1fr_auto_1fr] items-center w-full px-8 sm:px-12 lg:px-16 xl:px-20 py-5 shrink-0">
+        <div className="flex items-center gap-2.5">
+          <Image
+            src="/logo-upcrop.png"
+            alt="UpCrop Logo"
+            width={36}
+            height={36}
+            className="object-contain shrink-0"
+            priority
+          />
+          <span className="text-xl font-bold text-[#4A6CF7] tracking-tight">UpCrop</span>
         </div>
 
-        <div className="relative z-10 space-y-6">
-          <h1 className="text-5xl font-bold leading-tight text-balance text-foreground">
-            Tecnologia para el
-            <span className="text-[#4A6CF7]"> futuro agricola</span>
-          </h1>
-          <p className="text-xl text-muted-foreground max-w-md text-pretty">
-            Gestiona tus operaciones agricolas con inteligencia. Trazabilidad, comercio exterior, inventario y mas en una sola plataforma.
+        <a
+          href="https://www.upcrop-ia.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[#4A6CF7]/20 bg-[#4A6CF7]/5 text-sm font-medium text-[#4A6CF7] hover:bg-[#4A6CF7]/10 transition-colors"
+        >
+          <span>Ir al sitio</span>
+          <ExternalLink className="w-4 h-4" />
+        </a>
+
+        <div className="flex justify-end">
+          <LoginThemeToggle />
+        </div>
+      </header>
+
+      {/* Contenido — dos columnas como el mockup */}
+      <main className="flex-1 flex flex-col lg:flex-row w-full px-8 sm:px-12 lg:px-16 xl:px-20 pb-10 lg:pb-12 gap-10 lg:gap-16 xl:gap-20 lg:items-center">
+        {/* Izquierda */}
+        <div className="lg:w-1/2 flex flex-col gap-8 lg:gap-10 lg:self-stretch lg:justify-between">
+          <div className="space-y-6 lg:space-y-8">
+            <h1 className="text-[2rem] sm:text-[2.35rem] lg:text-[2.5rem] xl:text-[2.75rem] font-bold leading-tight text-slate-900 tracking-tight">
+              Welcome to Up Crop
+            </h1>
+            <div className="rounded-2xl overflow-hidden shadow-[0_8px_30px_rgba(0,0,0,0.08)] ring-1 ring-slate-100">
+              <Image
+                src="/login-hero.png"
+                alt="Centro de operaciones UpCrop — analytics agrícolas"
+                width={1024}
+                height={571}
+                className="w-full h-auto block"
+                priority
+                sizes="(max-width: 1024px) 100vw, 50vw"
+              />
+            </div>
+          </div>
+
+          <p className="text-sm text-slate-400 hidden lg:block">
+            2024 UpCrop. Agri-Tech Solutions.
           </p>
-          
-          <div className="grid grid-cols-2 gap-4 pt-8">
-            {['Trazabilidad', 'Comex', 'Inventario', 'Clima', 'Mercado'].map((feature) => (
-              <div key={feature} className="flex items-center gap-2 text-muted-foreground">
-                <div className="w-2 h-2 rounded-full bg-[#4A6CF7]" />
-                <span>{feature}</span>
-              </div>
-            ))}
-          </div>
         </div>
 
-        <div className="relative z-10 text-sm text-muted-foreground">
-          2024 UpCrop. Agri-Tech Solutions.
-        </div>
-      </div>
-
-      {/* Right side - Login Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-8">
-        <div className="w-full max-w-md space-y-8">
-          {/* Mobile logo */}
-          <div className="lg:hidden flex items-center justify-center gap-3 mb-8">
-            <div className="w-10 h-10 rounded-xl bg-[#4A6CF7]/10 border border-[#4A6CF7]/20 flex items-center justify-center overflow-hidden">
-              <Image 
-                src="/logo-upcrop.png" 
-                alt="UpCrop Logo" 
-                width={28} 
-                height={28}
-                className="object-contain"
-              />
+        {/* Derecha — formulario */}
+        <div className="lg:w-1/2 flex items-center justify-center">
+          <div className="w-full max-w-[400px] space-y-7">
+            <div className="space-y-1.5">
+              <h2 className="text-[1.75rem] font-bold text-slate-900">Bienvenido</h2>
+              <p className="text-[15px] text-slate-500">
+                Ingresa tus credenciales para acceder
+              </p>
             </div>
-            <span className="text-xl font-bold text-[#4A6CF7]">UpCrop</span>
-          </div>
 
-          <div className="space-y-2 text-center lg:text-left">
-            <h2 className="text-3xl font-bold text-foreground">Bienvenido</h2>
-            <p className="text-muted-foreground">
-              Ingresa tus credenciales para acceder
-            </p>
-          </div>
+            {error && (
+              <Alert
+                variant="destructive"
+                className={
+                  lockoutMinutes
+                    ? 'bg-red-50 border-red-200'
+                    : 'bg-red-50 border-red-200'
+                }
+              >
+                {lockoutMinutes ? (
+                  <ShieldAlert className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+                ) : (
+                  <AlertCircle className="h-4 w-4 mt-0.5 text-red-600" />
+                )}
+                <AlertDescription className="text-red-700 font-medium">
+                  {error}
+                </AlertDescription>
+              </Alert>
+            )}
 
-          {error && (
-            <Alert
-              variant="destructive"
-              className={`${
-                lockoutMinutes
-                  ? 'bg-red-500/15 border-red-400/50'
-                  : 'bg-destructive/10 border-destructive/20'
-              }`}
-            >
-              {lockoutMinutes ? (
-                <ShieldAlert className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
-              ) : (
-                <AlertCircle className="h-4 w-4 mt-0.5" />
-              )}
-              <AlertDescription className={lockoutMinutes ? 'text-red-700 font-semibold' : ''}>
-                {error}
-              </AlertDescription>
-            </Alert>
-          )}
-
-          <form onSubmit={handleLogin} className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="email" className="text-foreground">
-                Email
-              </Label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="tu@email.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className="pl-10 h-12 bg-card border-border focus:border-[#4A6CF7] focus:ring-[#4A6CF7]/20"
-                />
+            <form onSubmit={handleLogin} className="space-y-5">
+              <div className="space-y-2">
+                <Label htmlFor="email" className="text-slate-800 font-medium text-sm">
+                  Email
+                </Label>
+                <div className="relative">
+                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-[18px] w-[18px] text-slate-400" />
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="tu@email.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    className="pl-10 h-[46px] bg-[#EEF2FF] border-slate-200/80 text-slate-900 placeholder:text-slate-400 rounded-lg focus:border-[#4A6CF7] focus:ring-[#4A6CF7]/20 focus-visible:ring-[#4A6CF7]/20"
+                  />
+                </div>
               </div>
-            </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="password" className="text-foreground">
-                Contraseña
-              </Label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="********"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  className="pl-10 h-12 bg-card border-border focus:border-[#4A6CF7] focus:ring-[#4A6CF7]/20"
-                />
+              <div className="space-y-2">
+                <Label htmlFor="password" className="text-slate-800 font-medium text-sm">
+                  Contraseña
+                </Label>
+                <div className="relative">
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-[18px] w-[18px] text-slate-400" />
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="********"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    className="pl-10 h-[46px] bg-[#EEF2FF] border-slate-200/80 text-slate-900 placeholder:text-slate-400 rounded-lg focus:border-[#4A6CF7] focus:ring-[#4A6CF7]/20 focus-visible:ring-[#4A6CF7]/20"
+                  />
+                </div>
               </div>
-            </div>
 
-            <Button
-              type="submit"
-              disabled={isLoading || lockoutMinutes !== null}
-              className={`w-full h-12 font-semibold transition-all ${
-                lockoutMinutes !== null
-                  ? 'bg-gray-400 cursor-not-allowed'
-                  : 'bg-[#4A6CF7] hover:bg-[#3B5DE7] text-white shadow-lg hover:shadow-[#4A6CF7]/25'
-              }`}
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                  Iniciando sesión...
-                </>
-              ) : lockoutMinutes !== null ? (
-                <>
-                  <ShieldAlert className="mr-2 h-5 w-5" />
-                  Bloqueado por {lockoutMinutes} minutos
-                </>
-              ) : (
-                <>
-                  Iniciar Sesión
-                  <ArrowRight className="ml-2 h-5 w-5" />
-                </>
-              )}
-            </Button>
-          </form>
+              <Button
+                type="submit"
+                disabled={isLoading || lockoutMinutes !== null}
+                className={`w-full h-[46px] font-semibold transition-all rounded-lg text-[15px] ${
+                  lockoutMinutes !== null
+                    ? 'bg-slate-400 cursor-not-allowed'
+                    : 'bg-[#4A6CF7] hover:bg-[#3B5DE7] text-white shadow-sm'
+                }`}
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    Iniciando sesión...
+                  </>
+                ) : lockoutMinutes !== null ? (
+                  <>
+                    <ShieldAlert className="mr-2 h-5 w-5" />
+                    Bloqueado por {lockoutMinutes} minutos
+                  </>
+                ) : (
+                  <>
+                    Iniciar Sesión
+                    <ArrowRight className="ml-2 h-5 w-5" />
+                  </>
+                )}
+              </Button>
+            </form>
 
-          <div className="text-center pt-2">
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-slate-400 leading-relaxed">
               Acceso restringido. El registro se realiza únicamente por administración.
             </p>
           </div>
         </div>
-      </div>
+      </main>
+
+      {/* Footer móvil */}
+      <footer className="lg:hidden px-8 sm:px-12 pb-8 pt-2 shrink-0">
+        <p className="text-sm text-slate-400">2024 UpCrop. Agri-Tech Solutions.</p>
+      </footer>
     </div>
   )
 }
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-background flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-[#4A6CF7]" /></div>}>
+    <Suspense fallback={<div className="min-h-screen bg-white flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-[#4A6CF7]" /></div>}>
       <LoginContent />
     </Suspense>
   )

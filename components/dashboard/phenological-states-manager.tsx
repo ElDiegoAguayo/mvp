@@ -41,6 +41,9 @@ import {
   fmtShortDate,
 } from '@/lib/agronomy/phenology-predictions'
 import Link from 'next/link'
+import { ClientStorageBar } from '@/components/vault/vault-storage-bar'
+import { parseClientStorageRpc, type ClientStorageInfo } from '@/lib/client-storage'
+import { formatAvailableStorage } from '@/lib/vault-storage'
 
 interface HarvestBlockRef {
   id: string
@@ -136,73 +139,93 @@ export function PhenologicalStatesManager() {
   const [blocksPage, setBlocksPage] = useState(0)
   const [exporting, setExporting] = useState(false)
   const [exportStatus, setExportStatus] = useState('')
+  const [storageInfo, setStorageInfo] = useState<ClientStorageInfo | null>(null)
+
+  const loadStorage = useCallback(async (userId: string) => {
+    try {
+      const { data, error } = await supabase.rpc('get_client_storage_for_user', {
+        p_user_id: userId,
+      })
+      if (error) {
+        setStorageInfo(null)
+        return
+      }
+      setStorageInfo(parseClientStorageRpc(data))
+    } catch {
+      setStorageInfo(null)
+    }
+  }, [supabase])
 
   const load = useCallback(async () => {
     setLoading(true)
-    const { effectiveUserId } = await getEffectiveUserId(supabase)
-    if (!effectiveUserId) {
-      setLoading(false)
-      return
-    }
-    setOwnerId(effectiveUserId)
+    try {
+      const { effectiveUserId } = await getEffectiveUserId(supabase)
+      if (!effectiveUserId) return
+      setOwnerId(effectiveUserId)
 
-    const [stRes, obRes, imgRes, blockRes] = await Promise.all([
-      supabase
-        .from('phenology_stages')
-        .select('*')
-        .eq('user_id', effectiveUserId)
-        .order('crop')
-        .order('sort_order'),
-      supabase
-        .from('phenology_observations')
-        .select('*')
-        .eq('user_id', effectiveUserId)
-        .order('observed_at', { ascending: true }),
-      supabase
-        .from('phenology_observation_images')
-        .select('id, observation_id, storage_path, file_name, mime_type, sort_order')
-        .eq('user_id', effectiveUserId)
-        .order('sort_order'),
-      supabase
-        .from('harvest_blocks')
-        .select('id, field_name, block_name, crop, variety')
-        .eq('user_id', effectiveUserId)
-        .order('field_name')
-        .order('block_name'),
-    ])
+      const [stRes, obRes, imgRes, blockRes] = await Promise.all([
+        supabase
+          .from('phenology_stages')
+          .select('*')
+          .eq('user_id', effectiveUserId)
+          .order('crop')
+          .order('sort_order'),
+        supabase
+          .from('phenology_observations')
+          .select('*')
+          .eq('user_id', effectiveUserId)
+          .order('observed_at', { ascending: true }),
+        supabase
+          .from('phenology_observation_images')
+          .select('id, observation_id, storage_path, file_name, mime_type, sort_order')
+          .eq('user_id', effectiveUserId)
+          .order('sort_order'),
+        supabase
+          .from('harvest_blocks')
+          .select('id, field_name, block_name, crop, variety')
+          .eq('user_id', effectiveUserId)
+          .order('field_name')
+          .order('block_name'),
+      ])
 
-    if (stRes.error) toast.error('Error al cargar etapas')
-    else setStages((stRes.data ?? []) as PhenologyStage[])
+      if (stRes.error) toast.error('Error al cargar etapas')
+      else setStages((stRes.data ?? []) as PhenologyStage[])
 
-    if (!blockRes.error) setHarvestBlocks((blockRes.data ?? []) as HarvestBlockRef[])
+      if (!blockRes.error) setHarvestBlocks((blockRes.data ?? []) as HarvestBlockRef[])
 
-    if (obRes.error) {
-      toast.error('Error al cargar observaciones')
-      setObservations([])
-    } else {
-      const imagesByObs = new Map<string, PhenologyTimelineImage[]>()
-      if (!imgRes.error) {
-        for (const img of imgRes.data ?? []) {
-          const list = imagesByObs.get(String(img.observation_id)) ?? []
-          list.push({
-            id: String(img.id),
-            storage_path: String(img.storage_path),
-            file_name: String(img.file_name),
-            mime_type: img.mime_type ? String(img.mime_type) : null,
-          })
-          imagesByObs.set(String(img.observation_id), list)
+      if (obRes.error) {
+        toast.error('Error al cargar observaciones')
+        setObservations([])
+      } else {
+        const imagesByObs = new Map<string, PhenologyTimelineImage[]>()
+        if (!imgRes.error) {
+          for (const img of imgRes.data ?? []) {
+            const list = imagesByObs.get(String(img.observation_id)) ?? []
+            list.push({
+              id: String(img.id),
+              storage_path: String(img.storage_path),
+              file_name: String(img.file_name),
+              mime_type: img.mime_type ? String(img.mime_type) : null,
+            })
+            imagesByObs.set(String(img.observation_id), list)
+          }
         }
+        setObservations(
+          (obRes.data ?? []).map((row) => ({
+            ...(row as PhenologyObservation),
+            images: imagesByObs.get(String(row.id)) ?? [],
+          })),
+        )
       }
-      setObservations(
-        (obRes.data ?? []).map((row) => ({
-          ...(row as PhenologyObservation),
-          images: imagesByObs.get(String(row.id)) ?? [],
-        })),
-      )
-    }
 
-    setLoading(false)
-  }, [supabase])
+      void loadStorage(effectiveUserId)
+    } catch (e) {
+      console.error(e)
+      toast.error('Error al cargar fenología')
+    } finally {
+      setLoading(false)
+    }
+  }, [supabase, loadStorage])
 
   useEffect(() => { load() }, [load])
 
@@ -472,8 +495,22 @@ export function PhenologicalStatesManager() {
     if (imageInputRef.current) imageInputRef.current.value = ''
   }
 
+  function assertStorageAvailable(additionalBytes: number) {
+    if (!storageInfo || additionalBytes <= 0) return true
+    if (storageInfo.usedBytes + additionalBytes <= storageInfo.quotaBytes) return true
+    toast.error(
+      `No hay espacio suficiente. Te quedan ${formatAvailableStorage(storageInfo.usedBytes, storageInfo.quotaBytes)} disponibles en tu plan.`,
+    )
+    return false
+  }
+
   async function uploadObservationImages(observationId: string) {
     if (!ownerId || pendingImages.length === 0) return
+
+    const pendingBytes = pendingImages.reduce((sum, f) => sum + f.size, 0)
+    if (!assertStorageAvailable(pendingBytes)) {
+      throw new Error('storage_quota_exceeded')
+    }
 
     const startOrder = existingImages.length - removedImageIds.length
     for (let i = 0; i < pendingImages.length; i++) {
@@ -492,6 +529,7 @@ export function PhenologicalStatesManager() {
         storage_path: storagePath,
         file_name: safeName,
         mime_type: file.type,
+        file_size: file.size,
         sort_order: startOrder + i,
       })
       if (dbErr) throw dbErr
@@ -584,7 +622,12 @@ export function PhenologicalStatesManager() {
       }
     } catch (e) {
       console.error(e)
-      toast.error('Error al guardar lectura')
+      const msg = e instanceof Error ? e.message : ''
+      if (msg.includes('storage_quota_exceeded')) {
+        toast.error('Cuota de almacenamiento agotada. Libera espacio en Mis documentos o fenología.')
+      } else {
+        toast.error('Error al guardar lectura')
+      }
     } finally {
       setSaving(false)
     }
@@ -672,6 +715,11 @@ export function PhenologicalStatesManager() {
   ) {
     if (!ownerId || images.length === 0) return
 
+    const pendingBytes = images.reduce((sum, img) => sum + img.buffer.byteLength, 0)
+    if (!assertStorageAvailable(pendingBytes)) {
+      throw new Error('storage_quota_exceeded')
+    }
+
     for (let i = 0; i < images.length; i++) {
       if (startOrder + i >= MAX_IMAGES) break
       const img = images[i]
@@ -700,6 +748,7 @@ export function PhenologicalStatesManager() {
         storage_path: storagePath,
         file_name: fileName,
         mime_type: mime,
+        file_size: img.buffer.byteLength,
         sort_order: startOrder + i,
       })
       if (dbErr) throw dbErr
@@ -943,6 +992,14 @@ export function PhenologicalStatesManager() {
 
   return (
     <div className="space-y-6">
+      {storageInfo && (
+        <ClientStorageBar
+          usedBytes={storageInfo.usedBytes}
+          quotaBytes={storageInfo.quotaBytes}
+          modules={storageInfo.modules}
+        />
+      )}
+
       <div className="rounded-xl border bg-card/50 p-4 space-y-4">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 flex-1 max-w-2xl">

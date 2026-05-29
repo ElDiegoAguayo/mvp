@@ -177,7 +177,12 @@ export function AIAssistantChat() {
       {/* Floating Chat Button with UpCrop Logo */}
       <button
         onClick={() => setIsOpen(true)}
-        className={`fixed bottom-6 right-6 z-50 w-16 h-16 rounded-full bg-black hover:bg-neutral-900 shadow-lg hover:shadow-xl hover:shadow-black/40 transition-all duration-300 flex items-center justify-center overflow-hidden ${
+        className={`fixed bottom-6 right-6 z-50 w-16 h-16 rounded-full
+          bg-card border border-border hover:bg-secondary
+          shadow-lg shadow-black/10 hover:shadow-xl hover:shadow-primary/20
+          dark:bg-black dark:border-transparent dark:hover:bg-neutral-900
+          dark:shadow-black/40 dark:hover:shadow-black/50
+          transition-all duration-300 flex items-center justify-center overflow-hidden ${
           isOpen ? 'scale-0 opacity-0' : 'scale-100 opacity-100'
         }`}
         aria-label="Abrir chat de asistente"
@@ -258,12 +263,12 @@ export function AIAssistantChat() {
                     message.role === 'user'
                       ? 'bg-[#4A6CF7] text-white rounded-br-md'
                       : message.isError
-                        ? 'bg-red-500/10 border border-red-500/20 text-red-300 rounded-bl-md'
+                        ? 'bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-300 rounded-bl-md'
                         : 'bg-secondary border border-border text-foreground rounded-bl-md'
                   }`}
                 >
                   {message.role === 'assistant' ? (
-                    <div className="prose prose-sm prose-invert max-w-none text-sm [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_table]:w-full [&_table]:border-collapse [&_table]:text-xs [&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:bg-secondary [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1 [&_strong]:text-[#4A6CF7] [&_code]:bg-secondary [&_code]:px-1 [&_code]:rounded [&_p]:text-foreground">
+                    <div className="prose prose-sm dark:prose-invert max-w-none text-sm [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_table]:w-full [&_table]:border-collapse [&_table]:text-xs [&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:bg-secondary [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1 [&_strong]:text-[#4A6CF7] [&_code]:bg-secondary [&_code]:px-1 [&_code]:rounded [&_p]:text-foreground">
                       <ReactMarkdown>{message.content}</ReactMarkdown>
                     </div>
                   ) : (

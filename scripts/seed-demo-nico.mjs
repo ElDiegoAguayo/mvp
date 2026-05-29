@@ -1,5 +1,8 @@
 /**
- * Carga datos ficticios de demo para nico@upcrop-ia (entorno de prueba Nicolás).
+ * Cuenta vitrina permanente: nico@upcrop-ia (Frutícola Demo — Revisión MVP).
+ * Este script recarga datos ficticios de demo; NO elimina al usuario ni su acceso.
+ * Clientes reales deben vivir en cuentas/proyectos aparte.
+ *
  * Uso: node scripts/seed-demo-nico.mjs
  */
 import { readFileSync } from 'fs'
@@ -231,6 +234,87 @@ async function seedDynamicTable(uid, moduleId, moduleName, columns, rows, tableN
 }
 
 const results = []
+
+/** PDF mínimo válido para la bóveda demo (sin dependencias externas). */
+function createDemoPdfBuffer(title, subtitle = 'Documento ficticio — UpCrop Demo') {
+  const escapePdf = (s) => String(s).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)')
+  const stream = [
+    'BT /F1 18 Tf 72 720 Td',
+    `(${escapePdf(title)}) Tj`,
+    '0 -28 Td /F1 11 Tf',
+    `(${escapePdf(subtitle)}) Tj`,
+    '0 -22 Td',
+    `(Generado por seed-demo-nico.mjs) Tj ET`,
+  ].join('\n')
+  const streamLen = Buffer.byteLength(stream, 'utf8')
+  const parts = [
+    '%PDF-1.4\n',
+    '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
+    '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n',
+    '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n',
+    `4 0 obj\n<< /Length ${streamLen} >>\nstream\n${stream}\nendstream\nendobj\n`,
+    '5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n',
+    'xref\n0 6\n0000000000 65535 f \n',
+    '0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n0000000261 00000 n \n',
+  ]
+  const body = parts.join('')
+  const xrefPos = Buffer.byteLength(body, 'utf8')
+  const trailer = `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF\n`
+  return Buffer.from(body + trailer, 'utf8')
+}
+
+async function purgeVaultForUser(uid) {
+  const { data: oldDocs } = await sb.from('documentos').select('storage_path').eq('user_id', uid)
+  const paths = (oldDocs ?? []).map((d) => d.storage_path).filter(Boolean)
+  if (paths.length) {
+    await sb.storage.from('boveda').remove(paths)
+  }
+  await sb.from('documentos').delete().eq('user_id', uid)
+  await sb.from('carpetas').delete().eq('user_id', uid)
+}
+
+async function seedVaultDocuments(uid) {
+  await purgeVaultForUser(uid)
+
+  const folderDefs = [
+    { name: 'Certificaciones Demo', parent_id: null },
+    { name: 'Exportación Demo', parent_id: null },
+    { name: 'Temporada 2025-2026', parent_id: null },
+  ]
+  const { data: folders, error: carpErr } = await sb.from('carpetas').insert(folderDefs.map((f) => ({ user_id: uid, ...f }))).select('id, name')
+  if (carpErr || !folders?.length) return { ok: false, message: carpErr?.message ?? 'sin carpetas' }
+
+  const byName = (n) => folders.find((f) => f.name === n)?.id ?? null
+  const fileSpecs = [
+    { folder: 'Certificaciones Demo', name: 'Certificado-GAP-Demo-2026.pdf', title: 'Certificado GAP Demo 2026' },
+    { folder: 'Exportación Demo', name: 'Guia-Despacho-DEMO-CTR-001.pdf', title: 'Guía despacho DEMO-CTR-001' },
+    { folder: 'Temporada 2025-2026', name: 'Informe-Cosecha-Demo.pdf', title: 'Informe cosecha demo temporada 2025-2026' },
+  ]
+
+  let uploaded = 0
+  for (const spec of fileSpecs) {
+    const folderId = byName(spec.folder)
+    const buffer = createDemoPdfBuffer(spec.title, 'Frutícola Demo — Revisión MVP')
+    const folderPath = folderId || 'root'
+    const storagePath = `${uid}/${folderPath}/${Date.now()}_${spec.name}`
+    const { error: upErr } = await sb.storage.from('boveda').upload(storagePath, buffer, {
+      contentType: 'application/pdf',
+      upsert: true,
+    })
+    if (upErr) continue
+    const { error: insErr } = await sb.from('documentos').insert({
+      user_id: uid,
+      name: spec.name,
+      size: buffer.length,
+      type: 'pdf',
+      storage_path: storagePath,
+      folder_id: folderId,
+    })
+    if (!insErr) uploaded += 1
+  }
+
+  return { ok: uploaded > 0, count: uploaded, folders: folders.length }
+}
 
 function log(module, status, detail = '') {
   results.push({ module, status, detail })
@@ -479,13 +563,14 @@ async function main() {
       .from('entidades_costo')
       .insert([
         { cliente_id: uid, tipo: 'contenedor', codigo: 'DEMO-CTR-001', nombre: 'Contenedor demo Shanghai' },
+        { cliente_id: uid, tipo: 'contenedor', codigo: 'DEMO-CTR-002', nombre: 'Contenedor demo Los Angeles' },
         { cliente_id: uid, tipo: 'producto_terminado', codigo: 'DEMO-PT-LAP', nombre: 'Cereza Lapins demo' },
         { cliente_id: uid, tipo: 'pallet', codigo: 'DEMO-PAL-012', nombre: 'Pallet exportación demo' },
       ])
       .select('id, tipo, codigo')
 
     await sb.from('asignaciones_gastos').delete().eq('cliente_id', uid)
-    log('Costos y gastos (SII)', 'ok', `${facturas?.length ?? 0} facturas SII + 3 entidades costo`)
+    log('Costos y gastos (SII)', 'ok', `${facturas?.length ?? 0} facturas SII + 4 entidades costo`)
     demoFacturas = facturas ?? []
   }
 
@@ -599,6 +684,7 @@ async function main() {
   }
 
   // ── Inventario ────────────────────────────────────────────────────────────
+  await sb.from('inventory_min_levels').delete().eq('user_id', uid)
   await sb.from('inventory_movements').delete().eq('user_id', uid)
   await sb.from('inventory_materials').delete().eq('user_id', uid)
   await sb.from('inventory_warehouses').delete().eq('user_id', uid)
@@ -641,26 +727,29 @@ async function main() {
     const bySku = (sku) => invMat.find((m) => m.sku === sku)
 
     const movements = [
-      { sku: 'INV-CAJ-5K', wh: whCentral, type: 'entrada', qty: 2500, date: '2026-02-20', obs: 'Recepción proveedor cartón demo' },
+      { sku: 'INV-CAJ-5K', wh: whCentral, type: 'entrada', qty: 2500, date: '2026-02-20', obs: 'Recepción proveedor cartón demo', cost: 1850000 },
       { sku: 'INV-CAJ-5K', wh: whCentral, type: 'salida', qty: 680, date: '2026-03-05', obs: 'Línea embalaje Lapins' },
       { sku: 'INV-CAJ-5K', wh: whCentral, type: 'salida', qty: 420, date: '2026-03-14', obs: 'Línea embalaje Santina' },
-      { sku: 'INV-CAJ-2K', wh: whCentral, type: 'entrada', qty: 1800, date: '2026-02-25', obs: 'Stock inicial cajas 2,5 kg' },
+      { sku: 'INV-CAJ-2K', wh: whCentral, type: 'entrada', qty: 1800, date: '2026-02-25', obs: 'Stock inicial cajas 2,5 kg', cost: 972000 },
       { sku: 'INV-CAJ-2K', wh: whCentral, type: 'salida', qty: 310, date: '2026-03-08', obs: 'Pedido Regina USA demo' },
-      { sku: 'INV-FILM', wh: whCentral, type: 'entrada', qty: 55, date: '2026-03-01', obs: 'Compra film stretch' },
+      { sku: 'INV-FILM', wh: whCentral, type: 'entrada', qty: 55, date: '2026-03-01', obs: 'Compra film stretch', cost: 412500 },
       { sku: 'INV-FILM', wh: whCentral, type: 'salida', qty: 12, date: '2026-03-18', obs: 'Consumo línea 1' },
-      { sku: 'INV-PAL-M', wh: whCentral, type: 'entrada', qty: 120, date: '2026-02-18', obs: 'Ingreso pallets fumigados' },
+      { sku: 'INV-PAL-M', wh: whCentral, type: 'entrada', qty: 120, date: '2026-02-18', obs: 'Ingreso pallets fumigados', cost: 960000 },
       { sku: 'INV-PAL-M', wh: whCentral, type: 'salida', qty: 36, date: '2026-03-12', obs: 'Despacho contenedores exportación' },
       { sku: 'INV-PAL-M', wh: whCentral, type: 'salida', qty: 22, date: '2026-03-22', obs: 'Armado pallets Seúl demo' },
-      { sku: 'INV-GAP', wh: whCentral, type: 'entrada', qty: 4000, date: '2026-02-10', obs: 'Stock gap pads temporada' },
+      { sku: 'INV-GAP', wh: whCentral, type: 'entrada', qty: 4000, date: '2026-02-10', obs: 'Stock gap pads temporada', cost: 320000 },
       { sku: 'INV-GAP', wh: whCentral, type: 'salida', qty: 890, date: '2026-03-16', obs: 'Consumo embalaje semana 11' },
-      { sku: 'INV-ETQ', wh: whCentral, type: 'entrada', qty: 15000, date: '2026-03-02', obs: 'Etiquetas GS1 recibidas' },
+      { sku: 'INV-ETQ', wh: whCentral, type: 'entrada', qty: 15000, date: '2026-03-02', obs: 'Etiquetas GS1 recibidas', cost: 450000 },
       { sku: 'INV-ETQ', wh: whCentral, type: 'salida', qty: 4200, date: '2026-03-20', obs: 'Impresión lotes exportación' },
-      { sku: 'INV-CINTA', wh: whInsumos, type: 'entrada', qty: 30, date: '2026-02-28', obs: 'Compra cinta pallet' },
+      { sku: 'INV-CINTA', wh: whInsumos, type: 'entrada', qty: 30, date: '2026-02-28', obs: 'Compra cinta pallet', cost: 90000 },
       { sku: 'INV-CINTA', wh: whInsumos, type: 'salida', qty: 8, date: '2026-03-15', obs: 'Despacho bodega central' },
-      { sku: 'INV-BOLSA', wh: whInsumos, type: 'entrada', qty: 6000, date: '2026-02-15', obs: 'Bolsa PE ventilada' },
+      { sku: 'INV-BOLSA', wh: whInsumos, type: 'entrada', qty: 6000, date: '2026-02-15', obs: 'Bolsa PE ventilada', cost: 240000 },
       { sku: 'INV-LAM', wh: whInsumos, type: 'ajuste', qty: -45, date: '2026-03-10', obs: 'Ajuste inventario — merma demo' },
-      { sku: 'INV-TUNEL', wh: whFrio, type: 'entrada', qty: 80, date: '2026-03-01', obs: 'Túneles térmicos cámara frío' },
+      { sku: 'INV-TUNEL', wh: whFrio, type: 'entrada', qty: 80, date: '2026-03-01', obs: 'Túneles térmicos cámara frío', cost: 640000 },
       { sku: 'INV-LOGGER', wh: whFrio, type: 'salida', qty: 6, date: '2026-03-19', obs: 'Asignados a contenedores DEMO-CTR' },
+      { sku: 'INV-LOGGER', wh: whFrio, type: 'entrada', qty: 12, date: '2026-02-22', obs: 'Compra data loggers temporada', cost: 180000 },
+      { sku: 'INV-CINTILLO', wh: whInsumos, type: 'entrada', qty: 2000, date: '2026-03-03', obs: 'Cintillos identificación lote', cost: 80000 },
+      { sku: 'INV-CINTILLO', wh: whInsumos, type: 'salida', qty: 450, date: '2026-03-21', obs: 'Consumo packing semana 12' },
     ]
 
     const movementRows = movements
@@ -677,29 +766,43 @@ async function main() {
           movement_date: m.date,
           observation: m.obs,
           responsible: 'Equipo demo UpCrop',
+          cost: m.cost ?? null,
         }
       })
       .filter(Boolean)
 
     await sb.from('inventory_movements').insert(movementRows)
+
+    const minLevelDefs = [
+      { sku: 'INV-CAJ-5K', wh: whCentral, min: 1500 },
+      { sku: 'INV-CAJ-2K', wh: whCentral, min: 1200 },
+      { sku: 'INV-FILM', wh: whCentral, min: 50 },
+      { sku: 'INV-PAL-M', wh: whCentral, min: 80 },
+      { sku: 'INV-ETQ', wh: whCentral, min: 5000 },
+      { sku: 'INV-LOGGER', wh: whFrio, min: 8 },
+    ]
+    const minRows = minLevelDefs
+      .map((d) => {
+        const mat = bySku(d.sku)
+        if (!mat || !d.wh?.id) return null
+        return { user_id: uid, warehouse_id: d.wh.id, material_id: mat.id, min_quantity: d.min }
+      })
+      .filter(Boolean)
+    if (minRows.length) await sb.from('inventory_min_levels').insert(minRows)
+
     log(
       'Inventario',
       'ok',
-      `${warehouses?.length ?? 0} bodegas, ${invMat.length} materiales, ${movementRows.length} movimientos`,
+      `${warehouses?.length ?? 0} bodegas, ${invMat.length} materiales, ${movementRows.length} movimientos, ${minRows.length} mínimos`,
     )
   } else {
     log('Inventario', 'error', 'No se pudo crear bodega/materiales')
   }
 
   // ── Bóveda documental ─────────────────────────────────────────────────────
-  await sb.from('carpetas').delete().eq('user_id', uid)
-  const { error: carpErr } = await sb.from('carpetas').insert([
-    { user_id: uid, name: 'Certificaciones Demo', parent_id: null },
-    { user_id: uid, name: 'Exportación Demo', parent_id: null },
-    { user_id: uid, name: 'Temporada 2025-2026', parent_id: null },
-  ])
-  if (carpErr) log('Bóveda documental', 'error', carpErr.message)
-  else log('Bóveda documental', 'ok', '3 carpetas demo (sin archivos — requiere subida manual)')
+  const vaultRes = await seedVaultDocuments(uid)
+  if (!vaultRes.ok) log('Bóveda documental', 'error', vaultRes.message ?? 'sin archivos')
+  else log('Bóveda documental', 'ok', `${vaultRes.folders} carpetas + ${vaultRes.count} PDF demo en storage`)
 
   // ── Módulos dinámicos (Producto Terminado, Trazabilidad, etc.) ────────────
   const moduleSlugs = [
@@ -998,30 +1101,83 @@ async function main() {
       })
     })
 
+    const factByDoc = (doc) => demoFacturas.find((f) => f.numero_documento === doc)
+    const marginSpecs = [
+      { doc: 'F-5520', tipo: 'contenedor', id: 'DEMO-CTR-001', pct: 100 },
+      { doc: 'F-7700', tipo: 'contenedor', id: 'DEMO-CTR-001', pct: 100 },
+      { doc: 'F-3100', tipo: 'contenedor', id: 'DEMO-CTR-001', pct: 50 },
+      { doc: 'F-2045', tipo: 'contenedor', id: 'DEMO-CTR-002', pct: 100 },
+      { doc: 'F-8891', tipo: 'contenedor', id: 'DEMO-CTR-002', pct: 100 },
+      { doc: 'F-1120', tipo: 'producto_terminado', id: 'DEMO-PT-LAP', pct: 100 },
+      { doc: 'F-3301', tipo: 'producto_terminado', id: 'DEMO-PT-LAP', pct: 100 },
+    ]
+    for (const spec of marginSpecs) {
+      const factura = factByDoc(spec.doc)
+      if (!factura) continue
+      asignaciones.push({
+        factura_id: factura.id,
+        cliente_id: uid,
+        entidad_tipo: spec.tipo,
+        entidad_id: spec.id,
+        monto_asignado: Math.round(Number(factura.monto_bruto) * (spec.pct / 100)),
+        porcentaje: spec.pct,
+        metadata: { origen: 'seed-demo-margen', entidad_label: spec.id },
+      })
+    }
+
     if (asignaciones.length) {
       const { error: asigErr } = await sb.from('asignaciones_gastos').insert(asignaciones)
       if (asigErr) log('Centro de costos (asignaciones)', 'error', asigErr.message)
-      else log('Centro de costos', 'ok', `${configs.length} configs + ${asignaciones.length} asignaciones dinámicas`)
+      else {
+        const dinamicas = asignaciones.filter((a) => a.entidad_tipo === 'dinamico').length
+        const margen = asignaciones.length - dinamicas
+        log('Centro de costos', 'ok', `${configs.length} configs + ${dinamicas} dinámicas + ${margen} margen`)
+      }
     }
   } else {
     log('Centro de costos', 'skip', 'faltan tablas trazabilidad o facturas SII')
   }
 
-  // ── Producción por entidad (para margen futuro) ───────────────────────────
+  // ── Producción por entidad (margen contenedor / PT) ───────────────────────
   await sb.from('produccion_datos').delete().eq('cliente_id', uid)
   const { error: prodErr } = await sb.from('produccion_datos').insert([
-    { cliente_id: uid, entidad_tipo: 'contenedor', entidad_id: 'DEMO-CTR-001', kilos: 6000, venta_total: 185000, precio_por_kilo: 30.83, periodo: 'Marzo 2026', metadata: { mercado: 'China' } },
-    { cliente_id: uid, entidad_tipo: 'contenedor', entidad_id: 'DEMO-CTR-002', kilos: 2000, venta_total: 92000, precio_por_kilo: 46, periodo: 'Marzo 2026', metadata: { mercado: 'USA' } },
-    { cliente_id: uid, entidad_tipo: 'producto_terminado', entidad_id: 'DEMO-PT-LAP', kilos: 5500, venta_total: 168000, precio_por_kilo: 30.55, periodo: 'Marzo 2026', metadata: { producto: 'Lapins 5kg' } },
+    { cliente_id: uid, entidad_tipo: 'contenedor', entidad_id: 'DEMO-CTR-001', kilos: 6000, venta_total: 27000000, precio_por_kilo: 4500, periodo: 'Marzo 2026', metadata: { mercado: 'China' } },
+    { cliente_id: uid, entidad_tipo: 'contenedor', entidad_id: 'DEMO-CTR-002', kilos: 2000, venta_total: 9200000, precio_por_kilo: 4600, periodo: 'Marzo 2026', metadata: { mercado: 'USA' } },
+    { cliente_id: uid, entidad_tipo: 'producto_terminado', entidad_id: 'DEMO-PT-LAP', kilos: 5500, venta_total: 16800000, precio_por_kilo: 3055, periodo: 'Marzo 2026', metadata: { producto: 'Lapins 5kg' } },
     { cliente_id: uid, entidad_tipo: 'pallet', entidad_id: 'DEMO-PAL-012', kilos: 1200, venta_total: 0, precio_por_kilo: 0, periodo: 'Marzo 2026', metadata: { nota: 'Pallet interno demo' } },
   ])
   if (prodErr) log('Producción por entidad', 'error', prodErr.message)
-  else log('Producción por entidad', 'ok', '4 registros (margen aún no visible en UI)')
+  else log('Producción por entidad', 'ok', '4 registros CLP (visible en margen del centro de costos)')
+
+  // ── Alertas admin (Inicio / SmartAlerts) ──────────────────────────────────
+  await sb.from('admin_notifications').delete().like('title', '[Demo UpCrop]%')
+  const activeUntil = new Date()
+  activeUntil.setFullYear(activeUntil.getFullYear() + 2)
+  const { error: notifErr } = await sb.from('admin_notifications').insert([
+    {
+      title: '[Demo UpCrop] Temporada exportación 2026',
+      message: 'Datos ficticios cargados para revisión MVP. Contenedores DEMO-CTR-001 a 004 listos en trazabilidad.',
+      severity: 'info',
+      active_from: new Date().toISOString(),
+      active_until: activeUntil.toISOString(),
+      target_role: 'admin',
+    },
+    {
+      title: '[Demo UpCrop] Revisar stock bajo mínimo',
+      message: 'Hay materiales de embalaje bajo el umbral configurado en Inventario. Revisa alertas y planifica reposición.',
+      severity: 'warning',
+      active_from: new Date().toISOString(),
+      active_until: activeUntil.toISOString(),
+      target_role: 'admin',
+    },
+  ])
+  if (notifErr) log('Alertas inicio', 'error', notifErr.message)
+  else log('Alertas inicio', 'ok', '2 avisos demo (solo administradores de plataforma)')
 
   // ── Mercado: sin datos en BD ──────────────────────────────────────────────
   log('Mercado', 'skip', 'usa datos simulados en la UI — no requiere seed')
 
-  log('Centro de control', 'skip', 'depende de widgets/métricas — revisar qué tablas usa')
+  log('Centro de control', 'ok', 'SmartAlerts: avisos admin + stock bajo mínimo (inventario demo)')
 
   console.log('\n── Resumen ──')
   const ok = results.filter((r) => r.status === 'ok').length

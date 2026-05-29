@@ -8,7 +8,7 @@ interface HarvestPlanSummaryProps {
   blockCount: number
   fieldCount: number
   manualCount: number
-  phenologyCount: number
+  countSourceCount: number
   earliestStart: string | null
   latestEnd: string | null
 }
@@ -18,15 +18,15 @@ export function HarvestPlanSummary({
   blockCount,
   fieldCount,
   manualCount,
-  phenologyCount,
+  countSourceCount,
   earliestStart,
   latestEnd,
 }: HarvestPlanSummaryProps) {
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      <div className="rounded-xl border bg-gradient-to-br from-amber-500/10 via-card to-card p-4">
+      <div className="rounded-xl border bg-gradient-to-br from-primary/10 via-card to-card p-4">
         <p className="text-xs text-muted-foreground mb-1">Kg en plan</p>
-        <p className="text-2xl font-bold text-amber-600 dark:text-amber-400 tabular-nums">{formatKg(totalKg)}</p>
+        <p className="text-2xl font-bold text-primary tabular-nums">{formatKg(totalKg)}</p>
         <p className="text-xs text-muted-foreground mt-1">{blockCount} cuartel{blockCount === 1 ? '' : 'es'}</p>
       </div>
       <div className="rounded-xl border bg-card p-4">
@@ -37,7 +37,7 @@ export function HarvestPlanSummary({
       <div className="rounded-xl border bg-card p-4">
         <p className="text-xs text-muted-foreground mb-1">Origen de fechas</p>
         <p className="text-sm font-medium mt-1">
-          {manualCount} manual · {phenologyCount} fenología
+          {manualCount} manual · {countSourceCount} conteo
         </p>
         <p className="text-xs text-muted-foreground mt-1">Resto por referencia de variedad</p>
       </div>
@@ -86,7 +86,7 @@ export function HarvestPlanWeekBuckets({ rows }: { rows: HarvestPlanRow[] }) {
               <span className="text-muted-foreground text-xs">{label}</span>
               <div className="h-2 bg-muted rounded-full overflow-hidden">
                 <div
-                  className="h-full rounded-full bg-amber-500/80"
+                  className="h-full rounded-full bg-primary/80"
                   style={{ width: `${Math.max(4, pct)}%` }}
                 />
               </div>

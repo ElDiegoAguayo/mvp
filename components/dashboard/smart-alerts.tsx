@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { getEffectiveUserId } from '@/lib/supabase/effective-user'
+import { useViewAsUserId } from '@/components/dashboard/view-as-provider'
 import {
   Thermometer, TrendingUp, Bell, CheckCircle2, Loader2,
   Package, Megaphone, AlertTriangle, Info,
@@ -86,6 +87,7 @@ function AlertIcon({ type, severity, isAdmin }: { type: Alert['type']; severity:
 export function SmartAlerts() {
   const [alerts,  setAlerts]  = useState<Alert[]>([])
   const [loading, setLoading] = useState(true)
+  const viewAsUserId = useViewAsUserId()
 
   useEffect(() => {
     const supabase = createClient()
@@ -95,19 +97,20 @@ export function SmartAlerts() {
       const adminAlerts:  Alert[] = []
       const systemAlerts: Alert[] = []
 
-      // ── 1. Admin broadcast notifications (shown FIRST) ──────────────────────
+      // ── 1. Broadcast notifications (role-filtered) ───────────────────────────
       try {
-        // Get current user's role to filter notifications
-        const { data: { user: authUser } } = await supabase.auth.getUser()
+        // Rol de quien se está viendo (cliente en modo soporte, no el admin de sesión)
+        const { userId: viewingUserId } = await getEffectiveUserId(supabase, viewAsUserId)
         let userRole = 'user'
-        if (authUser) {
+        if (viewingUserId) {
           const { data: profile } = await supabase
             .from('profiles')
             .select('role')
-            .eq('id', authUser.id)
+            .eq('id', viewingUserId)
             .single()
           userRole = profile?.role ?? 'user'
         }
+        const isPlatformAdmin = userRole === 'admin'
 
         const { data: notifs } = await supabase
           .from('admin_notifications')
@@ -117,9 +120,17 @@ export function SmartAlerts() {
           .order('created_at', { ascending: false })
 
         for (const n of (notifs ?? []) as AdminNotif[]) {
-          // Filter by target_role — 'all' shows to everyone, otherwise match role
-          const targetRole = n.target_role ?? 'all'
-          if (targetRole !== 'all' && targetRole !== userRole) continue
+          const targetRole = n.target_role ?? 'admin'
+
+          // Avisos del equipo: solo administradores de la plataforma
+          const showAsTeamNotice =
+            isPlatformAdmin && (targetRole === 'admin' || targetRole === 'all')
+
+          // Mensajes a clientes: cuentas cliente (no admin)
+          const showAsClientNotice =
+            !isPlatformAdmin && (targetRole === 'user' || targetRole === 'all')
+
+          if (!showAsTeamNotice && !showAsClientNotice) continue
 
           adminAlerts.push({
             id:          `admin:${n.id}`,
@@ -127,7 +138,7 @@ export function SmartAlerts() {
             severity:    n.severity,
             title:       n.title,
             description: n.message,
-            isAdmin:     true,
+            isAdmin:     showAsTeamNotice,
           })
         }
       } catch {
@@ -224,7 +235,7 @@ export function SmartAlerts() {
 
     evaluateAlerts()
     return () => { isMounted = false }
-  }, [])
+  }, [viewAsUserId])
 
   const adminCount = alerts.filter(a => a.isAdmin).length
 
@@ -255,7 +266,38 @@ export function SmartAlerts() {
         </div>
       ) : (
         <div className="flex flex-col gap-3">
-          {/* Admin notifications section */}
+          {/* Client broadcast messages (from UpCrop to clients) */}
+          {alerts.filter(a => a.isAdmin === false && a.type === 'admin').length > 0 && (
+            <>
+              <div className="flex items-center gap-2">
+                <Megaphone className="w-3.5 h-3.5 text-primary" />
+                <span className="text-xs font-semibold text-primary uppercase tracking-wide">Mensajes de UpCrop</span>
+                <div className="h-px flex-1 bg-primary/20" />
+              </div>
+              {alerts.filter(a => a.isAdmin === false && a.type === 'admin').map(alert => {
+                const styles = getAlertStyles(alert.severity)
+                return (
+                  <div
+                    key={alert.id}
+                    className={cn(
+                      'flex items-start gap-3 p-4 rounded-xl border',
+                      styles.bg, styles.border,
+                    )}
+                  >
+                    <div className="shrink-0 mt-0.5">
+                      <AlertIcon type={alert.type} severity={alert.severity} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-foreground">{alert.title}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{alert.description}</p>
+                    </div>
+                  </div>
+                )
+              })}
+            </>
+          )}
+
+          {/* Team notices — platform admins only */}
           {adminCount > 0 && (
             <>
               <div className="flex items-center gap-2">
@@ -287,16 +329,16 @@ export function SmartAlerts() {
           )}
 
           {/* System alerts section */}
-          {alerts.filter(a => !a.isAdmin).length > 0 && (
+          {alerts.filter(a => a.type !== 'admin').length > 0 && (
             <>
-              {adminCount > 0 && (
+              {(adminCount > 0 || alerts.some(a => a.type === 'admin' && !a.isAdmin)) && (
                 <div className="flex items-center gap-2 mt-1">
                   <Bell className="w-3.5 h-3.5 text-muted-foreground" />
                   <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Alertas automáticas</span>
                   <div className="h-px flex-1 bg-border" />
                 </div>
               )}
-              {alerts.filter(a => !a.isAdmin).map(alert => {
+              {alerts.filter(a => a.type !== 'admin').map(alert => {
                 const styles = getAlertStyles(alert.severity)
                 return (
                   <div

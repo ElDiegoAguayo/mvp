@@ -8,6 +8,8 @@ import {
   formatQuotaLimit,
   resolveStorageQuotaBytes,
 } from '@/lib/vault-storage'
+import { fetchClientStorageForUser } from '@/lib/client-storage-server'
+import type { ClientStorageModule } from '@/lib/client-storage'
 import {
   inferVaultUploadFileType,
   isAllowedVaultUpload,
@@ -19,6 +21,7 @@ export interface VaultStorageInfo {
   usedBytes: number
   quotaBytes: number
   quotaLabel: string
+  modules?: ClientStorageModule[]
 }
 
 export interface VaultDocumentFile {
@@ -46,6 +49,7 @@ export interface VaultDataPayload {
     usedBytes: number
     quotaBytes: number
     quotaLabel: string
+    modules?: ClientStorageModule[]
   }
 }
 
@@ -153,8 +157,9 @@ async function fetchVaultViaService(actingUserId: string): Promise<VaultDataPayl
   const folders = (foldersRes.data ?? []).map(row => mapFolder(row as Record<string, unknown>))
   const files = (docsRes.data ?? []).map(row => mapFile(row as Record<string, unknown>))
 
-  const usedBytes = files.reduce((sum, file) => sum + file.size, 0)
-  const quotaBytes = resolveStorageQuotaBytes({
+  const clientStorage = await fetchClientStorageForUser(actingUserId)
+  const usedBytes = clientStorage?.usedBytes ?? files.reduce((sum, file) => sum + file.size, 0)
+  const quotaBytes = clientStorage?.quotaBytes ?? resolveStorageQuotaBytes({
     storage_quota_bytes: quotaRes.data?.storage_quota_bytes,
     storage_quota_gb: quotaRes.data?.storage_quota_gb,
   })
@@ -167,6 +172,7 @@ async function fetchVaultViaService(actingUserId: string): Promise<VaultDataPayl
       usedBytes,
       quotaBytes,
       quotaLabel: formatQuotaLimit(quotaBytes),
+      modules: clientStorage?.modules,
     },
   }
 }

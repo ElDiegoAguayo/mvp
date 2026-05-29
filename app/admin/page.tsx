@@ -13,6 +13,7 @@ import { BackupManager } from '@/components/admin/backup-manager'
 import { VaultAdminManager } from '@/components/admin/vault-admin-manager'
 import { AdminTabs } from '@/components/admin/admin-tabs'
 import { AdminOverview, AdminOverviewSkeleton } from '@/components/admin/admin-overview'
+import { MaintenanceModePanel } from '@/components/admin/maintenance-mode-panel'
 import { TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Suspense } from 'react'
 
@@ -140,6 +141,8 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
 
           {/* Tab: Resumen (sistema + uso) */}
           <TabsContent value="resumen" className="space-y-8">
+            <MaintenanceModePanel />
+
             <Suspense fallback={<AdminOverviewSkeleton />}>
               <AdminOverview />
             </Suspense>

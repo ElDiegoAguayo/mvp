@@ -8,7 +8,17 @@ export const dynamic = 'force-dynamic'
 
 const MODULE_SLUG = 'estimacion-cosecha'
 
-export default async function EstimacionCosechaPage() {
+export default async function EstimacionCosechaPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>
+}) {
+  const { tab } = await searchParams
+  const initialTab =
+    tab === 'plan' ? 'plan' as const
+    : tab === 'estimacion' ? 'estimacion' as const
+    : 'conteo' as const
+
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/auth/login')
@@ -44,12 +54,12 @@ export default async function EstimacionCosechaPage() {
           <div>
             <h1 className="text-2xl font-bold text-foreground">Estimación de cosecha</h1>
             <p className="text-sm text-muted-foreground">
-              Registro de conteos fenológicos y estimación de kg por cuartel — personalizado por cliente.
+              Conteos fenológicos, estimación de kg y plan de cosecha por cuartel — personalizado por cliente.
             </p>
           </div>
         </div>
       </div>
-      <HarvestEstimationManager />
+      <HarvestEstimationManager initialTab={initialTab} />
     </>
   )
 }

@@ -3,8 +3,11 @@
 import { useState, useEffect } from 'react'
 import {
   obtenerResumenCentrosCosto,
+  obtenerAnalisisCostos,
   type ModuloDinamico,
   type EntidadDinamica,
+  type AnalisisEntidad,
+  type ResumenAnalisis,
 } from '@/app/actions/analisis'
 import {
   DollarSign,
@@ -15,6 +18,7 @@ import {
   ChevronRight,
   TableIcon,
   FileText,
+  TrendingUp,
 } from 'lucide-react'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -311,6 +315,133 @@ function ModuloSection({ modulo, totalGlobal }: { modulo: ModuloDinamico; totalG
   )
 }
 
+function pctSigned(v: number | null | undefined) {
+  if (v == null) return '—'
+  return `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`
+}
+
+const ENTIDAD_TIPO_LABEL: Record<string, string> = {
+  contenedor: 'Contenedor',
+  producto_terminado: 'Producto terminado',
+  pallet: 'Pallet',
+}
+
+function MargenKpiBar({ resumen }: { resumen: ResumenAnalisis }) {
+  return (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      {[
+        { icon: DollarSign, label: 'Ventas registradas', value: clp(resumen.total_ventas), accent: 'text-emerald-500', bg: 'bg-emerald-500/10 border-emerald-500/20' },
+        { icon: FileText, label: 'Gastos asignados', value: clp(resumen.total_gastos_asignados), accent: 'text-amber-500', bg: 'bg-amber-500/10 border-amber-500/20' },
+        { icon: TrendingUp, label: 'Margen total', value: clp(resumen.margen_total), accent: resumen.margen_total >= 0 ? 'text-primary' : 'text-destructive', bg: 'bg-primary/10 border-primary/20' },
+        { icon: BarChart3, label: 'Margen %', value: pctSigned(resumen.margen_pct_total), accent: 'text-violet-500', bg: 'bg-violet-500/10 border-violet-500/20' },
+      ].map(({ icon: Icon, label, value, accent, bg }) => (
+        <div key={label} className="rounded-xl border border-border bg-card p-4 flex items-start gap-3">
+          <div className={`shrink-0 w-9 h-9 rounded-lg border flex items-center justify-center ${bg}`}>
+            <Icon className={`w-4 h-4 ${accent}`} />
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium leading-tight">{label}</p>
+            <p className={`text-lg font-bold tabular-nums mt-0.5 leading-tight ${accent}`}>{value}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function MargenEntidadTable({ entidades }: { entidades: AnalisisEntidad[] }) {
+  const rows = entidades.filter((e) => e.total_gastos > 0 || (e.venta_total ?? 0) > 0)
+  if (!rows.length) {
+    return (
+      <p className="text-xs text-muted-foreground py-6 text-center">
+        Sin cruces gasto–venta por contenedor o producto terminado. Asigna facturas a entidades y registra kilos/ventas.
+      </p>
+    )
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-xl border border-border">
+      <table className="w-full text-xs" style={{ minWidth: '720px' }}>
+        <thead className="bg-secondary/30 border-b border-border">
+          <tr>
+            <th className="text-left font-semibold text-muted-foreground px-4 py-2">Entidad</th>
+            <th className="text-left font-semibold text-muted-foreground px-3 py-2">Tipo</th>
+            <th className="text-right font-semibold text-muted-foreground px-3 py-2">Kilos</th>
+            <th className="text-right font-semibold text-muted-foreground px-3 py-2">Ventas</th>
+            <th className="text-right font-semibold text-muted-foreground px-3 py-2">Gastos</th>
+            <th className="text-right font-semibold text-muted-foreground px-3 py-2">Costo/kg</th>
+            <th className="text-right font-semibold text-muted-foreground px-3 py-2">Margen</th>
+            <th className="text-right font-semibold text-muted-foreground px-3 py-2">Margen %</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((e) => (
+            <tr key={`${e.entidad_tipo}-${e.entidad_id}`} className="border-b border-border/40 hover:bg-primary/3">
+              <td className="px-4 py-2.5">
+                <span className="font-semibold text-foreground">{e.nombre || e.entidad_id}</span>
+                {e.nombre && e.nombre !== e.entidad_id && (
+                  <span className="ml-2 font-mono text-[11px] text-muted-foreground">{e.entidad_id}</span>
+                )}
+              </td>
+              <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">
+                {ENTIDAD_TIPO_LABEL[e.entidad_tipo] ?? e.entidad_tipo}
+              </td>
+              <td className="px-3 py-2.5 text-right tabular-nums">{e.kilos?.toLocaleString('es-CL') ?? '—'}</td>
+              <td className="px-3 py-2.5 text-right tabular-nums">{clp(e.venta_total)}</td>
+              <td className="px-3 py-2.5 text-right tabular-nums">{clp(e.total_gastos)}</td>
+              <td className="px-3 py-2.5 text-right tabular-nums">{clp(e.costo_por_kilo)}</td>
+              <td className={`px-3 py-2.5 text-right tabular-nums font-semibold ${(e.margen_real ?? 0) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}`}>
+                {clp(e.margen_real)}
+              </td>
+              <td className="px-3 py-2.5 text-right tabular-nums">{pctSigned(e.margen_pct)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function MargenSection({ clienteId }: { clienteId: string }) {
+  const [loading, setLoading] = useState(true)
+  const [data, setData] = useState<Awaited<ReturnType<typeof obtenerAnalisisCostos>> | null>(null)
+
+  useEffect(() => {
+    setLoading(true)
+    obtenerAnalisisCostos(clienteId)
+      .then(setData)
+      .finally(() => setLoading(false))
+  }, [clienteId])
+
+  return (
+    <div className="space-y-4 pt-2">
+      <div className="flex items-center gap-2">
+        <TrendingUp className="w-4 h-4 text-primary" />
+        <h3 className="text-sm font-semibold text-foreground">Margen por contenedor / producto terminado</h3>
+      </div>
+      <p className="text-xs text-muted-foreground -mt-2">
+        Cruce de gastos asignados con kilos y ventas registradas por entidad.
+      </p>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-10">
+          <Loader2 className="w-5 h-5 animate-spin text-primary" />
+        </div>
+      ) : !data?.ok ? (
+        <div className="flex items-center gap-3 rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          {data?.message ?? 'Error al cargar margen.'}
+        </div>
+      ) : (
+        <>
+          <MargenKpiBar resumen={data.resumen} />
+          <MargenEntidadTable entidades={data.entidades} />
+        </>
+      )}
+    </div>
+  )
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main component
 // ─────────────────────────────────────────────────────────────────────────────
@@ -386,6 +517,10 @@ export function AnalisisCostosView({ clienteId }: Props) {
           ))}
         </div>
       )}
+
+      <div className="border-t border-border pt-6">
+        <MargenSection clienteId={clienteId} />
+      </div>
     </div>
   )
 }

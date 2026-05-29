@@ -1,7 +1,6 @@
-import { DEFAULT_PHENOLOGY_STAGES } from '@/lib/agronomy/constants'
-import { addDaysIso, fmtShortDate, type PhenologyStageRef } from '@/lib/agronomy/phenology-predictions'
+import { addDaysIso, fmtShortDate } from '@/lib/agronomy/phenology-predictions'
 
-export type HarvestWindowSource = 'manual' | 'phenology' | 'variety'
+export type HarvestWindowSource = 'manual' | 'count' | 'variety'
 
 export interface HarvestPlanInput {
   id: string | null
@@ -15,13 +14,16 @@ export interface HarvestPlanInput {
   expected_end: string | null
 }
 
-export interface PhenologyObsInput {
+export interface CountRecordInput {
+  field_name: string | null
   block_name: string
   crop: string
   season_label: string
-  stage_name: string
-  stage_id: string | null
-  observed_at: string
+  record_date: string | null
+  count_state?: string | null
+  hilera?: number | null
+  arbol?: number | null
+  is_count_summary?: boolean | null
 }
 
 export interface HarvestPlanRow {
@@ -35,7 +37,7 @@ export interface HarvestPlanRow {
   window_start: string
   window_end: string
   source: HarvestWindowSource
-  phenology_stage: string | null
+  count_label: string | null
   label: string
 }
 
@@ -50,7 +52,6 @@ const CHERRY_VARIETY_WINDOWS: Record<string, { startMonth: number; startDay: num
 }
 
 const DEFAULT_CHERRY_WINDOW = { startMonth: 11, startDay: 15, endMonth: 12, endDay: 15 }
-const HARVEST_WINDOW_DAYS = 14
 
 function pad2(n: number) {
   return String(n).padStart(2, '0')
@@ -86,90 +87,80 @@ function varietyWindow(crop: string, variety: string | null, seasonLabel: string
   return { start, end }
 }
 
-function normalizeStageName(name: string): string {
-  return name.trim().toLowerCase()
+function normalizeField(field: string | null | undefined): string {
+  return (field ?? '').trim()
 }
 
-function isHarvestStage(name: string): boolean {
-  const n = normalizeStageName(name)
-  return n.includes('cosecha') || n.includes('maduración') || n.includes('maduracion') || n.includes('envero')
+function blockCountKey(season: string, field: string, block: string, crop: string): string {
+  return `${season}::${field}::${block}::${crop}`
 }
 
-function resolveStages(crop: string, catalog: PhenologyStageRef[]): PhenologyStageRef[] {
-  if (catalog.length > 0) {
-    return [...catalog].sort((a, b) => a.sort_order - b.sort_order)
+export function isCountSampleRow(row: CountRecordInput): boolean {
+  return row.hilera != null || row.arbol != null || row.is_count_summary === false
+}
+
+function isoDateOnly(value: string | null | undefined): string | null {
+  if (!value || value.length < 10) return null
+  return value.slice(0, 10)
+}
+
+function isPreCountState(state: string | null | undefined): boolean {
+  const n = (state ?? 'Pre-poda').trim().toLowerCase()
+  return n.includes('pre')
+}
+
+function isPostCountState(state: string | null | undefined): boolean {
+  return (state ?? '').trim().toLowerCase().includes('post')
+}
+
+/** Inicio = primera fecha de conteo; fin = última (Pre-poda → Post-poda si existen ambos). */
+export function countWindowForBlock(records: CountRecordInput[]): { start: string; end: string; label: string } | null {
+  const dated = records
+    .map((r) => ({ ...r, date: isoDateOnly(r.record_date) }))
+    .filter((r): r is CountRecordInput & { date: string } => r.date != null)
+
+  if (dated.length === 0) return null
+
+  const preDates = dated.filter((r) => isPreCountState(r.count_state)).map((r) => r.date).sort()
+  const postDates = dated.filter((r) => isPostCountState(r.count_state)).map((r) => r.date).sort()
+  const allDates = dated.map((r) => r.date).sort()
+
+  if (preDates.length > 0 && postDates.length > 0) {
+    return {
+      start: preDates[0]!,
+      end: postDates[postDates.length - 1]!,
+      label: 'Conteo Pre-poda → Post-poda',
+    }
   }
-  const defaults = DEFAULT_PHENOLOGY_STAGES[crop]
-  if (!defaults) return []
-  return defaults.map((s, i) => ({
-    id: `default-${i}`,
-    stage_name: s.stage_name,
-    stage_code: s.stage_code,
-    sort_order: s.sort_order,
-    typical_days: s.typical_days,
-  }))
-}
 
-function daysFromStageToHarvest(
-  stageName: string,
-  stageId: string | null,
-  stages: PhenologyStageRef[],
-): number | null {
-  if (stages.length === 0) return null
+  const sampleCount = dated.filter(isCountSampleRow).length
+  const label = sampleCount > 0
+    ? `${sampleCount} muestra${sampleCount === 1 ? '' : 's'} de conteo`
+    : `${dated.length} registro${dated.length === 1 ? '' : 's'} de conteo`
 
-  let currentIdx = stageId ? stages.findIndex((s) => s.id === stageId) : -1
-  if (currentIdx < 0) {
-    const normalized = normalizeStageName(stageName)
-    currentIdx = stages.findIndex((s) => normalizeStageName(s.stage_name) === normalized)
+  return {
+    start: allDates[0]!,
+    end: allDates[allDates.length - 1]!,
+    label,
   }
-  if (currentIdx < 0) {
-    currentIdx = stages.findIndex((s) => {
-      const n = normalizeStageName(s.stage_name)
-      return normalizedStageIncludes(normalizeStageName(stageName), n) || normalizedStageIncludes(n, normalizeStageName(stageName))
-    })
-  }
-  if (currentIdx < 0) return null
-
-  if (isHarvestStage(stages[currentIdx]!.stage_name)) return 0
-
-  let harvestIdx = stages.findIndex((s) => isHarvestStage(s.stage_name))
-  if (harvestIdx < 0) harvestIdx = stages.length - 1
-  if (harvestIdx <= currentIdx) return HARVEST_WINDOW_DAYS
-
-  let total = 0
-  for (let i = currentIdx + 1; i <= harvestIdx; i++) {
-    const days = stages[i]?.typical_days
-    if (days != null && days > 0) total += days
-  }
-  return total > 0 ? total : null
-}
-
-function normalizedStageIncludes(a: string, b: string): boolean {
-  return a.includes(b) || b.includes(a)
-}
-
-function phenologyWindow(
-  obs: PhenologyObsInput,
-  stages: PhenologyStageRef[],
-): { start: string; end: string } | null {
-  const days = daysFromStageToHarvest(obs.stage_name, obs.stage_id, stages)
-  if (days == null) return null
-  const start = addDaysIso(obs.observed_at, days)
-  const end = addDaysIso(start, HARVEST_WINDOW_DAYS - 1)
-  return { start, end }
 }
 
 export function buildHarvestPlanRows(
   estimates: HarvestPlanInput[],
-  observations: PhenologyObsInput[],
-  stagesByCrop: Map<string, PhenologyStageRef[]>,
+  countRecords: CountRecordInput[],
 ): HarvestPlanRow[] {
-  const obsByBlock = new Map<string, PhenologyObsInput[]>()
-  for (const obs of observations) {
-    const key = `${obs.season_label}::${obs.block_name}`
-    const list = obsByBlock.get(key) ?? []
-    list.push(obs)
-    obsByBlock.set(key, list)
+  const countsByBlock = new Map<string, CountRecordInput[]>()
+  for (const row of countRecords) {
+    if (!isCountSampleRow(row) && !row.record_date) continue
+    const key = blockCountKey(
+      row.season_label,
+      normalizeField(row.field_name),
+      row.block_name,
+      row.crop,
+    )
+    const list = countsByBlock.get(key) ?? []
+    list.push(row)
+    countsByBlock.set(key, list)
   }
 
   return estimates
@@ -191,35 +182,34 @@ export function buildHarvestPlanRows(
           window_start: est.expected_start,
           window_end: est.expected_end,
           source: 'manual' as const,
-          phenology_stage: null,
+          count_label: null,
           label,
         }
       }
 
-      const obsKey = `${est.season_label}::${est.block_name}`
-      const blockObs = (obsByBlock.get(obsKey) ?? [])
-        .filter((o) => o.crop === est.crop)
-        .sort((a, b) => b.observed_at.localeCompare(a.observed_at))
-      const latestObs = blockObs[0]
-      const stages = resolveStages(est.crop, stagesByCrop.get(est.crop) ?? [])
+      const countKey = blockCountKey(
+        est.season_label,
+        normalizeField(est.field_name),
+        est.block_name,
+        est.crop,
+      )
+      const blockCounts = countsByBlock.get(countKey) ?? []
+      const fromCount = countWindowForBlock(blockCounts)
 
-      if (latestObs) {
-        const inferred = phenologyWindow(latestObs, stages)
-        if (inferred) {
-          return {
-            id: est.id,
-            field_name: field,
-            block_name: est.block_name,
-            variety,
-            crop: est.crop,
-            season_label: est.season_label,
-            estimated_kg: Number(est.estimated_kg),
-            window_start: inferred.start,
-            window_end: inferred.end,
-            source: 'phenology' as const,
-            phenology_stage: latestObs.stage_name,
-            label,
-          }
+      if (fromCount) {
+        return {
+          id: est.id,
+          field_name: field,
+          block_name: est.block_name,
+          variety,
+          crop: est.crop,
+          season_label: est.season_label,
+          estimated_kg: Number(est.estimated_kg),
+          window_start: fromCount.start,
+          window_end: fromCount.end,
+          source: 'count' as const,
+          count_label: fromCount.label,
+          label,
         }
       }
 
@@ -235,7 +225,7 @@ export function buildHarvestPlanRows(
         window_start: fallback.start,
         window_end: fallback.end,
         source: 'variety' as const,
-        phenology_stage: latestObs?.stage_name ?? null,
+        count_label: null,
         label,
       }
     })
@@ -283,6 +273,6 @@ export function formatWindowRange(start: string, end: string): string {
 
 export const WINDOW_SOURCE_LABELS: Record<HarvestWindowSource, string> = {
   manual: 'Fechas guardadas',
-  phenology: 'Desde fenología',
+  count: 'Desde conteo',
   variety: 'Referencia variedad',
 }
