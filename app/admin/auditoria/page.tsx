@@ -35,9 +35,11 @@ export default async function AuditLogPage({ searchParams }: AuditPageProps) {
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-lg bg-[#4A6CF7]/10 border border-[#4A6CF7]/20 flex items-center justify-center overflow-hidden">
-                <Image src="/logo-upcrop.png" alt="UpCrop Logo" width={24} height={24} className="object-contain" />
+                <Image src="/logo-upcrop.png" alt="Up Crop" width={24} height={24} className="object-contain" />
               </div>
-              <span className="text-xl font-bold text-[#4A6CF7]">UpCrop</span>
+              <span className="text-xl font-bold text-foreground">
+                Up <span className="text-[#4A6CF7]">Crop</span>
+              </span>
               <span className="text-muted-foreground">/</span>
               <span className="text-foreground font-medium">Admin</span>
               <span className="text-muted-foreground">/</span>

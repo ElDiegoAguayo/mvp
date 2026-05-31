@@ -75,11 +75,17 @@ export function storageUsagePercent(usedBytes: number, quotaBytes: number): numb
 /** Etiqueta de porcentaje usado con decimales cuando el uso es bajo. */
 export function formatStorageUsageLabel(usedBytes: number, quotaBytes: number): string {
   if (quotaBytes <= 0 || usedBytes <= 0) return '0% usado'
-  const pct = (usedBytes / quotaBytes) * 100
-  if (pct < 0.01) return '<0.01% usado'
-  if (pct < 1) return `${pct.toFixed(2)}% usado`
-  if (pct < 10) return `${pct.toFixed(1)}% usado`
-  return `${Math.round(pct)}% usado`
+  return `${formatQuotaSharePercent(usedBytes, quotaBytes)} usado`
+}
+
+/** Porcentaje de un módulo (o uso parcial) respecto a la cuota total del plan. */
+export function formatQuotaSharePercent(partBytes: number, quotaBytes: number): string {
+  if (quotaBytes <= 0 || partBytes <= 0) return '0%'
+  const pct = (partBytes / quotaBytes) * 100
+  if (pct < 0.01) return '<0.01%'
+  if (pct < 1) return `${pct.toFixed(2)}%`
+  if (pct < 10) return `${pct.toFixed(1)}%`
+  return `${Math.round(pct)}%`
 }
 
 /** Espacio restante con precisión acorde al plan (evita "10.00 GB" cuando ya hay uso). */

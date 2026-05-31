@@ -179,10 +179,9 @@ export async function auditSecurityEvent(
   try {
     const supabase = createAuthSupabase()
 
-    const { error } = await supabase.from('audit_logs').insert({
+    const basePayload = {
       actor_email,
       actor_name,
-      actor_kind: 'anonymous',
       action_type,
       description,
       target_type: 'AUTH',
@@ -190,8 +189,18 @@ export async function auditSecurityEvent(
       metadata: {
         ip_address,
         user_agent,
+        actor_kind: 'anonymous',
       },
+    }
+
+    let { error } = await supabase.from('audit_logs').insert({
+      ...basePayload,
+      actor_kind: 'anonymous',
     })
+
+    if (error?.code === 'PGRST204' && error.message.includes('actor_kind')) {
+      ;({ error } = await supabase.from('audit_logs').insert(basePayload))
+    }
 
     if (error) {
       console.error('[v0] Error auditing security event:', error)

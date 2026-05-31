@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs'
+import { BRAND_NAME } from '@/lib/brand'
 
-/** Tokens de marca UpCrop — alineados con app/globals.css (--primary #4063ca) */
+/** Tokens de marca Up Crop — alineados con app/globals.css (--primary #4063ca) */
 export const UPCROP_COLORS = {
   primary: 'FF4063CA',
   primaryDark: 'FF2E4BA0',
@@ -158,7 +159,7 @@ export async function applyBrandedReportHeader(
   sheet.getRow(2).height = 36
 
   sheet.mergeCells(`A3:${lastCol}3`)
-  sheet.getCell('A3').value = `Generado: ${fechaStr}  ·  UpCrop — ${moduleLabel}`
+  sheet.getCell('A3').value = `Generado: ${fechaStr}  ·  ${BRAND_NAME} — ${moduleLabel}`
   sheet.getCell('A3').font = UPCROP_FONT.subtitle
   sheet.getCell('A3').alignment = { horizontal: 'center' }
 
@@ -239,7 +240,7 @@ export async function exportStyledReportExcel(options: StyledReportOptions): Pro
   const fechaStr = formatExportDateTime(now)
 
   const workbook = new ExcelJS.Workbook()
-  workbook.creator = 'UpCrop'
+  workbook.creator = BRAND_NAME
   workbook.created = now
 
   const sheet = workbook.addWorksheet(sheetName.slice(0, 31), {

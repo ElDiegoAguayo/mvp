@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef, useMemo, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useLocale } from '@/components/i18n/locale-provider'
 import {
   UploadCloud,
   FileText,
@@ -49,7 +50,7 @@ import { toast } from 'sonner'
 import { VaultFilePreviewDialog } from '@/components/vault/vault-file-preview-dialog'
 import { VaultStorageBar } from '@/components/vault/vault-storage-bar'
 import { inferVaultFileType, isVaultPreviewable, resolveVaultPreviewKind } from '@/lib/vault-preview'
-import { formatStorageBytes, formatAvailableStorage } from '@/lib/vault-storage'
+import { WidgetSkeleton } from '@/components/dashboard/widget-skeleton'
 import {
   getMyVaultDataAction,
   uploadVaultDocumentAction,
@@ -93,23 +94,33 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-function formatDate(isoDate: string): string {
+function formatDate(
+  isoDate: string,
+  t: (key: string, params?: Record<string, string | number>) => string,
+  locale: string,
+): string {
   const date = new Date(isoDate)
   const now = new Date()
   const diffMs = now.getTime() - date.getTime()
   const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+  const dateLocale = locale === 'en' ? 'en-US' : 'es-CL'
 
-  if (diffHours < 1) return 'Hace unos minutos'
-  if (diffHours < 24) return `Hace ${diffHours} hora${diffHours > 1 ? 's' : ''}`
-  if (diffDays < 7) return `Hace ${diffDays} día${diffDays > 1 ? 's' : ''}`
-  return date.toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric' })
+  if (diffHours < 1) return t('common.time.minutesAgo')
+  if (diffHours < 24) return t('common.time.hoursAgo', { count: diffHours })
+  if (diffDays < 7) return t('common.time.daysAgo', { count: diffDays })
+  return date.toLocaleDateString(dateLocale, { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-function formatExpiryDate(isoDate: string): string {
+function formatExpiryDate(
+  isoDate: string,
+  t: (key: string, params?: Record<string, string | number>) => string,
+  locale: string,
+): string {
   const date = new Date(isoDate)
-  if (Number.isNaN(date.getTime())) return 'Fecha inválida'
-  return date.toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' })
+  if (Number.isNaN(date.getTime())) return t('common.errors.invalidDate')
+  const dateLocale = locale === 'en' ? 'en-US' : 'es-CL'
+  return date.toLocaleDateString(dateLocale, { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
 function isExpiringSoon(isoDate?: string | null): boolean {
@@ -145,6 +156,7 @@ function normalizeVaultFileType(type: string, name: string): VaultFile['type'] {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function DocumentVault() {
+  const { t, locale } = useLocale()
   // Use useMemo to ensure stable Supabase client reference
   const supabase = useMemo(() => createClient(), [])
 
@@ -307,26 +319,23 @@ export function DocumentVault() {
   const simulateUpload = useCallback(
     async (file: File) => {
       if (!userId) {
-        alert('Debes iniciar sesión para subir archivos.')
+        alert(t('vault.errors.loginToUpload'))
         return
       }
 
       const expiresAt = expiryDate || null
 
       if (!isAllowedVaultUpload(file)) {
-        alert('Tipo de archivo no soportado. Solo PDF, JPG, PNG, Excel, CSV y Word.')
+        alert(t('vault.errors.unsupportedType'))
         return
       }
       if (file.size > VAULT_MAX_UPLOAD_BYTES) {
-        alert('Archivo muy grande. Máximo 10MB.')
+        alert(t('vault.errors.fileTooLarge'))
         return
       }
 
       if (storageInfo && storageInfo.usedBytes + file.size > storageInfo.quotaBytes) {
-        const available = Math.max(0, storageInfo.quotaBytes - storageInfo.usedBytes)
-        alert(
-          `No hay espacio suficiente. Tu plan permite ${storageInfo.quotaLabel} y te quedan ${formatAvailableStorage(storageInfo.usedBytes, storageInfo.quotaBytes)} disponibles.`,
-        )
+        alert(t('vault.errors.insufficientStorage', { plan: storageInfo.quotaLabel }))
         return
       }
 
@@ -343,7 +352,7 @@ export function DocumentVault() {
         const result = await uploadVaultDocumentAction(formData)
 
         if (!result.ok || !result.file) {
-          toast.error(result.message ?? 'Error al subir archivo.')
+          toast.error(result.message ?? t('vault.errors.uploadFailed'))
           if (result.storage) setStorageInfo(result.storage)
           setUploadProgress(null)
           setUploadingFileName(null)
@@ -372,7 +381,7 @@ export function DocumentVault() {
 
         await reloadVault()
 
-        toast.success(`"${file.name}" subido correctamente.`)
+        toast.success(t('vault.success.uploaded', { name: file.name }))
 
         setExpiryDate('')
 
@@ -395,13 +404,13 @@ export function DocumentVault() {
         })
       } catch (err) {
         console.error('[v0] Upload failed:', err)
-        toast.error('Error inesperado al subir archivo.')
+        toast.error(t('vault.errors.uploadUnexpected'))
         setUploadProgress(null)
         setUploadingFileName(null)
         await reloadVault()
       }
     },
-    [currentFolderId, expiryDate, supabase, userId, storageInfo, reloadVault],
+    [currentFolderId, expiryDate, supabase, userId, storageInfo, reloadVault, t],
   )
 
   const handleDrop = useCallback(
@@ -508,11 +517,11 @@ export function DocumentVault() {
 
   const handleCreateFolder = useCallback(async () => {
     if (!userId) {
-      alert('Debes iniciar sesión para crear carpetas.')
+      alert(t('vault.errors.loginToCreateFolder'))
       return
     }
 
-    const name = prompt('Nombre de la nueva carpeta:')
+    const name = prompt(t('vault.prompts.newFolderName'))
     if (name?.trim()) {
       const { data: inserted, error } = await supabase
         .from('carpetas')
@@ -526,7 +535,7 @@ export function DocumentVault() {
 
       if (error) {
         console.error('[v0] Create folder error:', error)
-        alert(`Error al crear carpeta: ${error.message}`)
+        alert(t('vault.errors.createFolderFailed', { msg: error.message }))
         return
       }
 
@@ -546,11 +555,11 @@ export function DocumentVault() {
         })
       }
     }
-  }, [currentFolderId, supabase, userId])
+  }, [currentFolderId, supabase, userId, t])
 
   const handleDownload = useCallback(async (file: VaultFile) => {
     if (!file.storagePath) {
-      alert('Este archivo no tiene ruta de almacenamiento.')
+      alert(t('vault.errors.noStoragePath'))
       return
     }
 
@@ -561,7 +570,7 @@ export function DocumentVault() {
 
       if (error) {
         console.error('[v0] Download error:', error)
-        alert(`Error al descargar: ${error.message}`)
+        alert(t('vault.errors.downloadFailed', { msg: error.message }))
         return
       }
 
@@ -584,32 +593,32 @@ export function DocumentVault() {
       }
     } catch (err) {
       console.error('[v0] Download failed:', err)
-      alert('Error inesperado al descargar archivo.')
+      alert(t('vault.errors.downloadUnexpected'))
     }
-  }, [supabase])
+  }, [supabase, t])
 
   const handlePreview = useCallback((file: VaultFile) => {
     if (!isVaultPreviewable(file.type, file.name)) return
     if (!file.storagePath) {
-      alert('Este archivo no tiene ruta de almacenamiento.')
+      alert(t('vault.errors.noStoragePath'))
       return
     }
     setPreviewFile(file)
     setIsPreviewOpen(true)
-  }, [])
+  }, [t])
 
   const fetchPreviewBlob = useCallback(async () => {
     if (!previewFile?.storagePath) {
-      throw new Error('Sin ruta de almacenamiento')
+      throw new Error(t('vault.errors.noStoragePath'))
     }
     const { data, error } = await supabase.storage
       .from('boveda')
       .download(previewFile.storagePath)
     if (error || !data) {
-      throw new Error(error?.message ?? 'No se pudo descargar el archivo')
+      throw new Error(error?.message ?? t('common.errors.loadFailed'))
     }
     return data
-  }, [previewFile, supabase])
+  }, [previewFile, supabase, t])
 
   const handleOpenShare = useCallback((file: VaultFile) => {
     setShareFile(file)
@@ -652,7 +661,7 @@ export function DocumentVault() {
 
       if (insertError) {
         console.error('[v0] Shared link insert error:', insertError)
-        alert(`Error al generar link: ${insertError.message}`)
+        alert(t('vault.errors.shareLinkFailed', { msg: insertError.message }))
         return
       }
 
@@ -667,11 +676,11 @@ export function DocumentVault() {
       })
     } catch (err) {
       console.error('[v0] Share failed:', err)
-      alert('Error inesperado al generar el link.')
+      alert(t('vault.errors.shareUnexpected'))
     } finally {
       setShareLoading(false)
     }
-  }, [shareFile, shareExpiry, supabase, userId])
+  }, [shareFile, shareExpiry, supabase, userId, t])
 
   const handleCopyShareUrl = useCallback(() => {
     if (!shareUrl) return
@@ -702,7 +711,7 @@ export function DocumentVault() {
 
       if (error) {
         console.error('[v0] Move file error:', error)
-        alert(`Error al mover archivo: ${error.message}`)
+        alert(t('vault.errors.moveFailed', { msg: error.message }))
         return
       }
 
@@ -721,7 +730,7 @@ export function DocumentVault() {
     } finally {
       setIsMoving(false)
     }
-  }, [moveFile, moveTargetFolderId, supabase])
+  }, [moveFile, moveTargetFolderId, supabase, t])
 
   const toggleSelectFile = useCallback((fileId: string) => {
     setSelectedFileIds(prev => {
@@ -754,7 +763,7 @@ export function DocumentVault() {
 
       if (error) {
         console.error('[v0] Bulk move error:', error)
-        alert(`Error al mover archivos: ${error.message}`)
+        alert(t('vault.errors.bulkMoveFailed', { msg: error.message }))
         return
       }
 
@@ -773,7 +782,7 @@ export function DocumentVault() {
     } finally {
       setIsBulkMoving(false)
     }
-  }, [selectedFileIds, bulkMoveTargetFolderId, supabase])
+  }, [selectedFileIds, bulkMoveTargetFolderId, supabase, t])
 
   const handlePreviewClose = useCallback((open: boolean) => {
     setIsPreviewOpen(open)
@@ -783,21 +792,18 @@ export function DocumentVault() {
   }, [])
 
   const currentFolderName = currentFolderId
-    ? folders.find((f) => f.id === currentFolderId)?.name ?? 'Carpeta'
-    : 'Mis documentos'
+    ? folders.find((f) => f.id === currentFolderId)?.name ?? t('vault.folder')
+    : t('vault.myDocuments')
 
   const storageFull = storageInfo
     ? storageInfo.usedBytes >= storageInfo.quotaBytes
     : false
 
+  const shareExpiryLabel = t(`vault.share.expiry.${shareExpiry}`)
+
   // Loading state
   if (isLoading) {
-    return (
-      <div className="bg-white dark:bg-[#2b2926] border border-slate-200 dark:border-neutral-700 rounded-xl p-12 flex flex-col items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary mb-3" />
-        <p className="text-slate-500 dark:text-slate-400">Cargando Mis documentos...</p>
-      </div>
-    )
+    return <WidgetSkeleton variant="list" minHeight="lg" />
   }
 
   return (
@@ -816,7 +822,7 @@ export function DocumentVault() {
             )}
           >
             <Home className="w-4 h-4" />
-            <span>Inicio</span>
+            <span>{t('shell.home')}</span>
           </button>
           {breadcrumbs.map((folder) => (
             <div key={folder.id} className="flex items-center gap-1">
@@ -847,7 +853,7 @@ export function DocumentVault() {
               className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-neutral-700 gap-1.5"
             >
               <ArrowLeft className="w-4 h-4" />
-              Volver
+              {t('vault.back')}
             </Button>
           )}
 
@@ -856,7 +862,7 @@ export function DocumentVault() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-slate-500" />
             <Input
               type="text"
-              placeholder="Buscar archivos y carpetas..."
+              placeholder={t('vault.search')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-9 pr-9 h-10 bg-slate-50 dark:bg-neutral-800 border-slate-200 dark:border-neutral-600 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-400"
@@ -884,11 +890,11 @@ export function DocumentVault() {
                     : 'bg-slate-100 dark:bg-neutral-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-neutral-600',
                 )}
               >
-                {filter === 'all' && 'Todos'}
-                {filter === 'pdf' && 'PDFs'}
-                {filter === 'excel' && 'Planillas'}
-                {filter === 'image' && 'Imágenes'}
-                {filter === 'word' && 'Word'}
+                {filter === 'all' && t('vault.filterAll')}
+                {filter === 'pdf' && t('vault.filterPdf')}
+                {filter === 'excel' && t('vault.filterExcel')}
+                {filter === 'image' && t('vault.filterImage')}
+                {filter === 'word' && t('vault.filterWord')}
               </button>
             ))}
           </div>
@@ -901,7 +907,7 @@ export function DocumentVault() {
             className="border-slate-200 dark:border-neutral-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-neutral-700"
           >
             <Plus className="w-4 h-4 mr-1" />
-            Nueva Carpeta
+            {t('vault.newFolder')}
           </Button>
         </div>
       </div>
@@ -925,7 +931,7 @@ export function DocumentVault() {
           accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,.xlsx,.xls,.csv,.doc,.docx"
           onChange={handleFileSelect}
           className="hidden"
-          aria-label="Seleccionar archivo"
+          aria-label={t('vault.aria.selectFile')}
         />
 
         <div
@@ -945,7 +951,7 @@ export function DocumentVault() {
         >
           {storageFull ? (
             <span className="text-sm text-red-600 dark:text-red-400 text-center">
-              Almacenamiento lleno ({storageInfo?.quotaLabel ?? 'plan'}). Elimina archivos o contacta a soporte para ampliar tu plan.
+              {t('vault.storageFull', { plan: storageInfo?.quotaLabel ?? 'plan' })}
             </span>
           ) : uploadProgress !== null ? (
             <div className="flex items-center gap-3">
@@ -973,7 +979,8 @@ export function DocumentVault() {
                 )}
               />
               <span className="text-sm text-slate-600 dark:text-slate-400">
-                Arrastra archivos aquí o haz clic para subir a <span className="font-medium text-slate-900 dark:text-slate-100">{currentFolderName}</span>
+                {t('vault.dropFiles')}{' '}
+                <span className="font-medium text-slate-900 dark:text-slate-100">{currentFolderName}</span>
               </span>
             </>
           )}
@@ -982,7 +989,7 @@ export function DocumentVault() {
         <div className="mb-6 flex flex-col sm:flex-row sm:items-center gap-3">
           <div className="flex-1">
             <label className="text-xs font-medium text-slate-500 dark:text-slate-400">
-              Fecha de Vencimiento (opcional)
+              {t('vault.expiryOptional')}
             </label>
             <Input
               type="date"
@@ -992,7 +999,7 @@ export function DocumentVault() {
             />
           </div>
           <div className="text-xs text-slate-500 dark:text-slate-400">
-            Se aplicará al próximo archivo que subas.
+            {t('vault.expiryHint')}
           </div>
         </div>
 
@@ -1000,7 +1007,7 @@ export function DocumentVault() {
         {currentFolders.length > 0 && (
           <div className="mb-6">
             <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">
-              Carpetas
+              {t('vault.folders')}
             </h3>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
               {currentFolders.map((folder) => (
@@ -1033,7 +1040,7 @@ export function DocumentVault() {
                         className="text-red-600 dark:text-red-400"
                       >
                         <Trash2 className="w-4 h-4 mr-2" />
-                        Eliminar
+                        {t('vault.delete')}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -1056,7 +1063,9 @@ export function DocumentVault() {
                 />
               )}
               <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                Archivos {currentFiles.length > 0 && `(${currentFiles.length})`}
+                {currentFiles.length > 0
+                  ? t('vault.filesCount', { count: currentFiles.length })
+                  : t('vault.files')}
               </h3>
             </div>
 
@@ -1064,7 +1073,7 @@ export function DocumentVault() {
             {selectedFileIds.size > 0 && (
               <div className="flex items-center gap-2">
                 <span className="text-xs text-slate-500 dark:text-slate-400">
-                  {selectedFileIds.size} seleccionado{selectedFileIds.size > 1 ? 's' : ''}
+                  {t('vault.selection.count', { count: selectedFileIds.size })}
                 </span>
                 <Button
                   size="sm"
@@ -1073,7 +1082,7 @@ export function DocumentVault() {
                   className="h-7 px-2 text-xs text-slate-500 border-slate-200 dark:border-neutral-600"
                 >
                   <X className="w-3 h-3 mr-1" />
-                  Quitar
+                  {t('vault.selection.clear')}
                 </Button>
                 <Button
                   size="sm"
@@ -1084,7 +1093,7 @@ export function DocumentVault() {
                   className="h-7 px-3 text-xs gap-1.5 bg-amber-500 hover:bg-amber-600 text-white border-0"
                 >
                   <FolderInput className="w-3.5 h-3.5" />
-                  Mover seleccionados
+                  {t('vault.selection.moveSelected')}
                 </Button>
               </div>
             )}
@@ -1093,9 +1102,9 @@ export function DocumentVault() {
           {currentFiles.length === 0 ? (
             <div className="text-center py-12 text-slate-500 dark:text-slate-400">
               {searchQuery || typeFilter !== 'all' ? (
-                <p>No se encontraron archivos con los filtros actuales.</p>
+                <p>{t('vault.empty.noFilterResults')}</p>
               ) : (
-                <p>Esta carpeta está vacía. Sube archivos o crea subcarpetas.</p>
+                <p>{t('vault.empty.folderEmpty')}</p>
               )}
             </div>
           ) : (
@@ -1148,13 +1157,13 @@ export function DocumentVault() {
                         </p>
                         {expiringSoon && (
                           <span className="text-[10px] uppercase tracking-wide font-semibold text-red-600 dark:text-red-400 bg-red-500/10 dark:bg-red-500/20 px-2 py-0.5 rounded-full">
-                            Por vencer
+                            {t('vault.expiringSoon')}
                           </span>
                         )}
                       </div>
                       <p className="text-xs text-slate-500 dark:text-slate-400">
-                        {formatFileSize(file.size)} • {formatDate(file.createdAt)}
-                        {file.expiresAt && ` • Vence ${formatExpiryDate(file.expiresAt)}`}
+                        {formatFileSize(file.size)} • {formatDate(file.createdAt, t, locale)}
+                        {file.expiresAt && ` • ${t('vault.expiresOn', { date: formatExpiryDate(file.expiresAt, t, locale) })}`}
                       </p>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
@@ -1164,7 +1173,7 @@ export function DocumentVault() {
                           size="sm"
                           onClick={(e) => { e.stopPropagation(); handlePreview(file) }}
                           className="h-8 w-8 p-0 text-slate-500 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
-                          title="Vista previa"
+                          title={t('vault.actions.preview')}
                         >
                           <Eye className="w-4 h-4" />
                         </Button>
@@ -1174,7 +1183,7 @@ export function DocumentVault() {
                         size="sm"
                         onClick={(e) => { e.stopPropagation(); handleOpenShare(file) }}
                         className="h-8 w-8 p-0 text-slate-500 dark:text-slate-300 hover:text-primary"
-                        title="Compartir link"
+                        title={t('vault.actions.shareLink')}
                       >
                         <Share2 className="w-4 h-4" />
                       </Button>
@@ -1183,7 +1192,7 @@ export function DocumentVault() {
                         size="sm"
                         onClick={(e) => { e.stopPropagation(); handleDownload(file) }}
                         className="h-8 w-8 p-0 text-slate-500 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
-                        title="Descargar"
+                        title={t('common.actions.download')}
                       >
                         <Download className="w-4 h-4" />
                       </Button>
@@ -1192,7 +1201,7 @@ export function DocumentVault() {
                         size="sm"
                         onClick={(e) => { e.stopPropagation(); handleOpenMove(file) }}
                         className="h-8 w-8 p-0 text-slate-500 dark:text-slate-300 hover:text-amber-600"
-                        title="Mover a carpeta"
+                        title={t('vault.actions.moveToFolder')}
                       >
                         <FolderInput className="w-4 h-4" />
                       </Button>
@@ -1201,7 +1210,7 @@ export function DocumentVault() {
                         size="sm"
                         onClick={(e) => { e.stopPropagation(); handleDeleteFile(file.id) }}
                         className="h-8 w-8 p-0 text-slate-500 dark:text-slate-300 hover:text-red-600 dark:hover:text-red-400"
-                        title="Eliminar"
+                        title={t('common.actions.delete')}
                       >
                         <Trash2 className="w-4 h-4" />
                       </Button>
@@ -1227,7 +1236,7 @@ export function DocumentVault() {
             previewFile ? (
               <Button variant="outline" size="sm" onClick={() => handleOpenShare(previewFile)} className="gap-1.5 text-xs h-8">
                 <Share2 className="w-3.5 h-3.5" />
-                Compartir
+                {t('common.actions.share')}
               </Button>
             ) : undefined
           }
@@ -1244,7 +1253,7 @@ export function DocumentVault() {
                 <Link2 className="w-4 h-4 text-primary" />
               </div>
               <div className="min-w-0 flex-1">
-                <DialogTitle className="text-base font-semibold">Compartir archivo</DialogTitle>
+                <DialogTitle className="text-base font-semibold">{t('vault.share.title')}</DialogTitle>
                 <DialogDescription className="text-xs mt-0.5 truncate">
                   {shareFile?.name}
                 </DialogDescription>
@@ -1258,21 +1267,16 @@ export function DocumentVault() {
             <div className="space-y-2">
               <div className="flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5 text-muted-foreground" />
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">El link expira en</p>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t('vault.share.expiresIn')}</p>
               </div>
               <div className="flex gap-2">
-                {([
-                  { value: '1d',  label: '1 día'  },
-                  { value: '7d',  label: '7 días' },
-                  { value: '14d', label: '14 días'},
-                  { value: '30d', label: '1 mes'  },
-                ] as const).map(opt => {
-                  const active = shareExpiry === opt.value
+                {(['1d', '7d', '14d', '30d'] as const).map((value) => {
+                  const active = shareExpiry === value
                   return (
                     <button
-                      key={opt.value}
+                      key={value}
                       type="button"
-                      onClick={() => { setShareExpiry(opt.value); setShareUrl(null) }}
+                      onClick={() => { setShareExpiry(value); setShareUrl(null) }}
                       className={cn(
                         'flex-1 py-2 rounded-lg text-xs font-semibold transition-all text-center border',
                         active
@@ -1280,17 +1284,16 @@ export function DocumentVault() {
                           : 'bg-secondary text-secondary-foreground border-border hover:border-primary/50'
                       )}
                     >
-                      {opt.label}
+                      {t(`vault.share.expiry.${value}`)}
                     </button>
                   )
                 })}
               </div>
             </div>
 
-            {/* Generated URL */}
             {shareUrl && (
               <div className="space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Link generado</p>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t('vault.share.linkGenerated')}</p>
                 <div className="flex items-center gap-3 px-4 py-3 rounded-lg border border-border bg-secondary min-w-0">
                   <p className="flex-1 min-w-0 text-xs truncate font-mono text-secondary-foreground">{shareUrl}</p>
                   <button
@@ -1304,12 +1307,11 @@ export function DocumentVault() {
                     )}
                   >
                     {shareCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    {shareCopied ? 'Copiado' : 'Copiar'}
+                    {shareCopied ? t('common.actions.copied') : t('common.actions.copy')}
                   </button>
                 </div>
                 <p className="text-[11px] text-muted-foreground">
-                  Este link es válido por {shareExpiry === '1d' ? '1 día' : shareExpiry === '7d' ? '7 días' : shareExpiry === '14d' ? '14 días' : '1 mes'}.
-                  Cualquier persona con el link podrá ver el archivo.
+                  {t('vault.share.linkHint', { duration: shareExpiryLabel })}
                 </p>
               </div>
             )}
@@ -1317,12 +1319,12 @@ export function DocumentVault() {
 
           {/* Footer */}
           <div className="px-6 pb-5 flex gap-2 justify-end">
-            <Button variant="outline" size="sm" onClick={() => setIsShareDialogOpen(false)}>Cerrar</Button>
+            <Button variant="outline" size="sm" onClick={() => setIsShareDialogOpen(false)}>{t('common.actions.close')}</Button>
             <Button size="sm" onClick={handleGenerateShareUrl} disabled={shareLoading} className="gap-1.5 min-w-[140px]">
               {shareLoading ? (
-                <><Loader2 className="w-3.5 h-3.5 animate-spin" />Generando…</>
+                <><Loader2 className="w-3.5 h-3.5 animate-spin" />{t('vault.share.generating')}</>
               ) : (
-                <><Link2 className="w-3.5 h-3.5" />{shareUrl ? 'Regenerar link' : 'Generar link'}</>
+                <><Link2 className="w-3.5 h-3.5" />{shareUrl ? t('vault.share.regenerate') : t('vault.share.generate')}</>
               )}
             </Button>
           </div>
@@ -1339,7 +1341,7 @@ export function DocumentVault() {
                 <FolderInput className="w-4 h-4 text-amber-600" />
               </div>
               <div className="min-w-0 flex-1">
-                <DialogTitle className="text-base font-semibold">Mover archivo</DialogTitle>
+                <DialogTitle className="text-base font-semibold">{t('vault.move.title')}</DialogTitle>
                 <DialogDescription className="text-xs mt-0.5 truncate">
                   {moveFile?.name}
                 </DialogDescription>
@@ -1361,7 +1363,7 @@ export function DocumentVault() {
               )}
             >
               <Home className="w-4 h-4 flex-shrink-0" />
-              <span>Inicio (raíz)</span>
+              <span>{t('vault.move.root')}</span>
               {moveTargetFolderId === null && (
                 <Check className="w-3.5 h-3.5 ml-auto flex-shrink-0" />
               )}
@@ -1386,7 +1388,7 @@ export function DocumentVault() {
                 <Folder className="w-4 h-4 flex-shrink-0 text-amber-500" />
                 <span className="flex-1 truncate">{folder.name}</span>
                 {folder.id === moveFile?.folderId && (
-                  <span className="text-[10px] text-muted-foreground flex-shrink-0">actual</span>
+                  <span className="text-[10px] text-muted-foreground flex-shrink-0">{t('vault.move.current')}</span>
                 )}
                 {moveTargetFolderId === folder.id && folder.id !== moveFile?.folderId && (
                   <Check className="w-3.5 h-3.5 flex-shrink-0" />
@@ -1396,7 +1398,7 @@ export function DocumentVault() {
 
             {folders.length === 0 && (
               <p className="text-sm text-muted-foreground text-center py-6 italic">
-                No hay carpetas creadas todavía.
+                {t('vault.move.noFolders')}
               </p>
             )}
           </div>
@@ -1405,12 +1407,12 @@ export function DocumentVault() {
           <div className="px-6 py-4 border-t border-border flex items-center justify-between gap-3">
             <p className="text-xs text-muted-foreground truncate">
               {moveTargetFolderId === null
-                ? 'Mover a: Inicio'
-                : `Mover a: ${folders.find(f => f.id === moveTargetFolderId)?.name ?? '…'}`}
+                ? t('vault.move.destinationRoot')
+                : t('vault.move.destination', { name: folders.find(f => f.id === moveTargetFolderId)?.name ?? '…' })}
             </p>
             <div className="flex gap-2 flex-shrink-0">
               <Button variant="outline" size="sm" onClick={() => setIsMoveDialogOpen(false)}>
-                Cancelar
+                {t('common.actions.cancel')}
               </Button>
               <Button
                 size="sm"
@@ -1419,9 +1421,9 @@ export function DocumentVault() {
                 className="gap-1.5 min-w-[90px]"
               >
                 {isMoving ? (
-                  <><Loader2 className="w-3.5 h-3.5 animate-spin" />Moviendo…</>
+                  <><Loader2 className="w-3.5 h-3.5 animate-spin" />{t('common.actions.moving')}</>
                 ) : (
-                  <><FolderInput className="w-3.5 h-3.5" />Mover</>
+                  <><FolderInput className="w-3.5 h-3.5" />{t('common.actions.move')}</>
                 )}
               </Button>
             </div>
@@ -1439,9 +1441,9 @@ export function DocumentVault() {
                 <FolderInput className="w-4 h-4 text-amber-600" />
               </div>
               <div className="min-w-0 flex-1">
-                <DialogTitle className="text-base font-semibold">Mover archivos</DialogTitle>
+                <DialogTitle className="text-base font-semibold">{t('vault.bulkMove.title')}</DialogTitle>
                 <DialogDescription className="text-xs mt-0.5">
-                  {selectedFileIds.size} archivo{selectedFileIds.size > 1 ? 's' : ''} seleccionado{selectedFileIds.size > 1 ? 's' : ''}
+                  {t('vault.bulkMove.selectedCount', { count: selectedFileIds.size })}
                 </DialogDescription>
               </div>
             </div>
@@ -1461,7 +1463,7 @@ export function DocumentVault() {
               )}
             >
               <Home className="w-4 h-4 flex-shrink-0" />
-              <span>Inicio (raíz)</span>
+              <span>{t('vault.move.root')}</span>
               {bulkMoveTargetFolderId === null && (
                 <Check className="w-3.5 h-3.5 ml-auto flex-shrink-0" />
               )}
@@ -1489,7 +1491,7 @@ export function DocumentVault() {
 
             {folders.length === 0 && (
               <p className="text-sm text-muted-foreground text-center py-6 italic">
-                No hay carpetas creadas todavía.
+                {t('vault.move.noFolders')}
               </p>
             )}
           </div>
@@ -1498,12 +1500,12 @@ export function DocumentVault() {
           <div className="px-6 py-4 border-t border-border flex items-center justify-between gap-3">
             <p className="text-xs text-muted-foreground truncate">
               {bulkMoveTargetFolderId === null
-                ? 'Destino: Inicio'
-                : `Destino: ${folders.find(f => f.id === bulkMoveTargetFolderId)?.name ?? '…'}`}
+                ? t('vault.bulkMove.destinationRoot')
+                : t('vault.bulkMove.destination', { name: folders.find(f => f.id === bulkMoveTargetFolderId)?.name ?? '…' })}
             </p>
             <div className="flex gap-2 flex-shrink-0">
               <Button variant="outline" size="sm" onClick={() => setIsBulkMoveDialogOpen(false)}>
-                Cancelar
+                {t('common.actions.cancel')}
               </Button>
               <Button
                 size="sm"
@@ -1512,9 +1514,9 @@ export function DocumentVault() {
                 className="gap-1.5 min-w-[100px]"
               >
                 {isBulkMoving ? (
-                  <><Loader2 className="w-3.5 h-3.5 animate-spin" />Moviendo…</>
+                  <><Loader2 className="w-3.5 h-3.5 animate-spin" />{t('common.actions.moving')}</>
                 ) : (
-                  <><FolderInput className="w-3.5 h-3.5" />Mover {selectedFileIds.size}</>
+                  <><FolderInput className="w-3.5 h-3.5" />{t('vault.bulkMove.moveCount', { count: selectedFileIds.size })}</>
                 )}
               </Button>
             </div>

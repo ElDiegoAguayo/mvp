@@ -14,6 +14,9 @@ function LoginContent() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [isSuccess, setIsSuccess] = useState(false)
+  const [welcomeName, setWelcomeName] = useState<string | null>(null)
+  const [errorKey, setErrorKey] = useState(0)
   const [lockoutMinutes, setLockoutMinutes] = useState<number | null>(null)
   const searchParams = useSearchParams()
   const supabase = createClient()
@@ -30,6 +33,12 @@ function LoginContent() {
       })
     }
   }, [searchParams])
+
+  useEffect(() => {
+    if (error) {
+      setErrorKey((key) => key + 1)
+    }
+  }, [error])
 
   const getErrorMessage = (error: string): string => {
     // Generic message for any auth failure: protects against user enumeration
@@ -161,7 +170,7 @@ function LoginContent() {
 
         const { data: profile, error: profileError } = await supabase
           .from('profiles')
-          .select('is_active, role')
+          .select('is_active, role, full_name')
           .eq('id', data.user.id)
           .maybeSingle()
 
@@ -231,8 +240,24 @@ function LoginContent() {
           /* non-blocking */
         }
 
-        // Full navigation so session cookies sync reliably in production (avoids RSC redirect issues)
-        window.location.assign('/dashboard')
+        const displayName =
+          profile?.full_name?.trim() ||
+          (data.user.user_metadata?.full_name as string | undefined)?.trim() ||
+          data.user.email?.split('@')[0] ||
+          null
+
+        setWelcomeName(displayName)
+        setIsSuccess(true)
+
+        const redirectDelay =
+          typeof window !== 'undefined' &&
+          window.matchMedia('(prefers-reduced-motion: reduce)').matches
+            ? 300
+            : 950
+
+        window.setTimeout(() => {
+          window.location.assign('/dashboard')
+        }, redirectDelay)
         return
       }
     } catch (error) {
@@ -250,8 +275,11 @@ function LoginContent() {
       password={password}
       setPassword={setPassword}
       error={error}
+      errorKey={errorKey}
       lockoutMinutes={lockoutMinutes}
       isLoading={isLoading}
+      isSuccess={isSuccess}
+      welcomeName={welcomeName}
       onSubmit={handleLogin}
     />
   )

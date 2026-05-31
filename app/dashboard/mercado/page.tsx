@@ -23,51 +23,37 @@ import {
   Info,
   Zap,
 } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { formatDate } from '@/lib/format-date'
+import { useLocale } from '@/components/i18n/locale-provider'
 import { DashboardCard } from '@/components/dashboard/dashboard-card'
 import { exportStyledReportExcel } from '@/lib/excel/upcrop-excel-theme'
+import {
+  COUNTRY_KEYS,
+  COUNTRY_MULTIPLIERS,
+  COUNTRY_PORTS,
+  CURRENCY_CODES,
+  FRUIT_KEYS,
+  FRUIT_VARIETIES,
+  formatMercadoDate,
+  formatMercadoNewsDate,
+  getCountryLabel,
+  getCurrencyLabel,
+  getFruitLabel,
+  getPortLabel,
+  getPortMapLookupLabel,
+  getVarietyLabel,
+  type CountryKey,
+  type CurrencyCode,
+  type FruitKey,
+  type PortKey,
+} from '@/lib/mercado/catalog'
 
 // Dynamic import for PortMap (ssr: false to avoid hydration issues)
 const PortMap = dynamic(() => import('@/components/dashboard/port-map'), {
   ssr: false,
 })
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Fruit & Variety Catalog (Diccionario de Datos)
-// ─────────────────────────────────────────────────────────────────────────────
-
-const FRUIT_VARIETIES: Record<string, string[]> = {
-  Cerezas: ['Bing', 'Santina', 'Lapins', 'Regina', 'Sweetheart', 'Kordia'],
-  'Uvas de Mesa': ['Red Globe', 'Thompson Seedless', 'Crimson Seedless', 'Autumn Royal', 'Sweet Celebration'],
-  Arándanos: ['Duke', 'Legacy', 'Brigitta', 'Emerald', 'Bluecrop'],
-  Manzanas: ['Royal Gala', 'Granny Smith', 'Fuji', 'Pink Lady', 'Red Delicious'],
-  'Paltas (Aguacates)': ['Hass', 'Edranol', 'Fuerte'],
-  Ciruelas: ["D'Agen", 'Angeleno', 'Friar'],
-  Kiwis: ['Hayward', 'Jintao (Amarillo)'],
-}
-
-const FRUIT_KEYS = Object.keys(FRUIT_VARIETIES)
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Country → Port Mapping (Cascading Filters for Agricultural Trade)
-// ─────────────────────────────────────────────────────────────────────────────
-
-const COUNTRY_PORTS: Record<string, string[]> = {
-  China: ['Puerto de Shanghai', 'Puerto de Guangzhou', 'Puerto de Shenzhen', 'Puerto de Ningbo-Zhoushan'],
-  'Estados Unidos': ['Puerto de Philadelphia', 'Puerto de Los Ángeles', 'Puerto de Long Beach', 'Puerto de Miami', 'Puerto de Savannah'],
-  'Países Bajos (Holanda)': ['Puerto de Rotterdam'],
-  España: ['Puerto de Valencia', 'Puerto de Barcelona', 'Puerto de Algeciras'],
-  Japón: ['Puerto de Tokyo', 'Puerto de Yokohama', 'Puerto de Kobe'],
-  'Corea del Sur': ['Puerto de Busan', 'Puerto de Incheon'],
-  Brasil: ['Puerto de Santos', 'Puerto de Paranaguá'],
-  Colombia: ['Puerto de Cartagena', 'Puerto de Buenaventura'],
-}
-
-const COUNTRY_KEYS = Object.keys(COUNTRY_PORTS)
-
-const CURRENCIES: Record<string, { symbol: string; rate: number }> = {
+const CURRENCIES: Record<CurrencyCode, { symbol: string; rate: number }> = {
   USD: { symbol: '$', rate: 1 },
   EUR: { symbol: '€', rate: 0.92 },
   UF: { symbol: 'UF ', rate: 0.000027 },
@@ -78,22 +64,11 @@ const CURRENCIES: Record<string, { symbol: string; rate: number }> = {
   CLP: { symbol: '$', rate: 940 }, // Actualizado a 940
 }
 
-const CURRENCY_LABELS: Record<string, string> = {
-  USD: 'USD (Dólar)',
-  EUR: 'EUR (Euro)',
-  UF: 'UF (Unidad de Fomento)',
-  UTM: 'UTM',
-  CNY: 'CNY (Yuan Chino)',
-  JPY: 'JPY (Yen Japonés)',
-  BRL: 'BRL (Real Brasileño)',
-  CLP: 'CLP (Peso Chileno)',
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Price Generation (Simulated with no rounding)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function generateBasePrice(fruit: string, variety: string): number {
+function generateBasePrice(fruit: FruitKey, variety: string): number {
   // Deterministic base price based on fruit + variety hash
   const hash = (fruit + variety).split('').reduce((a, c) => a + c.charCodeAt(0), 0)
   const base = 2.5 + (hash % 100) / 10 // Range: 2.5 - 12.5 USD
@@ -101,23 +76,15 @@ function generateBasePrice(fruit: string, variety: string): number {
 }
 
 function generateHistoricalPrices(
-  fruit: string,
+  fruit: FruitKey,
   variety: string,
-  country: string,
-  port: string,
-  days: number = 7
+  country: CountryKey,
+  port: PortKey,
+  locale: 'es' | 'en',
+  days: number = 7,
 ): { date: string; priceRef: number; priceClose: number; variation: number }[] {
   const basePrice = generateBasePrice(fruit, variety)
-  // Country-based price multiplier (reflects market demand/logistics)
-  const countryMultiplier = 
-    country === 'China' ? 1.15 : 
-    country === 'Estados Unidos' ? 1.05 : 
-    country === 'Países Bajos (Holanda)' ? 1.08 : 
-    country === 'España' ? 1.06 :
-    country === 'Japón' ? 1.12 :
-    country === 'Corea del Sur' ? 1.10 :
-    country === 'Brasil' ? 0.95 :
-    country === 'Colombia' ? 0.92 : 1.0
+  const countryMultiplier = COUNTRY_MULTIPLIERS[country] ?? 1.0
 
   const data: { date: string; priceRef: number; priceClose: number; variation: number }[] = []
   const today = new Date()
@@ -125,7 +92,7 @@ function generateHistoricalPrices(
   for (let i = days - 1; i >= 0; i--) {
     const date = new Date(today)
     date.setDate(date.getDate() - i)
-    const dateStr = date.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    const dateStr = formatMercadoDate(date, locale)
 
     // Simulate daily fluctuation (no rounding) - include port for variation
     const dayHash = (fruit + variety + country + port + i).split('').reduce((a, c) => a + c.charCodeAt(0), 0)
@@ -145,8 +112,8 @@ function generateHistoricalPrices(
 // Formatters
 // ─────────────────────────────────────────────────────────────────────────────
 
-function formatPrice(value: number, currency: string): string {
-  const { symbol, rate } = CURRENCIES[currency] || CURRENCIES.USD
+function formatPrice(value: number, currency: CurrencyCode): string {
+  const { symbol, rate } = CURRENCIES[currency]
   const converted = value * rate
   // NO ROUNDING - show all decimals (up to 6 for small units like UF)
   if (currency === 'UF' || currency === 'UTM') {
@@ -162,17 +129,15 @@ function formatPrice(value: number, currency: string): string {
 // Chart Data (Daily data for last 360 days ending on current date: May 19, 2026)
 // ───────��─────────────────────────────────────────────────────────────────────
 
-function generateChartData(fruit: string, variety: string, country: string, port: string) {
+function generateChartData(
+  fruit: FruitKey,
+  variety: string,
+  country: CountryKey,
+  port: PortKey,
+  locale: 'es' | 'en',
+) {
   const base = generateBasePrice(fruit, variety)
-  const countryMultiplier = 
-    country === 'China' ? 1.15 : 
-    country === 'Estados Unidos' ? 1.05 : 
-    country === 'Países Bajos (Holanda)' ? 1.08 : 
-    country === 'España' ? 1.06 :
-    country === 'Japón' ? 1.12 :
-    country === 'Corea del Sur' ? 1.10 :
-    country === 'Brasil' ? 0.95 :
-    country === 'Colombia' ? 0.92 : 1.0
+  const countryMultiplier = COUNTRY_MULTIPLIERS[country] ?? 1.0
 
   const data = []
   const endDate = new Date(2026, 4, 19) // May 19, 2026
@@ -181,12 +146,7 @@ function generateChartData(fruit: string, variety: string, country: string, port
   for (let i = 359; i >= 0; i--) {
     const date = new Date(endDate)
     date.setDate(date.getDate() - i)
-    
-    // Format: DD/MM/YYYY
-    const day = String(date.getDate()).padStart(2, '0')
-    const month = String(date.getMonth() + 1).padStart(2, '0')
-    const year = date.getFullYear()
-    const dayLabel = `${day}/${month}/${year}`
+    const dayLabel = formatMercadoDate(date, locale)
     
     // Generate price with deterministic variation
     const dayOfYear = Math.floor(i / 1) // Each iteration is one day
@@ -206,53 +166,21 @@ function generateChartData(fruit: string, variety: string, country: string, port
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Market News (Dinámico)
-// ─────────────────────────────────────────────────────────────────────────────
-
-function getRelativeTime(minutesAgo: number): string {
-  if (minutesAgo < 60) return `Hace ${minutesAgo} min`
-  const hoursAgo = Math.floor(minutesAgo / 60)
-  if (hoursAgo < 24) return `Hace ${hoursAgo} hora${hoursAgo > 1 ? 's' : ''}`
-  const daysAgo = Math.floor(minutesAgo / (60 * 24))
-  return `Hace ${daysAgo} día${daysAgo > 1 ? 's' : ''}`
-}
-
-const MARKET_NEWS_CONFIG = [
-  {
-    id: 1,
-    title: 'Congestión menor en terminal de contratistas de Philadelphia, reducción de tiempo de espera esperada.',
-    minutesAgo: 15,
-    urgent: true,
-  },
-  {
-    id: 2,
-    title: 'Apertura de ventana comercial prioritaria en Rotterdam para shipments de cereza con descuento logístico.',
-    minutesAgo: 120,
-    urgent: false,
-  },
-  {
-    id: 3,
-    title: 'Alza de demanda en Shanghai por festividades locales, precios de cerezas Bing proyectados al alza.',
-    minutesAgo: 240,
-    urgent: true,
-  },
-]
-
-const MARKET_NEWS = MARKET_NEWS_CONFIG.map((news) => ({
-  ...news,
-  time: getRelativeTime(news.minutesAgo),
-}))
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Best Port Selection (by current price/profit)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function findBestPortByPrice(fruit: string, variety: string, country: string, ports: string[]): string {
+function findBestPortByPrice(
+  fruit: FruitKey,
+  variety: string,
+  country: CountryKey,
+  ports: readonly PortKey[],
+  locale: 'es' | 'en',
+): PortKey {
   let bestPort = ports[0]
   let bestPrice = 0
 
   for (const port of ports) {
-    const priceData = generateHistoricalPrices(fruit, variety, country, port, 1)
+    const priceData = generateHistoricalPrices(fruit, variety, country, port, locale, 1)
     if (priceData.length > 0) {
       const currentPrice = priceData[0].priceClose
       if (currentPrice > bestPrice) {
@@ -278,10 +206,10 @@ function CustomTooltip({
   active?: boolean
   payload?: Array<{ name: string; value: number; color: string }>
   label?: string
-  currency?: string
+  currency?: CurrencyCode
 }) {
   if (!active || !payload) return null
-  const { symbol, rate } = CURRENCIES[currency] || CURRENCIES.USD
+  const { symbol, rate } = CURRENCIES[currency]
   return (
     <div className="bg-white dark:bg-[#1E293B] border border-slate-200 dark:border-[#334155] rounded-lg p-3 shadow-xl">
       <p className="text-xs text-slate-500 dark:text-gray-400 mb-2">{label}</p>
@@ -304,12 +232,14 @@ function CustomTooltip({
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function MercadoPage() {
+  const { t, locale } = useLocale()
+
   // Filter state
-  const [selectedFruit, setSelectedFruit] = useState<string>(FRUIT_KEYS[0])
+  const [selectedFruit, setSelectedFruit] = useState<FruitKey>(FRUIT_KEYS[0])
   const [selectedVariety, setSelectedVariety] = useState<string>(FRUIT_VARIETIES[FRUIT_KEYS[0]][0])
-  const [selectedCountry, setSelectedCountry] = useState<string>(COUNTRY_KEYS[0])
-  const [selectedPort, setSelectedPort] = useState<string>(COUNTRY_PORTS[COUNTRY_KEYS[0]][0])
-  const [selectedCurrency, setSelectedCurrency] = useState<string>('USD')
+  const [selectedCountry, setSelectedCountry] = useState<CountryKey>(COUNTRY_KEYS[0])
+  const [selectedPort, setSelectedPort] = useState<PortKey>(COUNTRY_PORTS[COUNTRY_KEYS[0]][0])
+  const [selectedCurrency, setSelectedCurrency] = useState<CurrencyCode>('USD')
   const [autoSelectedPort, setAutoSelectedPort] = useState<boolean>(false)
   
   // Advanced time filters
@@ -359,17 +289,17 @@ export default function MercadoPage() {
   }, [])
 
   // Handle fruit change and reset variety accordingly
-  const handleFruitChange = (fruit: string) => {
+  const handleFruitChange = (fruit: FruitKey) => {
     setSelectedFruit(fruit)
     const varieties = FRUIT_VARIETIES[fruit] || []
     setSelectedVariety(varieties[0] || '')
   }
 
   // Auto-select best port when country changes
-  const handleCountryChange = (country: string) => {
+  const handleCountryChange = (country: CountryKey) => {
     setSelectedCountry(country)
     const ports = COUNTRY_PORTS[country]
-    const bestPort = findBestPortByPrice(selectedFruit, selectedVariety, country, ports)
+    const bestPort = findBestPortByPrice(selectedFruit, selectedVariety, country, ports, locale)
     setSelectedPort(bestPort)
     setAutoSelectedPort(true)
   }
@@ -382,14 +312,14 @@ export default function MercadoPage() {
 
   // Historical data for table
   const historicalData = useMemo(
-    () => generateHistoricalPrices(selectedFruit, selectedVariety, selectedCountry, selectedPort, 7),
-    [selectedFruit, selectedVariety, selectedCountry, selectedPort]
+    () => generateHistoricalPrices(selectedFruit, selectedVariety, selectedCountry, selectedPort, locale, 7),
+    [selectedFruit, selectedVariety, selectedCountry, selectedPort, locale],
   )
 
   // Chart data (12 months)
   const fullChartData = useMemo(
-    () => generateChartData(selectedFruit, selectedVariety, selectedCountry, selectedPort),
-    [selectedFruit, selectedVariety, selectedCountry, selectedPort]
+    () => generateChartData(selectedFruit, selectedVariety, selectedCountry, selectedPort, locale),
+    [selectedFruit, selectedVariety, selectedCountry, selectedPort, locale],
   )
 
   // Filter chart data by year/month and custom range
@@ -436,23 +366,23 @@ export default function MercadoPage() {
     try {
       const { rate } = CURRENCIES[selectedCurrency] || CURRENCIES.USD
       const headers = [
-        'Fecha',
-        'Fruta',
-        'Variedad',
-        'Destino',
-        'Puerto',
-        'Precio Ref. Anterior',
-        'Precio Cierre Hoy',
-        'Variación (%)',
-        'Moneda',
+        t('mercado.export.headers.date'),
+        t('mercado.export.headers.fruit'),
+        t('mercado.export.headers.variety'),
+        t('mercado.export.headers.destination'),
+        t('mercado.export.headers.port'),
+        t('mercado.export.headers.prevRefPrice'),
+        t('mercado.export.headers.todayClosePrice'),
+        t('mercado.export.headers.variationPct'),
+        t('mercado.export.headers.currency'),
       ]
 
       const excelRows = historicalData.map((row) => [
         row.date,
-        selectedFruit,
-        selectedVariety,
-        selectedCountry,
-        selectedPort,
+        getFruitLabel(t, selectedFruit),
+        getVarietyLabel(t, selectedVariety),
+        getCountryLabel(t, selectedCountry),
+        getPortLabel(t, selectedPort),
         Math.round(row.priceRef * rate * 100) / 100,
         Math.round(row.priceClose * rate * 100) / 100,
         Math.round(row.variation * 100) / 100,
@@ -460,18 +390,25 @@ export default function MercadoPage() {
       ])
 
       await exportStyledReportExcel({
-        sheetName: 'Precios FOB',
-        title: 'HISTÓRICO DE PRECIOS FOB',
-        moduleLabel: 'Inteligencia de Mercado',
+        sheetName: t('mercado.export.sheetName'),
+        title: t('mercado.export.title'),
+        moduleLabel: t('mercado.export.moduleLabel'),
         filename: `mercado-precios-fob-${new Date().toISOString().slice(0, 10)}.xlsx`,
         headers,
         rows: excelRows,
         instructions: [
-          '1. Precios convertidos a la moneda seleccionada en pantalla.',
-          '2. Variación (%) compara el cierre de hoy vs. la referencia anterior.',
-          '3. Fuentes: ODEPA (FOB), USDA AMS (mercado NA), Banco Central (divisas).',
+          t('mercado.export.instructions.currency'),
+          t('mercado.export.instructions.variation'),
+          t('mercado.export.instructions.sources'),
         ],
-        summary: `Resumen: ${excelRows.length} día${excelRows.length !== 1 ? 's' : ''} · ${selectedFruit} ${selectedVariety} · ${selectedCountry} (${selectedPort}) · ${selectedCurrency}`,
+        summary: t('mercado.export.summary', {
+          count: excelRows.length,
+          fruit: getFruitLabel(t, selectedFruit),
+          variety: getVarietyLabel(t, selectedVariety),
+          country: getCountryLabel(t, selectedCountry),
+          port: getPortLabel(t, selectedPort),
+          currency: selectedCurrency,
+        }),
         numericColumns: [6, 7, 8],
         columnWidths: [14, 14, 16, 14, 18, 18, 18, 14, 10],
       })
@@ -491,13 +428,13 @@ export default function MercadoPage() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                Inteligencia de Mercado (Exportación)
+                {t('mercado.title')}
               </h1>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    aria-label="Fuentes y metodología de datos"
+                    aria-label={t('mercado.sourcesTooltip.ariaLabel')}
                     className="inline-flex items-center justify-center rounded-full border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/70 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600 transition-colors w-6 h-6"
                   >
                     <Info className="w-3.5 h-3.5" />
@@ -505,22 +442,21 @@ export default function MercadoPage() {
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="max-w-xs text-xs leading-relaxed">
                   <div className="space-y-2">
-                    <p className="font-semibold">Fuentes de Datos</p>
+                    <p className="font-semibold">{t('mercado.sourcesTooltip.heading')}</p>
                     <ul className="list-disc pl-4 space-y-1">
-                      <li>Mercado Nacional y FOB: ODEPA (Oficina de Estudios y Políticas Agrarias).</li>
-                      <li>Mercado Norteamericano: USDA AMS (Agricultural Marketing Service).</li>
-                      <li>Divisas: Indicadores diarios del Banco Central de Chile.</li>
+                      <li>{t('mercado.sourcesTooltip.nationalMarket')}</li>
+                      <li>{t('mercado.sourcesTooltip.northAmericanMarket')}</li>
+                      <li>{t('mercado.sourcesTooltip.currencies')}</li>
                     </ul>
                     <p className="opacity-80">
-                      Nota: El sistema consolida estas fuentes públicas para entregar una tendencia de mercado.
-                      Los precios finales de liquidación dependen de las condiciones específicas de cada recibidor.
+                      {t('mercado.sourcesTooltip.note')}
                     </p>
                   </div>
                 </TooltipContent>
               </Tooltip>
             </div>
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              Precios de referencia FOB en principales mercados de destino
+              {t('mercado.subtitle')}
             </p>
           </div>
         </div>
@@ -530,22 +466,22 @@ export default function MercadoPage() {
       <div className="bg-slate-50 dark:bg-[#0B0F19] p-4 rounded-lg border border-slate-200 dark:border-slate-800">
         <div className="flex items-center gap-2 mb-4">
           <Filter className="w-4 h-4 text-slate-500 dark:text-slate-400" />
-          <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Filtros Avanzados</span>
+          <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{t('mercado.filters.title')}</span>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           {/* Filter 1: Fruit */}
           <div>
             <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">
-              Fruta
+              {t('mercado.filters.fruit')}
             </label>
             <select
               value={selectedFruit}
-              onChange={(e) => handleFruitChange(e.target.value)}
+              onChange={(e) => handleFruitChange(e.target.value as FruitKey)}
               className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
             >
               {FRUIT_KEYS.map((fruit) => (
                 <option key={fruit} value={fruit}>
-                  {fruit}
+                  {getFruitLabel(t, fruit)}
                 </option>
               ))}
             </select>
@@ -554,7 +490,7 @@ export default function MercadoPage() {
           {/* Filter 2: Variety (dependent on Fruit) */}
           <div>
             <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">
-              Variedad
+              {t('mercado.filters.variety')}
             </label>
             <select
               value={selectedVariety}
@@ -563,7 +499,7 @@ export default function MercadoPage() {
             >
               {availableVarieties.map((variety) => (
                 <option key={variety} value={variety}>
-                  {variety}
+                  {getVarietyLabel(t, variety)}
                 </option>
               ))}
             </select>
@@ -572,16 +508,16 @@ export default function MercadoPage() {
           {/* Filter 3: Destination Country */}
           <div>
             <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">
-              País de Destino
+              {t('mercado.filters.destinationCountry')}
             </label>
             <select
               value={selectedCountry}
-              onChange={(e) => handleCountryChange(e.target.value)}
+              onChange={(e) => handleCountryChange(e.target.value as CountryKey)}
               className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
             >
               {COUNTRY_KEYS.map((country) => (
                 <option key={country} value={country}>
-                  {country}
+                  {getCountryLabel(t, country)}
                 </option>
               ))}
             </select>
@@ -591,28 +527,28 @@ export default function MercadoPage() {
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="block text-xs font-medium text-slate-500 dark:text-slate-400">
-                Puerto de Destino
+                {t('mercado.filters.destinationPort')}
               </label>
               {autoSelectedPort && (
                 <span className="text-[10px] font-semibold bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-400 px-2 py-0.5 rounded flex items-center gap-1">
                   <Zap className="w-3 h-3" />
-                  Auto
+                  {t('mercado.filters.autoPortBadge')}
                 </span>
               )}
             </div>
             <select
               value={selectedPort}
               onChange={(e) => {
-                setSelectedPort(e.target.value)
+                setSelectedPort(e.target.value as PortKey)
                 setAutoSelectedPort(false)
               }}
               disabled={!selectedCountry}
               className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {!selectedCountry && <option>Selecciona país primero</option>}
+              {!selectedCountry && <option>{t('mercado.filters.selectCountryFirst')}</option>}
               {availablePorts.map((port) => (
                 <option key={port} value={port}>
-                  {port}
+                  {getPortLabel(t, port)}
                 </option>
               ))}
             </select>
@@ -621,16 +557,16 @@ export default function MercadoPage() {
           {/* Filter 5: Currency */}
           <div>
             <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">
-              Moneda
+              {t('mercado.filters.currency')}
             </label>
             <select
               value={selectedCurrency}
-              onChange={(e) => setSelectedCurrency(e.target.value)}
+              onChange={(e) => setSelectedCurrency(e.target.value as CurrencyCode)}
               className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
             >
-              {Object.keys(CURRENCIES).map((code) => (
+              {CURRENCY_CODES.map((code) => (
                 <option key={code} value={code}>
-                  {CURRENCY_LABELS[code]}
+                  {getCurrencyLabel(t, code)}
                 </option>
               ))}
             </select>
@@ -645,13 +581,16 @@ export default function MercadoPage() {
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
               <p className="text-sm text-slate-500 dark:text-slate-400">
-                {selectedFruit} - {selectedVariety}
+                {getFruitLabel(t, selectedFruit)} - {getVarietyLabel(t, selectedVariety)}
               </p>
               <p className="text-3xl font-bold text-slate-900 dark:text-white">
                 {formatPrice(latestData.priceClose, selectedCurrency)}
               </p>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Precio FOB por kg · {selectedCountry} - {selectedPort}
+                {t('mercado.summary.fobPricePerKg', {
+                  country: getCountryLabel(t, selectedCountry),
+                  port: getPortLabel(t, selectedPort),
+                })}
               </p>
             </div>
             <div
@@ -673,7 +612,7 @@ export default function MercadoPage() {
               <span className="font-semibold">
                 {weeklyChange > 0 ? '+' : ''}{weeklyChange.toFixed(2)}%
               </span>
-              <span className="text-xs opacity-75">vs. ayer</span>
+              <span className="text-xs opacity-75">{t('mercado.summary.vsYesterday')}</span>
             </div>
           </div>
       </DashboardCard>
@@ -683,11 +622,11 @@ export default function MercadoPage() {
         header={
           <div className="flex items-center gap-2">
             <Globe className="w-5 h-5 text-primary" />
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Mapa de Puertos de Destino</h3>
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">{t('mercado.sections.portMap')}</h3>
           </div>
         }
       >
-          <PortMap key={selectedPort} selectedPort={selectedPort} />
+          <PortMap key={selectedPort} selectedPort={getPortMapLookupLabel(selectedPort)} />
       </DashboardCard>
 
       {/* Main Content: Table + Chart + News */}
@@ -699,7 +638,7 @@ export default function MercadoPage() {
             <div className="flex items-center justify-between gap-3 w-full">
               <div className="flex items-center gap-2">
                 <Clock className="w-5 h-5 text-primary" />
-                <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Histórico de Precios (Últimos 7 días)</h3>
+                <h3 className="text-sm font-semibold text-slate-900 dark:text-white">{t('mercado.sections.priceHistory')}</h3>
               </div>
               <button
                 type="button"
@@ -707,7 +646,7 @@ export default function MercadoPage() {
                 disabled={exporting || historicalData.length === 0}
                 className="inline-flex items-center rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-50"
               >
-                {exporting ? 'Generando…' : 'Exportar Excel'}
+                {exporting ? t('mercado.export.generating') : t('mercado.export.button')}
               </button>
             </div>
           }
@@ -716,12 +655,12 @@ export default function MercadoPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 dark:border-slate-700">
-                    <th className="text-left py-3 px-2 font-semibold text-slate-600 dark:text-slate-300">Fecha</th>
-                    <th className="text-left py-3 px-2 font-semibold text-slate-600 dark:text-slate-300">Variedad</th>
-                    <th className="text-left py-3 px-2 font-semibold text-slate-600 dark:text-slate-300">Destino</th>
-                    <th className="text-right py-3 px-2 font-semibold text-slate-600 dark:text-slate-300">Precio Ref. Anterior</th>
-                    <th className="text-right py-3 px-2 font-semibold text-slate-600 dark:text-slate-300">Precio Cierre Hoy</th>
-                    <th className="text-right py-3 px-2 font-semibold text-slate-600 dark:text-slate-300">Variación (%)</th>
+                    <th className="text-left py-3 px-2 font-semibold text-slate-600 dark:text-slate-300">{t('mercado.table.date')}</th>
+                    <th className="text-left py-3 px-2 font-semibold text-slate-600 dark:text-slate-300">{t('mercado.table.variety')}</th>
+                    <th className="text-left py-3 px-2 font-semibold text-slate-600 dark:text-slate-300">{t('mercado.table.destination')}</th>
+                    <th className="text-right py-3 px-2 font-semibold text-slate-600 dark:text-slate-300">{t('mercado.table.prevRefPrice')}</th>
+                    <th className="text-right py-3 px-2 font-semibold text-slate-600 dark:text-slate-300">{t('mercado.table.todayClosePrice')}</th>
+                    <th className="text-right py-3 px-2 font-semibold text-slate-600 dark:text-slate-300">{t('mercado.table.variationPct')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -731,8 +670,8 @@ export default function MercadoPage() {
                       className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50"
                     >
                       <td className="py-3 px-2 text-slate-700 dark:text-slate-300">{row.date}</td>
-                      <td className="py-3 px-2 text-slate-700 dark:text-slate-300">{selectedVariety}</td>
-                      <td className="py-3 px-2 text-slate-500 dark:text-slate-400 text-xs">{selectedCountry}</td>
+                      <td className="py-3 px-2 text-slate-700 dark:text-slate-300">{getVarietyLabel(t, selectedVariety)}</td>
+                      <td className="py-3 px-2 text-slate-500 dark:text-slate-400 text-xs">{getCountryLabel(t, selectedCountry)}</td>
                       <td className="py-3 px-2 text-right text-slate-600 dark:text-slate-400 font-mono text-xs">
                         {formatPrice(row.priceRef, selectedCurrency)}
                       </td>
@@ -756,9 +695,7 @@ export default function MercadoPage() {
               </table>
             </div>
             <p className="text-xs text-slate-400 dark:text-slate-500 mt-4 border-t border-slate-100 dark:border-slate-800 pt-3">
-              Los valores presentados son referenciales y se actualizan en base a los reportes de precios FOB de ODEPA
-              (Ministerio de Agricultura de Chile), USDA Market News (EE.UU.) y boletines de terminales mayoristas
-              internacionales. El tipo de cambio utiliza el valor del Dólar Observado del Banco Central.
+              {t('mercado.table.disclaimer')}
             </p>
         </DashboardCard>
 
@@ -767,22 +704,22 @@ export default function MercadoPage() {
           header={
             <div className="flex items-center gap-2">
               <Newspaper className="w-5 h-5 text-primary" />
-              <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Alertas de Mercado</h3>
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-white">{t('mercado.news.title')}</h3>
             </div>
           }
           contentClassName="space-y-4"
         >
             {newsLoading ? (
               <div className="text-center py-8">
-                <p className="text-sm text-slate-500 dark:text-slate-400">Actualizando inteligencia de mercado...</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">{t('mercado.news.loading')}</p>
               </div>
             ) : newsError ? (
               <div className="text-center py-8">
-                <p className="text-sm text-red-600 dark:text-red-400">No se pudieron cargar las alertas en este momento.</p>
+                <p className="text-sm text-red-600 dark:text-red-400">{t('mercado.news.error')}</p>
               </div>
             ) : marketNews.length > 0 ? (
               marketNews.map((news, idx) => {
-                const timeStr = formatDate(news.pubDate)
+                const timeStr = formatMercadoNewsDate(news.pubDate, locale)
                 
                 return (
                   <a
@@ -804,7 +741,7 @@ export default function MercadoPage() {
               })
             ) : (
               <div className="text-center py-8">
-                <p className="text-sm text-slate-500 dark:text-slate-400">No hay alertas disponibles.</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">{t('mercado.news.empty')}</p>
               </div>
             )}
         </DashboardCard>
@@ -815,7 +752,12 @@ export default function MercadoPage() {
         header={
           <div className="flex items-center gap-2">
             <TrendingUp className="w-5 h-5 text-primary" />
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Tendencia Histórica de Precios - {selectedFruit} {selectedVariety}</h3>
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+              {t('mercado.chart.title', {
+                fruit: getFruitLabel(t, selectedFruit),
+                variety: getVarietyLabel(t, selectedVariety),
+              })}
+            </h3>
           </div>
         }
         contentClassName="space-y-4"
@@ -831,7 +773,7 @@ export default function MercadoPage() {
                   onChange={() => setUseCustomRange(false)}
                   className="mr-1"
                 />
-                Por Mes
+                {t('mercado.chart.modeByMonth')}
               </label>
               <label className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 <input
@@ -841,7 +783,7 @@ export default function MercadoPage() {
                   onChange={() => setUseCustomRange(true)}
                   className="mr-1"
                 />
-                Rango Personalizado
+                {t('mercado.chart.modeCustomRange')}
               </label>
             </div>
 
@@ -850,7 +792,7 @@ export default function MercadoPage() {
                 {/* Year Selector */}
                 <div>
                   <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">
-                    Año
+                    {t('mercado.chart.year')}
                   </label>
                   <select
                     value={selectedYear}
@@ -865,25 +807,18 @@ export default function MercadoPage() {
                 {/* Month Selector */}
                 <div>
                   <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">
-                    Mes
+                    {t('mercado.chart.month')}
                   </label>
                   <select
                     value={selectedMonth}
                     onChange={(e) => setSelectedMonth(e.target.value)}
                     className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
                   >
-                    <option value="1">Enero</option>
-                    <option value="2">Febrero</option>
-                    <option value="3">Marzo</option>
-                    <option value="4">Abril</option>
-                    <option value="5">Mayo</option>
-                    <option value="6">Junio</option>
-                    <option value="7">Julio</option>
-                    <option value="8">Agosto</option>
-                    <option value="9">Septiembre</option>
-                    <option value="10">Octubre</option>
-                    <option value="11">Noviembre</option>
-                    <option value="12">Diciembre</option>
+                    {(['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'] as const).map((month) => (
+                      <option key={month} value={month}>
+                        {t(`mercado.months.${month}`)}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -892,7 +827,7 @@ export default function MercadoPage() {
                 {/* Date From */}
                 <div>
                   <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">
-                    Desde
+                    {t('mercado.chart.from')}
                   </label>
                   <input
                     type="date"
@@ -906,7 +841,7 @@ export default function MercadoPage() {
                 {/* Date To */}
                 <div>
                   <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">
-                    Hasta
+                    {t('mercado.chart.to')}
                   </label>
                   <input
                     type="date"
@@ -947,7 +882,7 @@ export default function MercadoPage() {
                 <Line
                   type="monotone"
                   dataKey="price"
-                  name={`${selectedFruit} ${selectedVariety}`}
+                  name={`${getFruitLabel(t, selectedFruit)} ${getVarietyLabel(t, selectedVariety)}`}
                   stroke="#4063ca"
                   strokeWidth={3}
                   dot={{ fill: '#4063ca', strokeWidth: 2, r: 4 }}

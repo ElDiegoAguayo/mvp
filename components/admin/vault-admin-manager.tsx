@@ -30,6 +30,7 @@ import {
   adminDeleteVaultDocumentAction,
   adminDeleteVaultFolderAction,
   updateClientStorageQuotaAction,
+  updateClientServicePlanAction,
   type VaultClientSummary,
   type VaultDocumentRow,
   type VaultFolderRow,
@@ -40,8 +41,8 @@ import {
   STORAGE_PLANS,
   storageUsagePercent,
 } from '@/lib/vault-storage'
-
-// ─── Helpers ────────────────────────────────────────────────────────────────────
+import { SERVICE_PLANS, type ServicePlanId } from '@/lib/subscription-plans'
+import { SERVICE_PLAN_LABELS } from '@/lib/service-plan-admin'
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
@@ -110,6 +111,7 @@ export function VaultAdminManager() {
   const [previewDoc, setPreviewDoc] = useState<VaultDocumentRow | null>(null)
   const [isPreviewOpen, setIsPreviewOpen] = useState(false)
   const [quotaPlanId, setQuotaPlanId] = useState<string>('10gb')
+  const [servicePlanId, setServicePlanId] = useState<ServicePlanId | 'none'>('none')
   const [isPending, startTransition] = useTransition()
 
   const selectedClient = useMemo(
@@ -209,6 +211,7 @@ export function VaultAdminManager() {
   useEffect(() => {
     if (selectedClient) {
       setQuotaPlanId(selectedClient.storage_plan_id)
+      setServicePlanId(selectedClient.service_plan_id ?? 'none')
     }
   }, [selectedClient])
 
@@ -216,6 +219,20 @@ export function VaultAdminManager() {
     if (!selectedId) return
     startTransition(async () => {
       const res = await updateClientStorageQuotaAction(selectedId, quotaPlanId)
+      if (res.ok) {
+        toast.success(res.message)
+        loadClients()
+      } else {
+        toast.error(res.message)
+      }
+    })
+  }
+
+  const handleSaveServicePlan = () => {
+    if (!selectedId) return
+    startTransition(async () => {
+      const plan = servicePlanId === 'none' ? null : servicePlanId
+      const res = await updateClientServicePlanAction(selectedId, plan)
       if (res.ok) {
         toast.success(res.message)
         loadClients()
@@ -360,7 +377,13 @@ export function VaultAdminManager() {
                 <Badge variant="outline" className="text-xs">{formatBytes(selectedClient.total_bytes)} usados</Badge>
                 <Badge variant="outline" className="text-xs">{selectedClient.active_shares} links activos</Badge>
                 <Badge variant="outline" className="text-xs">
-                  Plan: {STORAGE_PLANS.find(p => p.id === selectedClient.storage_plan_id)?.label ?? '10 GB'}
+                  Almacenamiento: {STORAGE_PLANS.find(p => p.id === selectedClient.storage_plan_id)?.label ?? '10 GB'}
+                </Badge>
+                <Badge variant="outline" className="text-xs border-primary/30 text-primary">
+                  Servicio:{' '}
+                  {selectedClient.service_plan_id
+                    ? SERVICE_PLAN_LABELS[selectedClient.service_plan_id]
+                    : 'Sin plan'}
                 </Badge>
               </div>
 
@@ -369,6 +392,42 @@ export function VaultAdminManager() {
                 quotaBytes={selectedClient.quota_bytes}
                 compact
               />
+
+              <div className="flex flex-col sm:flex-row sm:items-end gap-3 pt-1 border-t border-border">
+                <div className="flex-1 space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Plan de servicio contratado</label>
+                  <Select
+                    value={servicePlanId}
+                    onValueChange={v => setServicePlanId(v as ServicePlanId | 'none')}
+                  >
+                    <SelectTrigger className={FILTER_SELECT}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sin plan asignado</SelectItem>
+                      {SERVICE_PLANS.map(plan => (
+                        <SelectItem key={plan.id} value={plan.id}>
+                          {SERVICE_PLAN_LABELS[plan.id]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  size="sm"
+                  className="h-9 shrink-0"
+                  disabled={
+                    isPending ||
+                    (servicePlanId === 'none'
+                      ? selectedClient.service_plan_id === null
+                      : servicePlanId === selectedClient.service_plan_id)
+                  }
+                  onClick={handleSaveServicePlan}
+                >
+                  {isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                  Guardar plan servicio
+                </Button>
+              </div>
 
               <div className="flex flex-col sm:flex-row sm:items-end gap-3 pt-1 border-t border-border">
                 <div className="flex-1 space-y-1">

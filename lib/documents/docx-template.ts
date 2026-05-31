@@ -13,6 +13,7 @@ import {
   ShadingType,
 } from 'docx'
 import { DocumentData, DocumentKind, getDocumentLabel } from './document-utils'
+import { BRAND_NAME } from '@/lib/brand'
 
 const BRAND = '4063ca'
 const BRAND_LIGHT = 'eef2fc'
@@ -49,7 +50,7 @@ export async function generateDocxBuffer(
   headerChildren.push(
     new Paragraph({
       children: [
-        new TextRun({ text: 'UpCrop', bold: true, size: 22, color: BRAND }),
+        new TextRun({ text: BRAND_NAME, bold: true, size: 22, color: BRAND }),
         new TextRun({ text: '  ·  Inteligencia agrícola', size: 18, color: '64748b' }),
       ],
       spacing: { after: 80 },
@@ -144,7 +145,7 @@ export async function generateDocxBuffer(
   const footer = new Paragraph({
     children: [
       new TextRun({
-        text: `Documento generado por UpCrop · ${formatGeneratedAt()}`,
+        text: `Documento generado por ${BRAND_NAME} · ${formatGeneratedAt()}`,
         size: 16,
         color: '94a3b8',
         italics: true,

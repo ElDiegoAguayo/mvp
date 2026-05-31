@@ -9,26 +9,19 @@
 import { Suspense, ComponentType } from 'react'
 import dynamic from 'next/dynamic'
 import { WidgetType } from '@/lib/dashboard/widget-config'
+import { WidgetSkeleton } from '@/components/dashboard/widget-skeleton'
 
 /**
- * Fallback loading component for widgets
+ * Fallback loading component for widgets (dynamic import + Suspense)
  */
-const WidgetSkeleton = () => (
-  <div className="bg-card rounded-lg border border-border p-4 h-64 animate-pulse">
-    <div className="h-8 bg-muted rounded w-1/3 mb-4" />
-    <div className="space-y-3">
-      <div className="h-4 bg-muted rounded" />
-      <div className="h-4 bg-muted rounded w-5/6" />
-    </div>
-  </div>
-)
+const DynamicWidgetSkeleton = () => <WidgetSkeleton />
 
 /**
  * Wrapper component that adds Suspense boundary to widgets
  * Prevents one widget error from breaking the entire dashboard
  */
 const WidgetWrapper = ({ children }: { children: React.ReactNode }) => (
-  <Suspense fallback={<WidgetSkeleton />}>
+  <Suspense fallback={<DynamicWidgetSkeleton />}>
     <>{children}</>
   </Suspense>
 )
@@ -37,17 +30,17 @@ const WidgetWrapper = ({ children }: { children: React.ReactNode }) => (
  * Dynamically import all widget components with ssr: false
  * This ensures they never render on the server
  */
-const DynamicSmartAlerts = dynamic(() => import('@/components/dashboard/smart-alerts').then(m => ({ default: m.SmartAlerts })), { ssr: false, loading: WidgetSkeleton })
-const DynamicInputsPriceWidget = dynamic(() => import('@/components/dashboard/inputs-price-widget').then(m => ({ default: m.InputsPriceWidget })), { ssr: false, loading: WidgetSkeleton })
-const DynamicCurrencyWidget = dynamic(() => import('@/components/dashboard/currency-widget').then(m => ({ default: m.CurrencyWidget })), { ssr: false, loading: WidgetSkeleton })
-const DynamicAIAssistantChat = dynamic(() => import('@/components/dashboard/ai-assistant-chat').then(m => ({ default: m.AIAssistantChat })), { ssr: false, loading: WidgetSkeleton })
-const DynamicWeatherWidget = dynamic(() => import('@/components/dashboard/weather-widget').then(m => ({ default: m.WeatherWidget })), { ssr: false, loading: WidgetSkeleton })
-const DynamicPortMap = dynamic(() => import('@/components/dashboard/port-map'), { ssr: false, loading: WidgetSkeleton })
-const DynamicActivityHeartbeat = dynamic(() => import('@/components/dashboard/activity-heartbeat').then(m => ({ default: m.ActivityHeartbeat })), { ssr: false, loading: WidgetSkeleton })
-const DynamicDocumentVault = dynamic(() => import('@/components/dashboard/document-vault').then(m => ({ default: m.DocumentVault })), { ssr: false, loading: WidgetSkeleton })
-const DynamicMarketWidget = dynamic(() => import('@/components/dashboard/market-widget').then(m => ({ default: m.MarketWidget })), { ssr: false, loading: WidgetSkeleton })
-const DynamicShipTracker = dynamic(() => import('@/components/dashboard/widgets/ship-tracker-widget').then(m => ({ default: m.ShipTrackerWidget })), { ssr: false, loading: WidgetSkeleton })
-const DynamicSagAlerts = dynamic(() => import('@/components/dashboard/sag-alerts-widget').then(m => ({ default: m.SagAlertsWidget })), { ssr: false, loading: WidgetSkeleton })
+const DynamicSmartAlerts = dynamic(() => import('@/components/dashboard/smart-alerts').then(m => ({ default: m.SmartAlerts })), { ssr: false, loading: () => <WidgetSkeleton variant="alerts" minHeight="lg" /> })
+const DynamicInputsPriceWidget = dynamic(() => import('@/components/dashboard/inputs-price-widget').then(m => ({ default: m.InputsPriceWidget })), { ssr: false, loading: DynamicWidgetSkeleton })
+const DynamicCurrencyWidget = dynamic(() => import('@/components/dashboard/currency-widget').then(m => ({ default: m.CurrencyWidget })), { ssr: false, loading: DynamicWidgetSkeleton })
+const DynamicAIAssistantChat = dynamic(() => import('@/components/dashboard/ai-assistant-chat').then(m => ({ default: m.AIAssistantChat })), { ssr: false, loading: DynamicWidgetSkeleton })
+const DynamicWeatherWidget = dynamic(() => import('@/components/dashboard/weather-widget').then(m => ({ default: m.WeatherWidget })), { ssr: false, loading: DynamicWidgetSkeleton })
+const DynamicPortMap = dynamic(() => import('@/components/dashboard/port-map'), { ssr: false, loading: () => <WidgetSkeleton variant="map" /> })
+const DynamicActivityHeartbeat = dynamic(() => import('@/components/dashboard/activity-heartbeat').then(m => ({ default: m.ActivityHeartbeat })), { ssr: false, loading: DynamicWidgetSkeleton })
+const DynamicDocumentVault = dynamic(() => import('@/components/dashboard/document-vault').then(m => ({ default: m.DocumentVault })), { ssr: false, loading: () => <WidgetSkeleton variant="list" minHeight="lg" /> })
+const DynamicMarketWidget = dynamic(() => import('@/components/dashboard/market-widget').then(m => ({ default: m.MarketWidget })), { ssr: false, loading: DynamicWidgetSkeleton })
+const DynamicShipTracker = dynamic(() => import('@/components/dashboard/widgets/ship-tracker-widget').then(m => ({ default: m.ShipTrackerWidget })), { ssr: false, loading: () => <WidgetSkeleton variant="map" minHeight="lg" /> })
+const DynamicSagAlerts = dynamic(() => import('@/components/dashboard/sag-alerts-widget').then(m => ({ default: m.SagAlertsWidget })), { ssr: false, loading: () => <WidgetSkeleton variant="list" /> })
 
 /**
  * Component Map: Maps widget type strings to actual React components

@@ -2,6 +2,7 @@
 
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { createClient as createServerClient } from '@/lib/supabase/server'
+import { isPrincipalClientProfile } from '@/lib/profiles/principal-clients'
 
 const BACKUP_BUCKET = 'db-backups'
 const ONLINE_THRESHOLD_MS = 5 * 60 * 1000
@@ -180,7 +181,7 @@ export async function getPlatformOverviewAction(): Promise<PlatformOverviewData 
     linksRes,
   ] = await Promise.all([
     admin.rpc('admin_platform_db_stats'),
-    admin.from('profiles').select('id, role, parent_user_id, last_activity_at, is_active, full_name, email'),
+    admin.from('profiles').select('id, role, parent_user_id, last_activity_at, is_active, full_name, email, is_tech_inspector'),
     admin.from('modules').select('id, is_active'),
     admin.from('documentos').select('user_id, size'),
     admin.storage.from(BACKUP_BUCKET).list('', {
@@ -223,7 +224,7 @@ export async function getPlatformOverviewAction(): Promise<PlatformOverviewData 
   const profiles = profilesRes.data ?? []
   const totalUsers = profiles.length
   const totalAdmins = profiles.filter(p => p.role === 'admin').length
-  const totalClients = profiles.filter(p => p.role === 'user' && !p.parent_user_id).length
+  const totalClients = profiles.filter(isPrincipalClientProfile).length
   const totalSubusers = profiles.filter(p => p.role === 'user' && p.parent_user_id).length
   const onlineNow = profiles.filter(
     p => p.is_active && p.last_activity_at && p.last_activity_at >= onlineSince,

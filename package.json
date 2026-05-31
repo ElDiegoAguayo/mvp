@@ -1,5 +1,5 @@
 {
-  "name": "my-project",
+  "name": "up-crop",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -47,7 +47,9 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "1.1.1",
+    "d3-geo": "^3.1.1",
     "date-fns": "4.1.0",
+    "dexie": "^4.4.3",
     "docx": "^9.1.1",
     "embla-carousel-react": "8.6.0",
     "exceljs": "^4.4.0",
@@ -76,6 +78,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.0",
+    "@types/d3-geo": "^3.1.0",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",

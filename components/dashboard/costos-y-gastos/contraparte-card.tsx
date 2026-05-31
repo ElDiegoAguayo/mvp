@@ -1,6 +1,9 @@
-﻿import { Badge } from '@/components/ui/badge'
+﻿'use client'
+
+import { Badge } from '@/components/ui/badge'
 import type { GastoPorContraparte } from '@/app/actions/costos-gastos'
 import { FileText, Clock, ChevronRight, CheckCircle2 } from 'lucide-react'
+import { useLocale } from '@/components/i18n/locale-provider'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -37,6 +40,7 @@ interface ContraparteCardProps {
 }
 
 export function ContraparteCard({ data, onClick, onVerClasificados }: ContraparteCardProps) {
+  const { t } = useLocale()
   const {
     rut_contraparte,
     razon_social,
@@ -79,7 +83,7 @@ export function ContraparteCard({ data, onClick, onVerClasificados }: Contrapart
           </h3>
           {/* RUT — secondary, compact */}
           <p className="mt-1 font-mono text-[11px] text-muted-foreground tracking-wide">
-            RUT {rut_contraparte}
+            {t('costosGastos.common.rutPrefix', { rut: rut_contraparte })}
           </p>
         </div>
 
@@ -88,14 +92,14 @@ export function ContraparteCard({ data, onClick, onVerClasificados }: Contrapart
           <p className="text-2xl font-bold text-foreground tabular-nums leading-none">
             {formatCompact(total_monto_bruto)}
           </p>
-          <p className="text-[11px] text-muted-foreground">Total acumulado (IVA incluido)</p>
+          <p className="text-[11px] text-muted-foreground">{t('costosGastos.contraparte.totalAcumulado')}</p>
         </div>
 
         {/* Neto / IVA breakdown */}
         <div className="grid grid-cols-2 gap-2">
           <div className="rounded-lg bg-secondary/60 border border-border/40 px-3 py-2">
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium mb-0.5">
-              Neto
+              {t('costosGastos.common.neto')}
             </p>
             <p className="text-sm font-semibold text-foreground tabular-nums">
               {formatCompact(total_monto_neto)}
@@ -103,7 +107,7 @@ export function ContraparteCard({ data, onClick, onVerClasificados }: Contrapart
           </div>
           <div className="rounded-lg bg-secondary/60 border border-border/40 px-3 py-2">
             <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium mb-0.5">
-              IVA (19%)
+              {t('costosGastos.common.ivaPct')}
             </p>
             <p className="text-sm font-semibold text-foreground tabular-nums">
               {formatCompact(total_monto_iva)}
@@ -117,7 +121,7 @@ export function ContraparteCard({ data, onClick, onVerClasificados }: Contrapart
           <div className="flex items-center gap-2 flex-wrap">
             <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <FileText className="w-3.5 h-3.5 shrink-0" />
-              <span>{total_registros} documento{total_registros !== 1 ? 's' : ''}</span>
+              <span>{t('costosGastos.contraparte.documentoCount', { count: total_registros })}</span>
             </div>
             <div className="ml-auto flex items-center gap-1.5">
               {hasPending ? (
@@ -126,14 +130,14 @@ export function ContraparteCard({ data, onClick, onVerClasificados }: Contrapart
                   className="gap-1 bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 text-[10px] font-semibold"
                 >
                   <Clock className="w-3 h-3" />
-                  {pendientes} pendiente{pendientes !== 1 ? 's' : ''}
+                  {t('costosGastos.contraparte.pendienteCount', { count: pendientes })}
                 </Badge>
               ) : (
                 <Badge
                   variant="secondary"
                   className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[10px] font-semibold"
                 >
-                  ✓ Al día
+                  {t('costosGastos.contraparte.alDia')}
                 </Badge>
               )}
             </div>
@@ -143,7 +147,7 @@ export function ContraparteCard({ data, onClick, onVerClasificados }: Contrapart
           <div className="flex items-center gap-3">
             {onClick && hasPending && (
               <span className="text-[11px] text-primary/70 flex items-center gap-0.5 group-hover:text-primary transition-colors font-medium">
-                Clasificar {pendientes} <ChevronRight className="w-3 h-3" />
+                {t('costosGastos.contraparte.clasificarAction', { count: pendientes })} <ChevronRight className="w-3 h-3" />
               </span>
             )}
             {onVerClasificados && clasificados > 0 && (
@@ -152,7 +156,7 @@ export function ContraparteCard({ data, onClick, onVerClasificados }: Contrapart
                 className="text-[11px] text-emerald-600 dark:text-emerald-400 flex items-center gap-1 hover:underline font-medium"
               >
                 <CheckCircle2 className="w-3 h-3 shrink-0" />
-                Ver {clasificados} clasificado{clasificados !== 1 ? 's' : ''}
+                {t('costosGastos.contraparte.verClasificados', { count: clasificados })}
               </button>
             )}
           </div>

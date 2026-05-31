@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { applyPrincipalClientFilters } from '@/lib/profiles/principal-clients'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -350,7 +351,7 @@ export function ClientDataManager({ initialClientId, initialModuleId }: ClientDa
       .order('full_name', { ascending: true })
 
     // When listing clients (not admins) only show primary clients (no parent)
-    const query = showAdmins ? q.eq('role', 'admin') : q.eq('role', 'user').is('parent_user_id', null)
+    const query = showAdmins ? q.eq('role', 'admin') : applyPrincipalClientFilters(q)
     const { data, error } = await query
 
     if (error) {

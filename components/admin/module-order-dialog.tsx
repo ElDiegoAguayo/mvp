@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { ArrowDown, ArrowUp, ListOrdered } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
+import { logAudit } from '@/lib/audit-log'
 
 interface ModuleRow {
   id: string
@@ -109,6 +110,19 @@ export function ModuleOrderDialog({
       toast.error('No se pudo cambiar el orden', { description: error.message })
       return
     }
+
+    void logAudit(supabase, {
+      action_type: 'UPDATE_MODULE_ORDER',
+      target_type: 'user',
+      target_id: user.id,
+      target_label: userLabel,
+      description: `Reordenó módulos para ${userLabel}: "${current.module.name}" ↔ "${target.module.name}"`,
+      metadata: {
+        module_a: current.module.name,
+        module_b: target.module.name,
+        direction,
+      },
+    })
 
     onOrderSaved()
   }

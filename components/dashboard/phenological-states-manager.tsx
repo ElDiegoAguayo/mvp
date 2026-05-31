@@ -41,9 +41,12 @@ import {
   fmtShortDate,
 } from '@/lib/agronomy/phenology-predictions'
 import Link from 'next/link'
+import { useLocale } from '@/components/i18n/locale-provider'
 import { ClientStorageBar } from '@/components/vault/vault-storage-bar'
 import { parseClientStorageRpc, type ClientStorageInfo } from '@/lib/client-storage'
 import { formatAvailableStorage } from '@/lib/vault-storage'
+import { loadPhenologyModuleData, offlineWrite, savePhenologyObservationOffline } from '@/lib/offline/agronomy-offline'
+import { OFFLINE_EVENT } from '@/lib/offline/types'
 
 interface HarvestBlockRef {
   id: string
@@ -109,6 +112,7 @@ function sanitizeFileName(name: string) {
 }
 
 export function PhenologicalStatesManager() {
+  const { t } = useLocale()
   const supabase = useMemo(() => createClient(), [])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
@@ -156,78 +160,63 @@ export function PhenologicalStatesManager() {
     }
   }, [supabase])
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (options?: { silent?: boolean }) => {
+    if (!options?.silent) setLoading(true)
     try {
       const { effectiveUserId } = await getEffectiveUserId(supabase)
       if (!effectiveUserId) return
       setOwnerId(effectiveUserId)
 
-      const [stRes, obRes, imgRes, blockRes] = await Promise.all([
-        supabase
-          .from('phenology_stages')
-          .select('*')
-          .eq('user_id', effectiveUserId)
-          .order('crop')
-          .order('sort_order'),
-        supabase
-          .from('phenology_observations')
-          .select('*')
-          .eq('user_id', effectiveUserId)
-          .order('observed_at', { ascending: true }),
-        supabase
-          .from('phenology_observation_images')
-          .select('id, observation_id, storage_path, file_name, mime_type, sort_order')
-          .eq('user_id', effectiveUserId)
-          .order('sort_order'),
-        supabase
-          .from('harvest_blocks')
-          .select('id, field_name, block_name, crop, variety')
-          .eq('user_id', effectiveUserId)
-          .order('field_name')
-          .order('block_name'),
-      ])
+      const data = await loadPhenologyModuleData(supabase, effectiveUserId)
 
-      if (stRes.error) toast.error('Error al cargar etapas')
-      else setStages((stRes.data ?? []) as PhenologyStage[])
-
-      if (!blockRes.error) setHarvestBlocks((blockRes.data ?? []) as HarvestBlockRef[])
-
-      if (obRes.error) {
-        toast.error('Error al cargar observaciones')
-        setObservations([])
-      } else {
-        const imagesByObs = new Map<string, PhenologyTimelineImage[]>()
-        if (!imgRes.error) {
-          for (const img of imgRes.data ?? []) {
-            const list = imagesByObs.get(String(img.observation_id)) ?? []
-            list.push({
-              id: String(img.id),
-              storage_path: String(img.storage_path),
-              file_name: String(img.file_name),
-              mime_type: img.mime_type ? String(img.mime_type) : null,
-            })
-            imagesByObs.set(String(img.observation_id), list)
-          }
-        }
-        setObservations(
-          (obRes.data ?? []).map((row) => ({
-            ...(row as PhenologyObservation),
-            images: imagesByObs.get(String(row.id)) ?? [],
-          })),
-        )
+      if (data.fromCache && data.observations.length === 0 && data.stages.length === 0) {
+        toast.info(t('estadosFenologicos.toasts.offlinePreload'))
       }
 
-      void loadStorage(effectiveUserId)
+      setStages((data.stages ?? []) as unknown as PhenologyStage[])
+      setHarvestBlocks((data.blocks ?? []) as unknown as HarvestBlockRef[])
+
+      const imagesByObs = new Map<string, PhenologyTimelineImage[]>()
+      for (const img of data.images ?? []) {
+        const obsId = String(img.observation_id)
+        const list = imagesByObs.get(obsId) ?? []
+        list.push({
+          id: String(img.id),
+          storage_path: String(img.storage_path),
+          file_name: String(img.file_name),
+          mime_type: img.mime_type ? String(img.mime_type) : null,
+        })
+        imagesByObs.set(obsId, list)
+      }
+
+      setObservations(
+        (data.observations ?? []).map((row) => ({
+          ...(row as unknown as PhenologyObservation),
+          images: imagesByObs.get(String(row.id)) ?? [],
+        })),
+      )
+
+      if (!data.fromCache) void loadStorage(effectiveUserId)
     } catch (e) {
       console.error(e)
-      toast.error('Error al cargar fenología')
+      toast.error(t('estadosFenologicos.toasts.loadFailed'))
     } finally {
-      setLoading(false)
+      if (!options?.silent) setLoading(false)
     }
-  }, [supabase, loadStorage])
+  }, [supabase, loadStorage, t])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { void load() }, [load])
+
+  useEffect(() => {
+    const onSyncDone = (event: Event) => {
+      const detail = (event as CustomEvent<{ synced?: number; failed?: number }>).detail
+      if ((detail?.synced ?? 0) > 0) void load({ silent: true })
+    }
+    window.addEventListener(OFFLINE_EVENT.syncDone, onSyncDone)
+    return () => {
+      window.removeEventListener(OFFLINE_EVENT.syncDone, onSyncDone)
+    }
+  }, [load])
 
   useEffect(() => {
     if (!obsDialog) {
@@ -399,10 +388,10 @@ export function PhenologicalStatesManager() {
     if (!ownerId) return
     const defaults = DEFAULT_PHENOLOGY_STAGES[filterCrop]
     if (!defaults) {
-      toast.error('No hay plantilla para este cultivo')
+      toast.error(t('estadosFenologicos.toasts.noTemplate'))
       return
     }
-    if (stagesForCrop.length > 0 && !confirm('Ya existen etapas. ¿Agregar plantilla igualmente?')) return
+    if (stagesForCrop.length > 0 && !confirm(t('estadosFenologicos.toasts.templateExists'))) return
 
     setSaving(true)
     const rows = defaults.map((d) => ({
@@ -413,10 +402,10 @@ export function PhenologicalStatesManager() {
     const { error } = await supabase.from('phenology_stages').insert(rows)
     setSaving(false)
     if (error) {
-      toast.error('No se pudo cargar la plantilla')
+      toast.error(t('estadosFenologicos.toasts.templateLoadFailed'))
       return
     }
-    toast.success(`Plantilla ${filterCrop} cargada`)
+    toast.success(t('estadosFenologicos.toasts.templateLoaded', { crop: filterCrop }))
     load()
   }
 
@@ -477,16 +466,16 @@ export function PhenologicalStatesManager() {
     const next = [...pendingImages]
     for (const file of Array.from(files)) {
       if (!file.type.startsWith('image/')) {
-        toast.error(`${file.name} no es una imagen`)
+        toast.error(t('estadosFenologicos.toasts.notImage', { name: file.name }))
         continue
       }
       if (file.size > MAX_IMAGE_BYTES) {
-        toast.error(`${file.name} supera 10 MB`)
+        toast.error(t('estadosFenologicos.toasts.fileTooLarge', { name: file.name }))
         continue
       }
       const total = existingImages.length - removedImageIds.length + next.length
       if (total >= MAX_IMAGES) {
-        toast.error(`Máximo ${MAX_IMAGES} imágenes por lectura`)
+        toast.error(t('estadosFenologicos.toasts.maxImages', { count: MAX_IMAGES }))
         break
       }
       next.push(file)
@@ -499,7 +488,9 @@ export function PhenologicalStatesManager() {
     if (!storageInfo || additionalBytes <= 0) return true
     if (storageInfo.usedBytes + additionalBytes <= storageInfo.quotaBytes) return true
     toast.error(
-      `No hay espacio suficiente. Te quedan ${formatAvailableStorage(storageInfo.usedBytes, storageInfo.quotaBytes)} disponibles en tu plan.`,
+      t('estadosFenologicos.toasts.storageInsufficient', {
+        available: formatAvailableStorage(storageInfo.usedBytes, storageInfo.quotaBytes),
+      }),
     )
     return false
   }
@@ -553,12 +544,12 @@ export function PhenologicalStatesManager() {
 
   async function saveObservation(options?: { addAnotherWeek?: boolean }) {
     if (!ownerId || !obsForm.block_name.trim()) {
-      toast.error('Indica el cuartel')
+      toast.error(t('estadosFenologicos.toasts.blockRequired'))
       return
     }
     const stageName = obsForm.stage_name.trim()
     if (!stageName) {
-      toast.error('Indica el estado fenológico')
+      toast.error(t('estadosFenologicos.toasts.stageRequired'))
       return
     }
 
@@ -578,27 +569,32 @@ export function PhenologicalStatesManager() {
         notes: obsForm.notes.trim() || null,
       }
 
-      let observationId = editingObs?.id
-      if (editingObs) {
-        const { error } = await supabase.from('phenology_observations').update(payload).eq('id', editingObs.id)
-        if (error) throw error
-      } else {
-        const { data, error } = await supabase.from('phenology_observations').insert(payload).select('id').single()
-        if (error) throw error
-        observationId = String(data.id)
+      if (editingObs && removedImageIds.length > 0 && !editingObs.id.startsWith('local-')) {
+        await removeMarkedImages()
       }
 
-      if (!observationId) throw new Error('Sin id de observación')
+      const result = await savePhenologyObservationOffline(supabase, {
+        userId: ownerId,
+        payload,
+        editingId: editingObs?.id,
+        pendingImages: pendingImages.length > 0 ? pendingImages : undefined,
+        startImageOrder: existingImages.length - removedImageIds.length,
+      })
 
-      await removeMarkedImages()
-      await uploadObservationImages(observationId)
+      if (!result.ok) throw new Error(result.error ?? 'Error al guardar')
 
       setFilterBlock(payload.block_name)
       setFilterSeason(payload.season_label)
 
       const continueWithNextWeek = options?.addAnotherWeek && !editingObs
+      const savedMsg = result.offline
+        ? t('estadosFenologicos.toasts.savedLocal')
+        : continueWithNextWeek
+          ? t('estadosFenologicos.toasts.weekSaved', { date: fmtObsDate(payload.observed_at) })
+          : t('estadosFenologicos.toasts.readingSaved')
+
       if (continueWithNextWeek) {
-        toast.success(`Semana del ${fmtObsDate(payload.observed_at)} guardada`)
+        toast.success(savedMsg)
         setObsForm({
           ...EMPTY_OBS,
           crop: filterCrop,
@@ -616,7 +612,7 @@ export function PhenologicalStatesManager() {
         setEditingObs(null)
         load()
       } else {
-        toast.success('Lectura guardada')
+        toast.success(savedMsg)
         setObsDialog(false)
         load()
       }
@@ -624,9 +620,9 @@ export function PhenologicalStatesManager() {
       console.error(e)
       const msg = e instanceof Error ? e.message : ''
       if (msg.includes('storage_quota_exceeded')) {
-        toast.error('Cuota de almacenamiento agotada. Libera espacio en Mis documentos o fenología.')
+        toast.error(t('estadosFenologicos.toasts.storageQuota'))
       } else {
-        toast.error('Error al guardar lectura')
+        toast.error(t('estadosFenologicos.toasts.saveFailed'))
       }
     } finally {
       setSaving(false)
@@ -635,20 +631,28 @@ export function PhenologicalStatesManager() {
 
   async function deleteObservation(row: PhenologyObservation) {
     if (!confirm(
-      `¿Eliminar la lectura del ${fmtObsDate(row.observed_at)}?\n\nSe borrarán los datos y fotos de esta fecha.`,
+      t('estadosFenologicos.confirms.deleteReading', { date: fmtObsDate(row.observed_at) }),
     )) return
     setSaving(true)
     try {
       const paths = (row.images ?? []).map((img) => img.storage_path)
-      const { error } = await supabase.from('phenology_observations').delete().eq('id', row.id)
-      if (error) throw error
-      if (paths.length > 0) await supabase.storage.from('fenologia').remove(paths)
-      toast.success('Eliminado')
+      const result = await offlineWrite(supabase, {
+        userId: ownerId!,
+        table: 'phenology_observations',
+        operation: 'delete',
+        payload: {},
+        match: { id: row.id },
+        cacheModule: 'phenology',
+        cacheListKey: 'observations',
+      })
+      if (!result.ok) throw new Error(result.error)
+      if (!result.offline && paths.length > 0) await supabase.storage.from('fenologia').remove(paths)
+      toast.success(result.offline ? t('estadosFenologicos.toasts.deleteQueued') : t('estadosFenologicos.toasts.deleted'))
       setObsDialog(false)
       load()
     } catch (e) {
       console.error(e)
-      toast.error('No se pudo eliminar')
+      toast.error(t('estadosFenologicos.toasts.deleteFailed'))
     } finally {
       setSaving(false)
     }
@@ -658,7 +662,7 @@ export function PhenologicalStatesManager() {
     if (!ownerId) return
     const trimmed = newName.trim()
     if (!trimmed) {
-      toast.error('Indica el nombre del cuartel')
+      toast.error(t('estadosFenologicos.toasts.blockNameRequired'))
       return
     }
     if (trimmed === oldName) {
@@ -668,7 +672,7 @@ export function PhenologicalStatesManager() {
 
     const blockObs = observations.filter((o) => o.crop === filterCrop && o.block_name === oldName)
     if (blockObs.length === 0) {
-      toast.error('Este cuartel no tiene lecturas')
+      toast.error(t('estadosFenologicos.toasts.blockNoReadings'))
       return
     }
 
@@ -676,7 +680,7 @@ export function PhenologicalStatesManager() {
       (o) => o.crop === filterCrop && o.block_name === trimmed,
     )
     if (duplicate) {
-      toast.error(`Ya existe un cuartel llamado "${trimmed}"`)
+      toast.error(t('estadosFenologicos.toasts.blockExists', { name: trimmed }))
       return
     }
 
@@ -690,13 +694,13 @@ export function PhenologicalStatesManager() {
         .eq('block_name', oldName)
       if (error) throw error
 
-      toast.success(`Cuartel renombrado a "${trimmed}"`)
+      toast.success(t('estadosFenologicos.toasts.blockRenamed', { name: trimmed }))
       if (filterBlock === oldName) setFilterBlock(trimmed)
       setRenameDialog(false)
       load()
     } catch (e) {
       console.error(e)
-      toast.error('No se pudo renombrar el cuartel')
+      toast.error(t('estadosFenologicos.toasts.renameFailed'))
     } finally {
       setSaving(false)
     }
@@ -761,7 +765,7 @@ export function PhenologicalStatesManager() {
     try {
       const parsed = await parsePhenologyFile(file, filterCrop)
       if (parsed.length === 0) {
-        toast.error('No se encontraron lecturas en el Excel')
+        toast.error(t('estadosFenologicos.import.noReadings'))
         return
       }
 
@@ -841,21 +845,22 @@ export function PhenologicalStatesManager() {
         }
       }
 
-      const parts = [`${created} nuevas`, `${updated} actualizadas`]
-      if (unchanged > 0) parts.push(`${unchanged} sin cambios`)
-      if (imagesImported > 0) parts.push(`${imagesImported} foto(s)`)
-      toast.success(`Importación: ${parts.join(', ')}`)
+      const parts = [
+        t('estadosFenologicos.import.new', { count: created }),
+        t('estadosFenologicos.import.updated', { count: updated }),
+      ]
+      if (unchanged > 0) parts.push(t('estadosFenologicos.import.unchanged', { count: unchanged }))
+      if (imagesImported > 0) parts.push(t('estadosFenologicos.import.photos', { count: imagesImported }))
+      toast.success(t('estadosFenologicos.import.summary', { parts: parts.join(', ') }))
 
       if (unmatchedStages > 0) {
-        toast.warning(
-          `${unmatchedStages} lectura(s) con etapa fuera del catálogo — revisa la pestaña Catálogo`,
-        )
+        toast.warning(t('estadosFenologicos.import.unmatchedStages', { count: unmatchedStages }))
       }
 
       load()
     } catch (e) {
       console.error(e)
-      toast.error('Error al importar Excel')
+      toast.error(t('estadosFenologicos.import.failed'))
     } finally {
       setSaving(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
@@ -864,12 +869,12 @@ export function PhenologicalStatesManager() {
 
   async function handleExport() {
     if (seasonObservations.length === 0) {
-      toast.error('No hay lecturas para exportar con los filtros actuales')
+      toast.error(t('estadosFenologicos.export.noReadings'))
       return
     }
 
     setExporting(true)
-    setExportStatus('Preparando exportación…')
+    setExportStatus(t('estadosFenologicos.export.preparing'))
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     try {
@@ -892,7 +897,23 @@ export function PhenologicalStatesManager() {
         {
           crop: filterCrop,
           seasonLabel: filterSeason,
-          onProgress: setExportStatus,
+          onProgress: (msg) => {
+            if (msg.startsWith('Preparando')) {
+              setExportStatus(t('estadosFenologicos.export.preparing'))
+            } else {
+              const dl = msg.match(/Descargando fotos \((\d+) de (\d+)\)/)
+              if (dl) {
+                setExportStatus(t('estadosFenologicos.export.downloadingPhotos', {
+                  current: dl[1],
+                  total: dl[2],
+                }))
+              } else if (msg.startsWith('Generando')) {
+                setExportStatus(t('estadosFenologicos.export.generatingFile'))
+              } else {
+                setExportStatus(msg)
+              }
+            }
+          },
         },
         async (path) => {
           const { data, error } = await supabase.storage.from('fenologia').download(path)
@@ -902,19 +923,27 @@ export function PhenologicalStatesManager() {
       )
 
       if (result.embedded === 0 && result.skipped > 0) {
-        toast.warning('Excel exportado sin fotos (no se pudieron descargar)')
+        toast.warning(t('estadosFenologicos.export.noPhotos'))
       } else if (result.skipped > 0) {
-        const webpNote = result.webpConverted > 0 ? `; ${result.webpConverted} WebP convertida(s)` : ''
-        toast.success(`Excel exportado con ${result.embedded} foto(s); ${result.skipped} omitida(s)${webpNote}`)
+        const webpNote = result.webpConverted > 0
+          ? t('estadosFenologicos.export.webpConverted', { count: result.webpConverted })
+          : ''
+        toast.success(t('estadosFenologicos.export.withPhotosSkipped', {
+          embedded: result.embedded,
+          skipped: result.skipped,
+          webp: webpNote,
+        }))
       } else if (result.embedded > 0) {
-        const webpNote = result.webpConverted > 0 ? ` (${result.webpConverted} WebP convertida(s))` : ''
-        toast.success(`Excel exportado con ${result.embedded} foto(s)${webpNote}`)
+        const webpNote = result.webpConverted > 0
+          ? t('estadosFenologicos.export.webpNote', { count: result.webpConverted })
+          : ''
+        toast.success(t('estadosFenologicos.export.withPhotos', { count: result.embedded }) + webpNote)
       } else {
-        toast.success('Excel exportado')
+        toast.success(t('estadosFenologicos.export.success'))
       }
     } catch (e) {
       console.error(e)
-      toast.error('Error al exportar Excel')
+      toast.error(t('estadosFenologicos.export.failed'))
     } finally {
       setExporting(false)
       setExportStatus('')
@@ -946,7 +975,7 @@ export function PhenologicalStatesManager() {
 
   async function saveStage() {
     if (!ownerId || !stageForm.stage_name.trim()) {
-      toast.error('Nombre de etapa requerido')
+      toast.error(t('estadosFenologicos.toasts.stageNameRequired'))
       return
     }
     setSaving(true)
@@ -964,19 +993,19 @@ export function PhenologicalStatesManager() {
       : await supabase.from('phenology_stages').insert(payload)
     setSaving(false)
     if (error) {
-      toast.error('Error al guardar etapa')
+      toast.error(t('estadosFenologicos.toasts.stageSaveFailed'))
       return
     }
-    toast.success('Etapa guardada')
+    toast.success(t('estadosFenologicos.toasts.stageSaved'))
     setStageDialog(false)
     load()
   }
 
   async function deleteStage(row: PhenologyStage) {
-    if (!confirm(`¿Eliminar etapa "${row.stage_name}"?`)) return
+    if (!confirm(t('estadosFenologicos.confirms.deleteStage', { name: row.stage_name }))) return
     const { error } = await supabase.from('phenology_stages').delete().eq('id', row.id)
-    if (error) toast.error('No se pudo eliminar')
-    else { toast.success('Eliminado'); load() }
+    if (error) toast.error(t('estadosFenologicos.toasts.deleteFailed'))
+    else { toast.success(t('estadosFenologicos.toasts.deleted')); load() }
   }
 
   const visibleImageCount = existingImages.length - removedImageIds.length + pendingImages.length
@@ -985,7 +1014,7 @@ export function PhenologicalStatesManager() {
     return (
       <div className="flex items-center justify-center py-24 text-muted-foreground">
         <Loader2 className="w-6 h-6 animate-spin mr-2" />
-        Cargando fenología…
+        {t('estadosFenologicos.loading')}
       </div>
     )
   }
@@ -1004,7 +1033,7 @@ export function PhenologicalStatesManager() {
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 flex-1 max-w-2xl">
             <div className="space-y-1.5 min-w-0">
-              <label className="text-xs font-medium text-muted-foreground">Cultivo</label>
+              <label className="text-xs font-medium text-muted-foreground">{t('estadosFenologicos.filters.crop')}</label>
               <Select value={filterCrop} onValueChange={setFilterCrop}>
                 <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -1014,7 +1043,7 @@ export function PhenologicalStatesManager() {
             </div>
             {tab === 'observations' && (
               <div className="space-y-1.5 min-w-0">
-                <label className="text-xs font-medium text-muted-foreground">Temporada</label>
+                <label className="text-xs font-medium text-muted-foreground">{t('estadosFenologicos.filters.season')}</label>
                 <Select value={filterSeason} onValueChange={setFilterSeason}>
                   <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -1030,39 +1059,39 @@ export function PhenologicalStatesManager() {
               size="sm"
               onClick={() => setTab('observations')}
             >
-              Seguimiento
+              {t('estadosFenologicos.tabs.tracking')}
             </Button>
             <Button
               variant={tab === 'catalog' ? 'default' : 'outline'}
               size="sm"
               onClick={() => setTab('catalog')}
             >
-              <ListTree className="w-4 h-4 mr-1" /> Catálogo
+              <ListTree className="w-4 h-4 mr-1" /> {t('estadosFenologicos.tabs.catalog')}
             </Button>
           </div>
         </div>
         {tab === 'observations' && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-4 border-t border-border/60">
             <div className="space-y-1.5 min-w-0">
-              <label className="text-xs font-medium text-muted-foreground">Variedad</label>
+              <label className="text-xs font-medium text-muted-foreground">{t('estadosFenologicos.filters.variety')}</label>
               <Select value={filterVariety} onValueChange={setFilterVariety}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Todas las variedades" />
+                  <SelectValue placeholder={t('estadosFenologicos.filters.allVarieties')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={ALL_VARIETIES}>Todas las variedades</SelectItem>
+                  <SelectItem value={ALL_VARIETIES}>{t('estadosFenologicos.filters.allVarieties')}</SelectItem>
                   {varietiesInUse.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5 min-w-0">
-              <label className="text-xs font-medium text-muted-foreground">Cuartel</label>
+              <label className="text-xs font-medium text-muted-foreground">{t('estadosFenologicos.filters.block')}</label>
               <Select value={filterBlock || ALL_BLOCKS} onValueChange={setFilterBlock}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Todos los cuarteles" />
+                  <SelectValue placeholder={t('estadosFenologicos.filters.allBlocks')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={ALL_BLOCKS}>Todos los cuarteles</SelectItem>
+                  <SelectItem value={ALL_BLOCKS}>{t('estadosFenologicos.filters.allBlocks')}</SelectItem>
                   {blocksInUse.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
                 </SelectContent>
               </Select>
@@ -1083,18 +1112,18 @@ export function PhenologicalStatesManager() {
           {harvestHintCount > 0 && filterCrop === 'Cerezo' && (
             <p className="text-sm">
               <Link href="/dashboard/estimacion-cosecha" className="text-primary font-medium hover:underline">
-                Ir a Estimación de cosecha →
+                {t('estadosFenologicos.summary.goToHarvest')}
               </Link>
             </p>
           )}
           <div className="flex flex-wrap gap-2 justify-between items-center">
             <p className="text-sm text-muted-foreground">
-              Misma estructura que el Excel: Temporada, Fecha, Variedad, Estado, Hilera, Árbol e Imágenes por semana.
+              {t('estadosFenologicos.tracking.excelStructure')}
             </p>
             <div className="flex gap-2 flex-wrap">
               {stagesForCrop.length === 0 && DEFAULT_PHENOLOGY_STAGES[filterCrop] && (
                 <Button variant="outline" size="sm" onClick={seedDefaultStages} disabled={saving}>
-                  <Sparkles className="w-4 h-4 mr-1" /> Plantilla {filterCrop}
+                  <Sparkles className="w-4 h-4 mr-1" /> {t('estadosFenologicos.tracking.template', { crop: filterCrop })}
                 </Button>
               )}
               <input
@@ -1108,7 +1137,7 @@ export function PhenologicalStatesManager() {
                 }}
               />
               <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={saving}>
-                <Upload className="w-4 h-4 mr-1" /> Importar Excel
+                <Upload className="w-4 h-4 mr-1" /> {t('estadosFenologicos.tracking.importExcel')}
               </Button>
               <Button
                 variant="outline"
@@ -1121,14 +1150,14 @@ export function PhenologicalStatesManager() {
                 ) : (
                   <Download className="w-4 h-4 mr-1" />
                 )}
-                {exporting ? 'Exportando…' : 'Exportar Excel'}
+                {exporting ? t('estadosFenologicos.tracking.exporting') : t('estadosFenologicos.tracking.exportExcel')}
               </Button>
               <Button
                 size="sm"
                 onClick={() => openObsCreate(filterBlock !== ALL_BLOCKS ? filterBlock : undefined)}
                 className="gap-1"
               >
-                <Plus className="w-4 h-4" /> Nueva semana
+                <Plus className="w-4 h-4" /> {t('estadosFenologicos.tracking.newWeek')}
               </Button>
             </div>
           </div>
@@ -1136,37 +1165,41 @@ export function PhenologicalStatesManager() {
           {seasonObservations.length === 0 ? (
             <div className="rounded-xl border border-dashed p-10 text-center text-muted-foreground">
               <p className="font-medium text-foreground mb-1">
-                Sin lecturas para {filterCrop}
-                {filterVariety !== ALL_VARIETIES ? ` · ${filterVariety}` : ''}
-                {' · '}{filterSeason}
+                {t('estadosFenologicos.tracking.noReadingsTitle', {
+                  crop: filterCrop,
+                  variety: filterVariety !== ALL_VARIETIES ? ` · ${filterVariety}` : '',
+                  season: filterSeason,
+                })}
               </p>
               <p className="text-sm mb-4">
-                Registra una lectura o elige otra temporada.
+                {t('estadosFenologicos.tracking.noReadingsDesc')}
               </p>
               <div className="flex gap-2 justify-center flex-wrap">
-                <Button onClick={() => openObsCreate()}>Registrar lectura</Button>
+                <Button onClick={() => openObsCreate()}>{t('estadosFenologicos.tracking.registerReading')}</Button>
               </div>
             </div>
           ) : filterBlock === ALL_BLOCKS ? (
             <div className="space-y-6">
               {visibleBlocks.length === 0 ? (
                 <div className="rounded-xl border border-dashed p-10 text-center text-muted-foreground">
-                  <p className="font-medium text-foreground">Temporada {filterSeason}</p>
-                  <p className="text-sm mt-1">Sin lecturas. Importa Excel o agrega la primera semana.</p>
+                  <p className="font-medium text-foreground">{t('estadosFenologicos.tracking.seasonEmptyTitle', { season: filterSeason })}</p>
+                  <p className="text-sm mt-1">{t('estadosFenologicos.tracking.seasonEmptyDesc')}</p>
                 </div>
               ) : (
                 <>
                   {blocksTotalPages > 1 && (
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border bg-muted/20 px-4 py-3">
                       <p className="text-sm text-muted-foreground">
-                        Cuarteles{' '}
-                        <span className="font-semibold text-foreground">
-                          {blocksPage * BLOCKS_PAGE_SIZE + 1}–{Math.min((blocksPage + 1) * BLOCKS_PAGE_SIZE, visibleBlocks.length)}
-                        </span>{' '}
-                        de <span className="font-semibold text-foreground">{visibleBlocks.length}</span>
+                        {t('estadosFenologicos.tracking.blocksRange', {
+                          from: blocksPage * BLOCKS_PAGE_SIZE + 1,
+                          to: Math.min((blocksPage + 1) * BLOCKS_PAGE_SIZE, visibleBlocks.length),
+                          total: visibleBlocks.length,
+                        })}
                         {' · '}
-                        Página <span className="font-semibold text-foreground">{blocksPage + 1}</span> de{' '}
-                        <span className="font-semibold text-foreground">{blocksTotalPages}</span>
+                        {t('estadosFenologicos.tracking.page', {
+                          current: blocksPage + 1,
+                          total: blocksTotalPages,
+                        })}
                       </p>
                       <div className="flex items-center gap-2">
                         <Button
@@ -1176,7 +1209,7 @@ export function PhenologicalStatesManager() {
                           disabled={blocksPage === 0}
                         >
                           <ChevronLeft className="w-4 h-4 mr-1" />
-                          Anterior
+                          {t('estadosFenologicos.tracking.previous')}
                         </Button>
                         <Button
                           variant="outline"
@@ -1184,7 +1217,7 @@ export function PhenologicalStatesManager() {
                           onClick={() => setBlocksPage((p) => Math.min(blocksTotalPages - 1, p + 1))}
                           disabled={blocksPage >= blocksTotalPages - 1}
                         >
-                          Siguiente
+                          {t('estadosFenologicos.tracking.next')}
                           <ChevronRight className="w-4 h-4 ml-1" />
                         </Button>
                       </div>
@@ -1197,8 +1230,8 @@ export function PhenologicalStatesManager() {
                       seasonLabel={filterSeason}
                       crop={filterCrop}
                       observations={timelineByBlock.get(blockName) ?? []}
-                      onEdit={openObsEdit}
-                      onDelete={deleteObservation}
+                      onEdit={(obs) => openObsEdit(obs as PhenologyObservation)}
+                      onDelete={(obs) => void deleteObservation(obs as PhenologyObservation)}
                       onAddWeek={() => openObsCreate(blockName)}
                       onRenameBlock={() => openRenameBlock(blockName)}
                       compact
@@ -1228,8 +1261,8 @@ export function PhenologicalStatesManager() {
               seasonLabel={filterSeason}
               crop={filterCrop}
               observations={timelineObs}
-              onEdit={openObsEdit}
-              onDelete={deleteObservation}
+              onEdit={(obs) => openObsEdit(obs as PhenologyObservation)}
+              onDelete={(obs) => void deleteObservation(obs as PhenologyObservation)}
               onAddWeek={() => openObsCreate(filterBlock)}
               onRenameBlock={() => openRenameBlock(filterBlock)}
             />
@@ -1241,23 +1274,23 @@ export function PhenologicalStatesManager() {
         <>
           <div className="flex flex-wrap gap-2 justify-between items-center">
             <p className="text-sm text-muted-foreground">
-              Etapas de referencia para <span className="font-medium text-foreground">{filterCrop}</span>
+              {t('estadosFenologicos.catalog.stagesFor', { crop: filterCrop })}
             </p>
             <div className="flex gap-2">
               {DEFAULT_PHENOLOGY_STAGES[filterCrop] && (
                 <Button variant="outline" size="sm" onClick={seedDefaultStages} disabled={saving}>
-                  <Sparkles className="w-4 h-4 mr-1" /> Plantilla
+                  <Sparkles className="w-4 h-4 mr-1" /> {t('estadosFenologicos.catalog.template')}
                 </Button>
               )}
               <Button size="sm" onClick={openStageCreate} className="gap-1">
-                <Plus className="w-4 h-4" /> Etapa
+                <Plus className="w-4 h-4" /> {t('estadosFenologicos.catalog.stage')}
               </Button>
             </div>
           </div>
 
           {stagesForCrop.length === 0 ? (
             <div className="rounded-xl border border-dashed p-10 text-center text-muted-foreground">
-              Catálogo vacío para {filterCrop}. Usa plantilla o crea etapas manualmente.
+              {t('estadosFenologicos.catalog.empty', { crop: filterCrop })}
             </div>
           ) : (
             <div className="relative pl-6 space-y-0">
@@ -1279,7 +1312,9 @@ export function PhenologicalStatesManager() {
                         <p className="text-sm text-muted-foreground mt-1">{stage.description}</p>
                       )}
                       {stage.typical_days != null && (
-                        <p className="text-xs text-muted-foreground mt-1">~{stage.typical_days} días desde etapa anterior</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {t('estadosFenologicos.catalog.daysFromPrevious', { days: stage.typical_days })}
+                        </p>
                       )}
                     </div>
                     <div className="flex gap-1 shrink-0">
@@ -1301,17 +1336,19 @@ export function PhenologicalStatesManager() {
       <Dialog open={obsDialog} onOpenChange={setObsDialog}>
         <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editingObs ? 'Editar lectura semanal' : 'Nueva lectura semanal'}</DialogTitle>
+            <DialogTitle>
+              {editingObs ? t('estadosFenologicos.dialogs.editReading') : t('estadosFenologicos.dialogs.newReading')}
+            </DialogTitle>
             {!editingObs && (
               <p className="text-sm text-muted-foreground">
-                Usa <strong>Guardar y otra semana</strong> para registrar varias fechas del mismo cuartel sin cerrar este formulario.
+                {t('estadosFenologicos.dialogs.saveAnotherHint')}
               </p>
             )}
           </DialogHeader>
           <div className="grid gap-3 py-2">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs text-muted-foreground">Cuartel *</label>
+                <label className="text-xs text-muted-foreground">{t('estadosFenologicos.dialogs.block')}</label>
                 {catalogBlocksForCrop.length > 0 ? (
                   <>
                     <Select
@@ -1334,9 +1371,9 @@ export function PhenologicalStatesManager() {
                         })
                       }}
                     >
-                      <SelectTrigger><SelectValue placeholder="Seleccionar cuartel" /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder={t('estadosFenologicos.dialogs.selectBlock')} /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={MANUAL_BLOCK}>Escribir manualmente…</SelectItem>
+                        <SelectItem value={MANUAL_BLOCK}>{t('estadosFenologicos.dialogs.writeManual')}</SelectItem>
                         {catalogBlocksForCrop.map((b) => (
                           <SelectItem key={b.id} value={b.block_name}>
                             {b.block_name}{b.field_name ? ` · ${b.field_name}` : ''}
@@ -1350,7 +1387,7 @@ export function PhenologicalStatesManager() {
                         className="mt-2"
                         value={obsForm.block_name}
                         onChange={(e) => setObsForm({ ...obsForm, block_name: e.target.value })}
-                        placeholder="Nombre del cuartel"
+                        placeholder={t('estadosFenologicos.dialogs.blockNamePlaceholder')}
                       />
                     )}
                   </>
@@ -1358,12 +1395,12 @@ export function PhenologicalStatesManager() {
                   <Input
                     value={obsForm.block_name}
                     onChange={(e) => setObsForm({ ...obsForm, block_name: e.target.value })}
-                    placeholder="Legacy C1"
+                    placeholder={t('estadosFenologicos.dialogs.blockLegacyPlaceholder')}
                   />
                 )}
               </div>
               <div>
-                <label className="text-xs text-muted-foreground">Temporada</label>
+                <label className="text-xs text-muted-foreground">{t('estadosFenologicos.filters.season')}</label>
                 <Input
                   value={obsForm.season_label}
                   onChange={(e) => setObsForm({ ...obsForm, season_label: e.target.value })}
@@ -1373,18 +1410,18 @@ export function PhenologicalStatesManager() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs text-muted-foreground">Fecha *</label>
+                <label className="text-xs text-muted-foreground">{t('estadosFenologicos.timeline.date')} *</label>
                 <Input type="date" value={obsForm.observed_at} onChange={(e) => setObsForm({ ...obsForm, observed_at: e.target.value })} />
               </div>
               <div>
-                <label className="text-xs text-muted-foreground">Variedad</label>
+                <label className="text-xs text-muted-foreground">{t('estadosFenologicos.filters.variety')}</label>
                 <Select
                   value={obsForm.variety || 'none'}
                   onValueChange={(v) => setObsForm({ ...obsForm, variety: v === 'none' ? '' : v })}
                 >
-                  <SelectTrigger><SelectValue placeholder="Seleccionar variedad" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={t('estadosFenologicos.dialogs.selectVariety')} /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">Seleccionar…</SelectItem>
+                    <SelectItem value="none">{t('estadosFenologicos.dialogs.selectOption')}</SelectItem>
                     {varietyOptionsForForm.map((name) => (
                       <SelectItem key={name} value={name}>{name}</SelectItem>
                     ))}
@@ -1394,16 +1431,16 @@ export function PhenologicalStatesManager() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs text-muted-foreground">Hilera</label>
+                <label className="text-xs text-muted-foreground">{t('estadosFenologicos.timeline.row')}</label>
                 <Input type="number" min="0" value={obsForm.hilera} onChange={(e) => setObsForm({ ...obsForm, hilera: e.target.value })} />
               </div>
               <div>
-                <label className="text-xs text-muted-foreground">Árbol</label>
+                <label className="text-xs text-muted-foreground">{t('estadosFenologicos.timeline.tree')}</label>
                 <Input type="number" min="0" value={obsForm.arbol} onChange={(e) => setObsForm({ ...obsForm, arbol: e.target.value })} />
               </div>
             </div>
             <div>
-              <label className="text-xs text-muted-foreground">Atajo desde catálogo</label>
+              <label className="text-xs text-muted-foreground">{t('estadosFenologicos.dialogs.catalogShortcut')}</label>
               <Select
                 value={obsForm.stage_id || 'none'}
                 onValueChange={(v) => {
@@ -1419,7 +1456,7 @@ export function PhenologicalStatesManager() {
                   })
                 }}
               >
-                <SelectTrigger><SelectValue placeholder="Opcional" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder={t('estadosFenologicos.dialogs.optional')} /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">—</SelectItem>
                   {stages.filter((s) => s.crop === obsForm.crop).map((s) => (
@@ -1441,26 +1478,29 @@ export function PhenologicalStatesManager() {
               if (!prediction) return null
               return (
                 <p className="text-xs text-muted-foreground rounded-lg border bg-muted/20 px-3 py-2">
-                  Próxima etapa esperada: <strong>{prediction.nextStageName}</strong> ~{fmtShortDate(prediction.expectedDate)}
+                  {t('estadosFenologicos.dialogs.nextStageExpected', {
+                    stage: prediction.nextStageName,
+                    date: fmtShortDate(prediction.expectedDate),
+                  })}
                 </p>
               )
             })()}
             <div>
-              <label className="text-xs text-muted-foreground">Estado Fenologico *</label>
+              <label className="text-xs text-muted-foreground">{t('estadosFenologicos.dialogs.phenologyState')}</label>
               <Textarea
                 value={obsForm.stage_name}
                 onChange={(e) => setObsForm({ ...obsForm, stage_name: e.target.value })}
                 rows={3}
-                placeholder="Ej: 70% botón rosado, inicio de floración"
+                placeholder={t('estadosFenologicos.dialogs.phenologyPlaceholder')}
               />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground">Notas</label>
+              <label className="text-xs text-muted-foreground">{t('estadosFenologicos.timeline.notes')}</label>
               <Textarea value={obsForm.notes} onChange={(e) => setObsForm({ ...obsForm, notes: e.target.value })} rows={2} />
             </div>
             <div className="rounded-lg border p-4 space-y-3">
               <div className="flex items-center justify-between gap-2">
-                <label className="text-sm font-medium text-foreground">Imágenes de campo</label>
+                <label className="text-sm font-medium text-foreground">{t('estadosFenologicos.dialogs.fieldImages')}</label>
                 <span className="text-xs text-muted-foreground">{visibleImageCount}/{MAX_IMAGES}</span>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -1484,7 +1524,7 @@ export function PhenologicalStatesManager() {
                           type="button"
                           className="absolute top-2 right-2 w-7 h-7 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center shadow-md opacity-90 hover:opacity-100"
                           onClick={() => setRemovedImageIds((prev) => [...prev, img.id])}
-                          title="Quitar foto"
+                          title={t('estadosFenologicos.dialogs.removePhoto')}
                         >
                           <X className="w-4 h-4" />
                         </button>
@@ -1504,12 +1544,12 @@ export function PhenologicalStatesManager() {
                       type="button"
                       className="absolute top-2 right-2 w-7 h-7 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center shadow-md"
                       onClick={() => setPendingImages((prev) => prev.filter((_, i) => i !== idx))}
-                      title="Quitar"
+                      title={t('estadosFenologicos.dialogs.remove')}
                     >
                       <X className="w-4 h-4" />
                     </button>
                     <p className="text-[10px] text-muted-foreground mt-1 truncate" title={file.name}>
-                      Nueva · {file.name}
+                      {t('estadosFenologicos.dialogs.newPhoto', { name: file.name })}
                     </p>
                   </div>
                 ))}
@@ -1520,7 +1560,7 @@ export function PhenologicalStatesManager() {
                     onClick={() => imageInputRef.current?.click()}
                   >
                     <ImagePlus className="w-8 h-8 mb-2" />
-                    <span className="text-xs font-medium">Agregar foto</span>
+                    <span className="text-xs font-medium">{t('estadosFenologicos.dialogs.addPhoto')}</span>
                   </button>
                 )}
               </div>
@@ -1534,21 +1574,21 @@ export function PhenologicalStatesManager() {
                 onChange={(e) => handleImagePick(e.target.files)}
               />
               <p className="text-xs text-muted-foreground">
-                Usa la cámara del celular o galería. JPG, PNG o WebP · máx. 10 MB.
+                {t('estadosFenologicos.dialogs.photoHint')}
               </p>
             </div>
           </div>
           <DialogFooter className="gap-2 sm:justify-between">
             {editingObs ? (
               <Button variant="destructive" onClick={() => deleteObservation(editingObs)} disabled={saving}>
-                Eliminar
+                {t('common.actions.delete')}
               </Button>
             ) : (
               <span className="hidden sm:block" />
             )}
             <div className="flex flex-wrap gap-2 justify-end">
               <Button variant="outline" onClick={() => setObsDialog(false)} disabled={saving}>
-                Cancelar
+                {t('common.actions.cancel')}
               </Button>
               {!editingObs && (
                 <Button
@@ -1557,12 +1597,12 @@ export function PhenologicalStatesManager() {
                   disabled={saving}
                 >
                   {saving && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-                  Guardar y otra semana
+                  {t('estadosFenologicos.dialogs.saveAndAnother')}
                 </Button>
               )}
               <Button onClick={() => saveObservation()} disabled={saving}>
                 {saving && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-                Guardar
+                {t('common.actions.save')}
               </Button>
             </div>
           </DialogFooter>
@@ -1572,17 +1612,17 @@ export function PhenologicalStatesManager() {
       <Dialog open={renameDialog} onOpenChange={setRenameDialog}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Renombrar cuartel</DialogTitle>
+            <DialogTitle>{t('estadosFenologicos.dialogs.renameBlock')}</DialogTitle>
             <p className="text-sm text-muted-foreground">
-              Se actualizarán todas las lecturas de <strong>{renameBlockOldName}</strong> en {filterCrop}, incluidas otras temporadas.
+              {t('estadosFenologicos.dialogs.renameHint', { name: renameBlockOldName, crop: filterCrop })}
             </p>
           </DialogHeader>
           <div className="py-2">
-            <label className="text-xs text-muted-foreground">Nuevo nombre *</label>
+            <label className="text-xs text-muted-foreground">{t('estadosFenologicos.dialogs.newName')}</label>
             <Input
               value={renameBlockNewName}
               onChange={(e) => setRenameBlockNewName(e.target.value)}
-              placeholder="Ej: Legacy C1"
+              placeholder={t('estadosFenologicos.dialogs.blockLegacyPlaceholder')}
               autoFocus
               onKeyDown={(e) => {
                 if (e.key === 'Enter') renameBlock(renameBlockOldName, renameBlockNewName)
@@ -1591,14 +1631,14 @@ export function PhenologicalStatesManager() {
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setRenameDialog(false)} disabled={saving}>
-              Cancelar
+              {t('common.actions.cancel')}
             </Button>
             <Button
               onClick={() => renameBlock(renameBlockOldName, renameBlockNewName)}
               disabled={saving || !renameBlockNewName.trim()}
             >
               {saving && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-              Renombrar
+              {t('estadosFenologicos.dialogs.rename')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1607,12 +1647,14 @@ export function PhenologicalStatesManager() {
       <Dialog open={stageDialog} onOpenChange={setStageDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingStage ? 'Editar etapa' : 'Nueva etapa fenológica'}</DialogTitle>
+            <DialogTitle>
+              {editingStage ? t('estadosFenologicos.dialogs.editStage') : t('estadosFenologicos.dialogs.newStage')}
+            </DialogTitle>
           </DialogHeader>
           <div className="grid gap-3 py-2">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs text-muted-foreground">Cultivo</label>
+                <label className="text-xs text-muted-foreground">{t('estadosFenologicos.filters.crop')}</label>
                 <Select value={stageForm.crop} onValueChange={(v) => setStageForm({ ...stageForm, crop: v })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -1621,34 +1663,34 @@ export function PhenologicalStatesManager() {
                 </Select>
               </div>
               <div>
-                <label className="text-xs text-muted-foreground">Orden</label>
+                <label className="text-xs text-muted-foreground">{t('estadosFenologicos.dialogs.order')}</label>
                 <Input type="number" min="0" value={stageForm.sort_order} onChange={(e) => setStageForm({ ...stageForm, sort_order: e.target.value })} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs text-muted-foreground">Nombre *</label>
+                <label className="text-xs text-muted-foreground">{t('estadosFenologicos.dialogs.name')}</label>
                 <Input value={stageForm.stage_name} onChange={(e) => setStageForm({ ...stageForm, stage_name: e.target.value })} />
               </div>
               <div>
-                <label className="text-xs text-muted-foreground">Código</label>
-                <Input value={stageForm.stage_code} onChange={(e) => setStageForm({ ...stageForm, stage_code: e.target.value })} placeholder="A4" />
+                <label className="text-xs text-muted-foreground">{t('estadosFenologicos.dialogs.code')}</label>
+                <Input value={stageForm.stage_code} onChange={(e) => setStageForm({ ...stageForm, stage_code: e.target.value })} placeholder={t('estadosFenologicos.dialogs.codePlaceholder')} />
               </div>
             </div>
             <div>
-              <label className="text-xs text-muted-foreground">Días típicos desde etapa anterior</label>
+              <label className="text-xs text-muted-foreground">{t('estadosFenologicos.dialogs.typicalDays')}</label>
               <Input type="number" min="0" value={stageForm.typical_days} onChange={(e) => setStageForm({ ...stageForm, typical_days: e.target.value })} />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground">Descripción</label>
+              <label className="text-xs text-muted-foreground">{t('estadosFenologicos.dialogs.description')}</label>
               <Textarea value={stageForm.description} onChange={(e) => setStageForm({ ...stageForm, description: e.target.value })} rows={2} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setStageDialog(false)}>Cancelar</Button>
+            <Button variant="outline" onClick={() => setStageDialog(false)}>{t('common.actions.cancel')}</Button>
             <Button onClick={saveStage} disabled={saving}>
               {saving && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-              Guardar
+              {t('common.actions.save')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1663,10 +1705,10 @@ export function PhenologicalStatesManager() {
           >
             <Loader2 className="w-5 h-5 animate-spin text-lime-600 dark:text-lime-400 shrink-0 mt-0.5" />
             <div>
-              <p className="font-medium text-sm text-foreground">Exportando Excel</p>
-              <p className="text-xs text-muted-foreground mt-1">{exportStatus || 'Preparando exportación…'}</p>
+              <p className="font-medium text-sm text-foreground">{t('estadosFenologicos.export.title')}</p>
+              <p className="text-xs text-muted-foreground mt-1">{exportStatus || t('estadosFenologicos.export.preparing')}</p>
               <p className="text-[11px] text-muted-foreground/80 mt-2">
-                Puede tardar un momento si hay muchas fotos. No cierres esta pestaña.
+                {t('estadosFenologicos.export.waitHint')}
               </p>
             </div>
           </div>

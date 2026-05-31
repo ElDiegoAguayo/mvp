@@ -18,6 +18,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { toast } from 'sonner'
 import { Loader2, FileText, FileSpreadsheet, FileType, ChevronUp, ChevronDown } from 'lucide-react'
 import type { DocumentFormat, DocumentKind } from '@/lib/documents/document-utils'
+import { useLocale } from '@/components/i18n/locale-provider'
 
 interface TableOption {
   id: string
@@ -35,12 +36,6 @@ interface TableColumn {
   id: string
   name: string
 }
-
-const DOC_TYPES: Array<{ label: string; value: DocumentKind }> = [
-  { label: 'Contrato', value: 'contract' },
-  { label: 'Reporte', value: 'report' },
-  { label: 'Factura', value: 'invoice' },
-]
 
 const FORMATS: Array<{ label: string; value: DocumentFormat }> = [
   { label: 'PDF', value: 'pdf' },
@@ -65,7 +60,16 @@ const selectTriggerClass =
   'w-full min-w-0 overflow-hidden [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate'
 
 export function DocumentGenerator() {
+  const { t } = useLocale()
   const supabase = useMemo(() => createClient(), [])
+  const docTypes = useMemo<Array<{ label: string; value: DocumentKind }>>(
+    () => [
+      { label: t('documents.types.contract'), value: 'contract' },
+      { label: t('documents.types.report'), value: 'report' },
+      { label: t('documents.types.invoice'), value: 'invoice' },
+    ],
+    [t],
+  )
   const [tables, setTables] = useState<TableOption[]>([])
   const [rows, setRows] = useState<TableRow[]>([])
   const [tableColumns, setTableColumns] = useState<TableColumn[]>([])
@@ -103,11 +107,11 @@ export function DocumentGenerator() {
       setTables(options)
     } catch (error) {
       console.error('Error loading tables:', error)
-      toast.error('No se pudieron cargar las tablas disponibles.')
+      toast.error(t('documents.errors.loadTables'))
     } finally {
       setIsLoadingTables(false)
     }
-  }, [supabase])
+  }, [supabase, t])
 
   const loadRows = useCallback(async () => {
     if (!tableId) return
@@ -130,11 +134,11 @@ export function DocumentGenerator() {
       }
     } catch (error) {
       console.error('Error loading rows:', error)
-      toast.error('No se pudieron cargar los registros de la tabla.')
+      toast.error(t('documents.errors.loadRows'))
     } finally {
       setIsLoadingRows(false)
     }
-  }, [supabase, tableId])
+  }, [supabase, tableId, t])
 
   const loadTableColumns = useCallback(async () => {
     if (!tableId) {
@@ -189,9 +193,9 @@ export function DocumentGenerator() {
       setVisibleColumnIds(new Set(defaultOrder))
     } catch (error) {
       console.error('Error loading table columns:', error)
-      toast.error('No se pudieron cargar las columnas de la tabla.')
+      toast.error(t('documents.errors.loadColumns'))
     }
-  }, [supabase, tableId])
+  }, [supabase, tableId, t])
 
   useEffect(() => {
     loadTables()
@@ -311,7 +315,7 @@ export function DocumentGenerator() {
       }
     }
     if (row.data?.id) return String(row.data.id)
-    return `Registro ${index + 1}`
+    return t('documents.rowLabel', { index: index + 1 })
   }
 
   const getRowPreview = (row: TableRow) => {
@@ -334,12 +338,12 @@ export function DocumentGenerator() {
 
   const handleGenerate = async () => {
     if (!tableId || !rowId) {
-      toast.error('Selecciona una tabla y un registro para continuar.')
+      toast.error(t('documents.errors.selectTableAndRow'))
       return
     }
 
     if (visibleColumnIds.size === 0) {
-      toast.error('Selecciona al menos una columna para el documento.')
+      toast.error(t('documents.errors.selectColumn'))
       return
     }
 
@@ -360,7 +364,7 @@ export function DocumentGenerator() {
 
       if (!response.ok) {
         const payload = await response.json().catch(() => null)
-        throw new Error(payload?.error ?? 'No se pudo generar el documento.')
+        throw new Error(payload?.error ?? t('documents.errors.generateFailed'))
       }
 
       const blob = await response.blob()
@@ -372,11 +376,11 @@ export function DocumentGenerator() {
       link.click()
       window.URL.revokeObjectURL(url)
 
-      toast.success('Documento generado correctamente.')
+      toast.success(t('documents.success.generated'))
     } catch (error) {
       console.error('Document generation error:', error)
       toast.error(
-        error instanceof Error ? error.message : 'Error al generar el documento.',
+        error instanceof Error ? error.message : t('documents.errors.generateUnexpected'),
       )
     } finally {
       setIsGenerating(false)
@@ -389,24 +393,24 @@ export function DocumentGenerator() {
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg font-semibold flex items-center gap-2">
             <FileText className="w-5 h-5 text-primary" />
-            Generacion de Documentos
+            {t('documents.title')}
           </CardTitle>
-          <Badge variant="secondary">Contrato / Reporte / Factura</Badge>
+          <Badge variant="secondary">{t('documents.typesSummary')}</Badge>
         </div>
         <p className="text-sm text-muted-foreground">
-          Elige un registro de tus tablas y genera un PDF o DOCX listo para descargar.
+          {t('documents.description')}
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl">
           <div className="min-w-0">
-            <label className="text-xs text-muted-foreground mb-1 block">Tipo</label>
+            <label className="text-xs text-muted-foreground mb-1 block">{t('documents.fields.type')}</label>
             <Select value={docType} onValueChange={(value) => setDocType(value as DocumentKind)}>
               <SelectTrigger className={selectTriggerClass}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {DOC_TYPES.map((item) => (
+                {docTypes.map((item) => (
                   <SelectItem key={item.value} value={item.value}>
                     {item.label}
                   </SelectItem>
@@ -415,7 +419,7 @@ export function DocumentGenerator() {
             </Select>
           </div>
           <div className="min-w-0">
-            <label className="text-xs text-muted-foreground mb-1 block">Formato</label>
+            <label className="text-xs text-muted-foreground mb-1 block">{t('documents.fields.format')}</label>
             <Select value={format} onValueChange={(value) => setFormat(value as DocumentFormat)}>
               <SelectTrigger className={selectTriggerClass}>
                 <SelectValue />
@@ -432,13 +436,13 @@ export function DocumentGenerator() {
         </div>
 
         <div className="min-w-0">
-          <label className="text-xs text-muted-foreground mb-1 block">Tabla</label>
+          <label className="text-xs text-muted-foreground mb-1 block">{t('documents.fields.table')}</label>
           <Select value={tableId} onValueChange={setTableId} disabled={isLoadingTables}>
             <SelectTrigger
               className={selectTriggerClass}
               title={selectedTableLabel}
             >
-              <SelectValue placeholder={isLoadingTables ? 'Cargando...' : 'Selecciona tabla'} />
+              <SelectValue placeholder={isLoadingTables ? t('common.actions.loading') : t('documents.placeholders.selectTable')} />
             </SelectTrigger>
             <SelectContent>
               {tables.map((table) => (
@@ -454,25 +458,25 @@ export function DocumentGenerator() {
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
           <div className="min-w-0 lg:col-span-3">
-            <label className="text-xs text-muted-foreground mb-1 block">Buscar registro</label>
+            <label className="text-xs text-muted-foreground mb-1 block">{t('documents.fields.searchRow')}</label>
             <Input
               value={rowSearch}
               onChange={(event) => setRowSearch(event.target.value)}
-              placeholder="Buscar en registros"
+              placeholder={t('documents.placeholders.searchRows')}
               className="h-9 w-full min-w-0"
             />
           </div>
           <div className="min-w-0 lg:col-span-6">
-            <label className="text-xs text-muted-foreground mb-1 block">Registro</label>
+            <label className="text-xs text-muted-foreground mb-1 block">{t('documents.fields.row')}</label>
             <Select value={rowId} onValueChange={setRowId} disabled={!tableId || isLoadingRows}>
               <SelectTrigger className={`${selectTriggerClass} bg-background`}>
                 <SelectValue
                   placeholder={
                     !tableId
-                      ? 'Selecciona una tabla primero'
+                      ? t('documents.placeholders.selectTableFirst')
                       : isLoadingRows
-                        ? 'Cargando registros...'
-                        : 'Selecciona un registro'
+                        ? t('documents.placeholders.loadingRows')
+                        : t('documents.placeholders.selectRow')
                   }
                 />
               </SelectTrigger>
@@ -482,7 +486,7 @@ export function DocumentGenerator() {
                     <div className="flex flex-col gap-0.5 min-w-0 max-w-[min(100vw-3rem,36rem)]">
                       <span className="text-sm font-medium truncate">{getRowLabel(row, index)}</span>
                       <span className="text-[11px] text-muted-foreground truncate">
-                        {getRowPreview(row) || 'Sin datos visibles'}
+                        {getRowPreview(row) || t('documents.noVisibleData')}
                       </span>
                     </div>
                   </SelectItem>
@@ -499,7 +503,7 @@ export function DocumentGenerator() {
               {isGenerating ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Generando...
+                  {t('documents.generating')}
                 </>
               ) : (
                 <>
@@ -508,7 +512,7 @@ export function DocumentGenerator() {
                   ) : (
                     <FileSpreadsheet className="w-4 h-4" />
                   )}
-                  Generar documento
+                  {t('documents.generateButton')}
                 </>
               )}
             </Button>
@@ -518,23 +522,23 @@ export function DocumentGenerator() {
         <div className="rounded-lg border border-border bg-background p-3">
           <div className="flex items-center justify-between mb-2">
             <div>
-              <p className="text-sm font-medium text-foreground">Columnas del documento</p>
+              <p className="text-sm font-medium text-foreground">{t('documents.columns.title')}</p>
               <p className="text-xs text-muted-foreground">
-                Activa las columnas que se incluiran y define el orden.
+                {t('documents.columns.description')}
               </p>
             </div>
             <div className="flex items-center gap-2">
               <Button variant="ghost" size="sm" onClick={showAllColumns}>
-                Mostrar todas
+                {t('common.actions.showAll')}
               </Button>
               <Button variant="ghost" size="sm" onClick={hideAllColumns}>
-                Ocultar todas
+                {t('common.actions.hideAll')}
               </Button>
             </div>
           </div>
 
           {tableId && orderedColumns.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No hay columnas disponibles.</p>
+            <p className="text-xs text-muted-foreground">{t('documents.columns.empty')}</p>
           ) : (
             <div className="max-h-56 overflow-y-auto pr-2 space-y-2">
               {orderedColumns.map((col, index) => {
@@ -556,7 +560,7 @@ export function DocumentGenerator() {
                         className="h-7 w-7"
                         disabled={index === 0}
                         onClick={() => moveColumn(col.id, 'up')}
-                        aria-label="Subir columna"
+                        aria-label={t('documents.columns.moveUpAria')}
                       >
                         <ChevronUp className="w-4 h-4" />
                       </Button>
@@ -566,7 +570,7 @@ export function DocumentGenerator() {
                         className="h-7 w-7"
                         disabled={index === orderedColumns.length - 1}
                         onClick={() => moveColumn(col.id, 'down')}
-                        aria-label="Bajar columna"
+                        aria-label={t('documents.columns.moveDownAria')}
                       >
                         <ChevronDown className="w-4 h-4" />
                       </Button>
@@ -581,11 +585,11 @@ export function DocumentGenerator() {
         <div className="rounded-lg border border-border bg-secondary/30 p-3 text-xs text-muted-foreground">
           {selectedRow ? (
             <div className="space-y-1">
-              <p className="font-medium text-foreground">Vista rapida del registro</p>
+              <p className="font-medium text-foreground">{t('documents.preview.title')}</p>
               <div className="max-h-64 overflow-y-auto pr-2">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
                   {visibleColumns.length === 0 ? (
-                    <span>No hay columnas seleccionadas para mostrar.</span>
+                    <span>{t('documents.preview.noColumns')}</span>
                   ) : (
                     visibleColumns.map((col) => {
                       const rawValue = selectedRow.data?.[col.id]
@@ -603,7 +607,7 @@ export function DocumentGenerator() {
               </div>
             </div>
           ) : (
-            <span>Selecciona un registro para ver un resumen.</span>
+            <span>{t('documents.preview.selectRow')}</span>
           )}
         </div>
       </CardContent>

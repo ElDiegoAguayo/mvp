@@ -1,6 +1,7 @@
 import React from 'react'
 import { Document, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer'
 import { DocumentData, DocumentKind, getDocumentLabel } from './document-utils'
+import { BRAND_NAME } from '@/lib/brand'
 
 const BRAND = '#4063ca'
 const BRAND_LIGHT = '#eef2fc'
@@ -160,7 +161,7 @@ export function PdfDocument({
           <View style={styles.brandLeft}>
             {logoSrc ? <Image src={logoSrc} style={styles.logo} /> : null}
             <View style={styles.brandText}>
-              <Text style={styles.brandName}>UpCrop</Text>
+              <Text style={styles.brandName}>{BRAND_NAME}</Text>
               <Text style={styles.brandTagline}>Inteligencia agrícola</Text>
             </View>
           </View>
@@ -190,7 +191,7 @@ export function PdfDocument({
         </View>
 
         <View style={styles.footer} fixed>
-          <Text style={styles.footerText}>Documento generado por UpCrop</Text>
+          <Text style={styles.footerText}>Documento generado por {BRAND_NAME}</Text>
           <Text style={styles.footerText}>{generatedAt}</Text>
         </View>
       </Page>

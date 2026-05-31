@@ -2,6 +2,7 @@
 
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { createClient as createServerClient } from '@/lib/supabase/server'
+import { applyPrincipalClientFilters } from '@/lib/profiles/principal-clients'
 
 export interface DailyActivePoint {
   date: string
@@ -121,9 +122,9 @@ export async function getUsageAnalyticsAction(): Promise<UsageAnalyticsData | nu
     auditRes,
     subusersRes,
   ] = await Promise.all([
-    admin.from('profiles').select('id, full_name, email, role, parent_user_id, last_activity_at')
-      .eq('role', 'user')
-      .is('parent_user_id', null),
+    applyPrincipalClientFilters(
+      admin.from('profiles').select('id, full_name, email, role, parent_user_id, last_activity_at'),
+    ),
     admin.from('login_attempts').select('id', { count: 'exact', head: true }).eq('success', true).gte('attempted_at', weekAgoIso),
     admin.from('audit_logs')
       .select('action_type, actor_id, target_label, metadata, created_at')

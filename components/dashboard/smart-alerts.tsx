@@ -4,13 +4,19 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { getEffectiveUserId } from '@/lib/supabase/effective-user'
 import { useViewAsUserId } from '@/components/dashboard/view-as-provider'
+import { useLocale } from '@/components/i18n/locale-provider'
+import { pickLocalized, isLocalizedText } from '@/lib/i18n/localized-text'
 import {
-  Thermometer, TrendingUp, Bell, CheckCircle2, Loader2,
+  ADMIN_NOTIFICATION_SELECT_BASE,
+  ADMIN_NOTIFICATION_SELECT_I18N,
+  isMissingI18nColumnError,
+} from '@/lib/admin/admin-notifications-db'
+import {
+  Thermometer, TrendingUp, Bell, CheckCircle2,
   Package, Megaphone, AlertTriangle, Info,
 } from 'lucide-react'
+import { WidgetSkeleton } from '@/components/dashboard/widget-skeleton'
 import { cn } from '@/lib/utils'
-
-// ─── Types ─────────────────────────────────────────────────────────────────────
 
 interface WeatherData {
   daily: { temperature_2m_min: number[]; precipitation_probability_max: number[] }
@@ -31,6 +37,8 @@ interface AdminNotif {
   id: string
   title: string
   message: string
+  title_i18n?: unknown
+  message_i18n?: unknown
   severity: 'info' | 'warning' | 'critical' | 'success'
   target_role?: string
 }
@@ -43,8 +51,6 @@ interface Alert {
   description: string
   isAdmin?: boolean
 }
-
-// ─── Style helpers ──────────────────────────────────────────────────────────────
 
 function getAlertStyles(severity: Alert['severity'], isAdmin?: boolean) {
   if (isAdmin) {
@@ -82,12 +88,11 @@ function AlertIcon({ type, severity, isAdmin }: { type: Alert['type']; severity:
   }
 }
 
-// ─── Main component ─────────────────────────────────────────────────────────────
-
 export function SmartAlerts() {
   const [alerts,  setAlerts]  = useState<Alert[]>([])
   const [loading, setLoading] = useState(true)
   const viewAsUserId = useViewAsUserId()
+  const { t, locale } = useLocale()
 
   useEffect(() => {
     const supabase = createClient()
@@ -97,9 +102,7 @@ export function SmartAlerts() {
       const adminAlerts:  Alert[] = []
       const systemAlerts: Alert[] = []
 
-      // ── 1. Broadcast notifications (role-filtered) ───────────────────────────
       try {
-        // Rol de quien se está viendo (cliente en modo soporte, no el admin de sesión)
         const { userId: viewingUserId } = await getEffectiveUserId(supabase, viewAsUserId)
         let userRole = 'user'
         if (viewingUserId) {
@@ -112,58 +115,62 @@ export function SmartAlerts() {
         }
         const isPlatformAdmin = userRole === 'admin'
 
-        const { data: notifs } = await supabase
-          .from('admin_notifications')
-          .select('id, title, message, severity, target_role')
-          .lte('active_from', new Date().toISOString())
-          .gte('active_until', new Date().toISOString())
-          .order('created_at', { ascending: false })
+        const now = new Date().toISOString()
+        const activeQuery = (columns: string) =>
+          supabase
+            .from('admin_notifications')
+            .select(columns)
+            .lte('active_from', now)
+            .gte('active_until', now)
+            .order('created_at', { ascending: false })
+
+        let { data: notifs, error: notifError } = await activeQuery(ADMIN_NOTIFICATION_SELECT_I18N)
+        if (isMissingI18nColumnError(notifError?.message)) {
+          ;({ data: notifs } = await activeQuery(ADMIN_NOTIFICATION_SELECT_BASE))
+        }
 
         for (const n of (notifs ?? []) as AdminNotif[]) {
           const targetRole = n.target_role ?? 'admin'
-
-          // Avisos del equipo: solo administradores de la plataforma
           const showAsTeamNotice =
             isPlatformAdmin && (targetRole === 'admin' || targetRole === 'all')
-
-          // Mensajes a clientes: cuentas cliente (no admin)
           const showAsClientNotice =
             !isPlatformAdmin && (targetRole === 'user' || targetRole === 'all')
 
           if (!showAsTeamNotice && !showAsClientNotice) continue
 
+          const titleI18n = isLocalizedText(n.title_i18n) ? n.title_i18n : null
+          const messageI18n = isLocalizedText(n.message_i18n) ? n.message_i18n : null
+
           adminAlerts.push({
             id:          `admin:${n.id}`,
             type:        'admin',
             severity:    n.severity,
-            title:       n.title,
-            description: n.message,
+            title:       titleI18n ? pickLocalized(titleI18n, locale) : n.title,
+            description: messageI18n ? pickLocalized(messageI18n, locale) : n.message,
             isAdmin:     showAsTeamNotice,
           })
         }
       } catch {
-        // Silent fail
+        /* silent */
       }
 
-      // ── 2. Weather / frost ──────────────────────────────────────────────────
       try {
         const weatherRes = await fetch(
           'https://api.open-meteo.com/v1/forecast?latitude=-36.79&longitude=-73.08&daily=temperature_2m_min,precipitation_probability_max&timezone=America/Santiago&forecast_days=7'
         )
         if (weatherRes.ok) {
           const weather: WeatherData = await weatherRes.json()
-          if (weather.daily.temperature_2m_min.some(t => t < 3)) {
+          if (weather.daily.temperature_2m_min.some(temp => temp < 3)) {
             const minTemp = Math.min(...weather.daily.temperature_2m_min)
             systemAlerts.push({
               id: 'frost', type: 'frost', severity: 'critical',
-              title: 'Alerta de Helada',
-              description: `Riesgo de bajas temperaturas esta semana. Mínima pronosticada: ${minTemp.toFixed(1)}°C`,
+              title: t('alerts.frostTitle'),
+              description: t('alerts.frostDescription', { minTemp: minTemp.toFixed(1) }),
             })
           }
         }
       } catch { /* silent */ }
 
-      // ── 3. Currency ─────────────────────────────────────────────────────────
       try {
         const currencyRes = await fetch('https://mindicador.cl/api')
         if (currencyRes.ok) {
@@ -171,14 +178,15 @@ export function SmartAlerts() {
           if (currency.dolar?.valor > 900) {
             systemAlerts.push({
               id: 'export', type: 'export', severity: 'success',
-              title: 'Oportunidad de Exportación',
-              description: `El Dólar Observado supera los $900 CLP. Valor actual: $${currency.dolar.valor.toFixed(2)}`,
+              title: t('alerts.exportTitle'),
+              description: t('alerts.exportDescription', {
+                value: `$${currency.dolar.valor.toFixed(2)}`,
+              }),
             })
           }
         }
       } catch { /* silent */ }
 
-      // ── 4. Inventory min stock ───────────────────────────────────────────────
       try {
         const { effectiveUserId } = await getEffectiveUserId(supabase)
         if (effectiveUserId) {
@@ -217,8 +225,14 @@ export function SmartAlerts() {
                 systemAlerts.push({
                   id: `inventory:${level.warehouse_id}:${level.material_id}`,
                   type: 'inventory', severity: 'critical',
-                  title: 'Stock en mínimo',
-                  description: `${materialMap.get(level.material_id)?.name ?? 'Material'} en ${warehouseMap.get(level.warehouse_id) ?? 'Bodega'}: ${info.stock} ${info.unit} (mínimo ${level.min_quantity}).`,
+                  title: t('alerts.inventoryTitle'),
+                  description: t('alerts.inventoryDescription', {
+                    material: materialMap.get(level.material_id)?.name ?? t('alerts.materialFallback'),
+                    warehouse: warehouseMap.get(level.warehouse_id) ?? t('alerts.warehouseFallback'),
+                    stock: String(info.stock),
+                    unit: info.unit,
+                    min: String(level.min_quantity),
+                  }),
                 })
               }
             }
@@ -227,51 +241,51 @@ export function SmartAlerts() {
       } catch { /* silent */ }
 
       if (isMounted) {
-        // Admin alerts first, then system alerts
         setAlerts([...adminAlerts, ...systemAlerts])
         setLoading(false)
       }
     }
 
+    setLoading(true)
     evaluateAlerts()
     return () => { isMounted = false }
-  }, [viewAsUserId])
+  }, [viewAsUserId, locale, t])
 
   const adminCount = alerts.filter(a => a.isAdmin).length
 
+  if (loading) {
+    return <WidgetSkeleton variant="alerts" minHeight="lg" />
+  }
+
   return (
     <div className="bg-card border border-border rounded-xl p-5">
-      {/* Header */}
       <div className="flex items-center gap-2 mb-4">
         <div className="w-8 h-8 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center">
           <Bell className="w-4 h-4 text-primary" />
         </div>
-        <h3 className="text-sm font-semibold text-foreground">Centro de Notificaciones</h3>
+        <h3 className="text-sm font-semibold text-foreground">{t('alerts.centerTitle')}</h3>
         {adminCount > 0 && (
           <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#4A6CF7]/15 text-[#4A6CF7] border border-[#4A6CF7]/30">
             <Megaphone className="w-2.5 h-2.5" />
-            {adminCount} aviso{adminCount !== 1 ? 's' : ''} admin
+            {adminCount === 1
+              ? t('alerts.adminBadge', { count: adminCount })
+              : t('alerts.adminBadgePlural', { count: adminCount })}
           </span>
         )}
       </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center py-8">
-          <Loader2 className="w-5 h-5 text-muted-foreground animate-spin" />
-        </div>
-      ) : alerts.length === 0 ? (
+      {alerts.length === 0 ? (
         <div className="flex items-center gap-3 py-6 px-4 bg-muted/50 rounded-lg">
           <CheckCircle2 className="w-5 h-5 text-success shrink-0" />
-          <p className="text-sm text-muted-foreground">No hay alertas críticas en este momento.</p>
+          <p className="text-sm text-muted-foreground">{t('alerts.noAlerts')}</p>
         </div>
       ) : (
         <div className="flex flex-col gap-3">
-          {/* Client broadcast messages (from UpCrop to clients) */}
           {alerts.filter(a => a.isAdmin === false && a.type === 'admin').length > 0 && (
             <>
               <div className="flex items-center gap-2">
                 <Megaphone className="w-3.5 h-3.5 text-primary" />
-                <span className="text-xs font-semibold text-primary uppercase tracking-wide">Mensajes de UpCrop</span>
+                <span className="text-xs font-semibold text-primary uppercase tracking-wide">{t('alerts.upCropMessages')}</span>
                 <div className="h-px flex-1 bg-primary/20" />
               </div>
               {alerts.filter(a => a.isAdmin === false && a.type === 'admin').map(alert => {
@@ -297,12 +311,11 @@ export function SmartAlerts() {
             </>
           )}
 
-          {/* Team notices — platform admins only */}
           {adminCount > 0 && (
             <>
               <div className="flex items-center gap-2">
                 <Megaphone className="w-3.5 h-3.5 text-[#4A6CF7]" />
-                <span className="text-xs font-semibold text-[#4A6CF7] uppercase tracking-wide">Avisos del equipo</span>
+                <span className="text-xs font-semibold text-[#4A6CF7] uppercase tracking-wide">{t('alerts.teamNotices')}</span>
                 <div className="h-px flex-1 bg-[#4A6CF7]/20" />
               </div>
               {alerts.filter(a => a.isAdmin).map(alert => {
@@ -328,13 +341,12 @@ export function SmartAlerts() {
             </>
           )}
 
-          {/* System alerts section */}
           {alerts.filter(a => a.type !== 'admin').length > 0 && (
             <>
               {(adminCount > 0 || alerts.some(a => a.type === 'admin' && !a.isAdmin)) && (
                 <div className="flex items-center gap-2 mt-1">
                   <Bell className="w-3.5 h-3.5 text-muted-foreground" />
-                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Alertas automáticas</span>
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{t('alerts.autoAlerts')}</span>
                   <div className="h-px flex-1 bg-border" />
                 </div>
               )}

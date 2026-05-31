@@ -1,12 +1,19 @@
 'use server'
 
 import { cookies } from 'next/headers'
-import { redirect } from 'next/navigation'
 import { createClient as createServerClient } from '@/lib/supabase/server'
 import { logAudit } from '@/lib/audit-log'
 import { VIEW_AS_COOKIE } from '@/lib/impersonation'
 
 const VIEW_AS_MAX_AGE = 60 * 60 * 4 // 4 hours
+
+export type ImpersonationStartResult =
+  | { ok: true; redirectTo: string }
+  | { ok: false; message: string }
+
+export type ImpersonationStopResult =
+  | { ok: true; redirectTo: string }
+  | { ok: false; message: string }
 
 /** Clears support-mode cookie (e.g. on logout) without redirect or audit. */
 export async function clearViewAsCookieAction(): Promise<void> {
@@ -14,7 +21,9 @@ export async function clearViewAsCookieAction(): Promise<void> {
   cookieStore.delete(VIEW_AS_COOKIE)
 }
 
-export async function startImpersonationAction(targetUserId: string): Promise<{ ok: boolean; message: string }> {
+export async function startImpersonationAction(
+  targetUserId: string,
+): Promise<ImpersonationStartResult> {
   if (!targetUserId?.trim()) {
     return { ok: false, message: 'Usuario inválido.' }
   }
@@ -35,7 +44,7 @@ export async function startImpersonationAction(targetUserId: string): Promise<{ 
 
   const { data: target } = await supabase
     .from('profiles')
-    .select('id, full_name, email, role, is_active, parent_user_id')
+    .select('id, full_name, email, role, is_active, parent_user_id, is_tech_inspector')
     .eq('id', targetUserId)
     .single()
 
@@ -53,7 +62,11 @@ export async function startImpersonationAction(targetUserId: string): Promise<{ 
   })
 
   const targetLabel = target.full_name || target.email || target.id
-  const roleLabel = target.parent_user_id ? 'subusuario' : 'cliente'
+  const roleLabel = target.is_tech_inspector
+    ? 'inspector'
+    : target.parent_user_id
+      ? 'subusuario'
+      : 'cliente'
 
   await logAudit(
     supabase,
@@ -67,6 +80,7 @@ export async function startImpersonationAction(targetUserId: string): Promise<{ 
         target_email: target.email,
         target_role: target.role,
         is_subuser: !!target.parent_user_id,
+        is_tech_inspector: !!target.is_tech_inspector,
       },
     },
     {
@@ -77,10 +91,13 @@ export async function startImpersonationAction(targetUserId: string): Promise<{ 
     },
   )
 
-  redirect('/dashboard')
+  return {
+    ok: true,
+    redirectTo: target.is_tech_inspector ? '/dashboard/asistencia-tecnica' : '/dashboard',
+  }
 }
 
-export async function stopImpersonationAction(): Promise<void> {
+export async function stopImpersonationAction(): Promise<ImpersonationStopResult> {
   const supabase = await createServerClient()
   const { data: { user: caller } } = await supabase.auth.getUser()
 
@@ -126,5 +143,5 @@ export async function stopImpersonationAction(): Promise<void> {
     }
   }
 
-  redirect('/admin?tab=usuarios')
+  return { ok: true, redirectTo: '/admin?tab=usuarios' }
 }

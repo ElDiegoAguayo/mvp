@@ -7,12 +7,14 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { WidgetConfig, DEFAULT_DASHBOARD_LAYOUT } from '@/lib/dashboard/widget-config'
+import { WidgetConfig } from '@/lib/dashboard/widget-config'
 import {
   createPermissions,
   UserPermissions,
   filterWidgetsByPermissions,
 } from '@/lib/dashboard/layout-permissions'
+import { mergeLayoutWithCatalog, parseStoredLayout, resolvePlatformOrSystemDefault } from '@/lib/dashboard/widget-catalog'
+import { fetchDashboardLayoutOwnerId } from '@/lib/dashboard/layout-owner'
 
 interface UseDashboardLayoutResult {
   widgets: WidgetConfig[]
@@ -35,7 +37,7 @@ interface UseDashboardLayoutResult {
  */
 export function useDashboardLayout(userId: string): UseDashboardLayoutResult {
   const supabase = createClient()
-  const [widgets, setWidgets] = useState<WidgetConfig[]>(DEFAULT_DASHBOARD_LAYOUT)
+  const [widgets, setWidgets] = useState<WidgetConfig[]>(() => mergeLayoutWithCatalog(null))
   const [permissions, setPermissions] = useState<UserPermissions>(createPermissions([], []))
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
@@ -73,20 +75,27 @@ export function useDashboardLayout(userId: string): UseDashboardLayoutResult {
       const userPermissions = createPermissions(enabledModuleIds, coreModuleIds)
       setPermissions(userPermissions)
 
+      const layoutOwnerId = await fetchDashboardLayoutOwnerId(supabase, userId)
+
       const { data: layoutData } = await supabase
         .from('dashboard_layouts')
-        .select('*')
-        .eq('user_id', userId)
-        .single()
+        .select('configuration')
+        .eq('user_id', layoutOwnerId)
+        .maybeSingle()
 
-      let layoutWidgets = DEFAULT_DASHBOARD_LAYOUT
-      if (layoutData) {
-        try {
-          const parsedLayout = JSON.parse(layoutData.configuration as string) as WidgetConfig[]
-          layoutWidgets = parsedLayout
-        } catch (parseError) {
-          console.warn('Failed to parse custom layout, using defaults:', parseError)
-        }
+      const { data: platformRow } = await supabase
+        .from('platform_dashboard_default')
+        .select('configuration')
+        .eq('id', 1)
+        .maybeSingle()
+
+      const platformLayout = parseStoredLayout(platformRow?.configuration)
+
+      let layoutWidgets: WidgetConfig[]
+      if (layoutData?.configuration) {
+        layoutWidgets = mergeLayoutWithCatalog(parseStoredLayout(layoutData.configuration))
+      } else {
+        layoutWidgets = resolvePlatformOrSystemDefault(platformLayout)
       }
 
       layoutWidgets = layoutWidgets.map((w) => ({ ...w, moduleId: undefined }))
@@ -99,7 +108,7 @@ export function useDashboardLayout(userId: string): UseDashboardLayoutResult {
       setError(error)
       console.error('Dashboard layout fetch error:', error)
       // Fall back to default layout with no permissions
-      setWidgets(DEFAULT_DASHBOARD_LAYOUT.filter((w) => w.visible))
+      setWidgets(resolvePlatformOrSystemDefault(null).filter((w) => w.visible))
     } finally {
       setIsLoading(false)
     }

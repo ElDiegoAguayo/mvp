@@ -2,6 +2,7 @@
 
 import { formatKg } from '@/lib/agronomy/format'
 import { formatWindowRange, type HarvestPlanRow } from '@/lib/agronomy/harvest-plan-windows'
+import { useLocale } from '@/components/i18n/locale-provider'
 
 interface HarvestPlanSummaryProps {
   totalKg: number
@@ -22,39 +23,46 @@ export function HarvestPlanSummary({
   earliestStart,
   latestEnd,
 }: HarvestPlanSummaryProps) {
+  const { t } = useLocale()
+
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <div className="rounded-xl border bg-gradient-to-br from-primary/10 via-card to-card p-4">
-        <p className="text-xs text-muted-foreground mb-1">Kg en plan</p>
+        <p className="text-xs text-muted-foreground mb-1">{t('estimacionCosecha.plan.kgInPlan')}</p>
         <p className="text-2xl font-bold text-primary tabular-nums">{formatKg(totalKg)}</p>
-        <p className="text-xs text-muted-foreground mt-1">{blockCount} cuartel{blockCount === 1 ? '' : 'es'}</p>
-      </div>
-      <div className="rounded-xl border bg-card p-4">
-        <p className="text-xs text-muted-foreground mb-1">Campos</p>
-        <p className="text-2xl font-bold tabular-nums">{fieldCount}</p>
-        <p className="text-xs text-muted-foreground mt-1">Con ventana asignada</p>
-      </div>
-      <div className="rounded-xl border bg-card p-4">
-        <p className="text-xs text-muted-foreground mb-1">Origen de fechas</p>
-        <p className="text-sm font-medium mt-1">
-          {manualCount} manual · {countSourceCount} conteo
+        <p className="text-xs text-muted-foreground mt-1">
+          {blockCount === 1
+            ? t('estimacionCosecha.plan.blocksCount', { count: blockCount })
+            : t('estimacionCosecha.plan.blocksCountPlural', { count: blockCount })}
         </p>
-        <p className="text-xs text-muted-foreground mt-1">Resto por referencia de variedad</p>
       </div>
       <div className="rounded-xl border bg-card p-4">
-        <p className="text-xs text-muted-foreground mb-1">Rango temporada</p>
+        <p className="text-xs text-muted-foreground mb-1">{t('estimacionCosecha.plan.fields')}</p>
+        <p className="text-2xl font-bold tabular-nums">{fieldCount}</p>
+        <p className="text-xs text-muted-foreground mt-1">{t('estimacionCosecha.plan.withWindow')}</p>
+      </div>
+      <div className="rounded-xl border bg-card p-4">
+        <p className="text-xs text-muted-foreground mb-1">{t('estimacionCosecha.plan.dateOrigin')}</p>
+        <p className="text-sm font-medium mt-1">
+          {t('estimacionCosecha.plan.manualCount', { manual: manualCount, count: countSourceCount })}
+        </p>
+        <p className="text-xs text-muted-foreground mt-1">{t('estimacionCosecha.plan.varietyReference')}</p>
+      </div>
+      <div className="rounded-xl border bg-card p-4">
+        <p className="text-xs text-muted-foreground mb-1">{t('estimacionCosecha.plan.seasonRange')}</p>
         <p className="text-sm font-semibold mt-1">
           {earliestStart && latestEnd
             ? formatWindowRange(earliestStart, latestEnd)
             : '—'}
         </p>
-        <p className="text-xs text-muted-foreground mt-1">Primera apertura → último cierre</p>
+        <p className="text-xs text-muted-foreground mt-1">{t('estimacionCosecha.plan.firstToLast')}</p>
       </div>
     </div>
   )
 }
 
 export function HarvestPlanWeekBuckets({ rows }: { rows: HarvestPlanRow[] }) {
+  const { t, locale } = useLocale()
   const buckets = new Map<string, { kg: number; blocks: Set<string> }>()
 
   for (const row of rows) {
@@ -70,16 +78,19 @@ export function HarvestPlanWeekBuckets({ rows }: { rows: HarvestPlanRow[] }) {
   if (sorted.length === 0) return null
 
   const maxKg = Math.max(...sorted.map(([, v]) => v.kg))
+  const dateLocale = locale === 'en' ? 'en-US' : 'es-CL'
 
   return (
     <div className="rounded-xl border p-4 bg-card">
-      <p className="font-medium text-sm mb-1">Carga estimada por mes</p>
-      <p className="text-xs text-muted-foreground mb-4">Suma de kg por inicio de ventana</p>
+      <p className="font-medium text-sm mb-1">{t('estimacionCosecha.plan.loadByMonth')}</p>
+      <p className="text-xs text-muted-foreground mb-4">{t('estimacionCosecha.plan.loadByMonthSub')}</p>
       <div className="space-y-2">
         {sorted.map(([monthKey, data]) => {
           const [y, m] = monthKey.split('-')
-          const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
-          const label = `${monthNames[Number(m) - 1] ?? m} ${y}`
+          const label = new Date(Number(y), Number(m) - 1, 1).toLocaleDateString(dateLocale, {
+            month: 'short',
+            year: 'numeric',
+          })
           const pct = maxKg > 0 ? Math.round((data.kg / maxKg) * 100) : 0
           return (
             <div key={monthKey} className="grid grid-cols-[72px_1fr_80px] gap-3 items-center text-sm">

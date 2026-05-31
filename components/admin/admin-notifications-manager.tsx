@@ -11,9 +11,11 @@ import {
 import { toast } from 'sonner'
 import {
   Bell, Plus, Trash2, Loader2, Megaphone, CheckCircle2,
-  AlertTriangle, Info, X, CalendarDays, Pencil, Users, ShieldCheck, User,
+  AlertTriangle, Info, X, CalendarDays, Pencil, Users, ShieldCheck, User, Globe2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { isLocalizedText } from '@/lib/i18n/localized-text'
+import { TimezoneGlobePanel } from '@/components/admin/timezone-globe-panel'
 import {
   createAdminNotificationAction,
   updateAdminNotificationAction,
@@ -105,8 +107,10 @@ function StatusBadge({ status }: { status: 'active' | 'upcoming' | 'expired' }) 
 // ─── Notification form (create / edit) ───────────────────────────────────────
 
 interface NotifFormState {
-  title: string
-  message: string
+  titleEs: string
+  titleEn: string
+  messageEs: string
+  messageEn: string
   severity: string
   activeFrom: string
   activeUntil: string
@@ -115,21 +119,35 @@ interface NotifFormState {
 
 function emptyForm(): NotifFormState {
   return {
-    title: '', message: '', severity: 'info',
+    titleEs: '', titleEn: '', messageEs: '', messageEn: '',
+    severity: 'info',
     activeFrom: todayInputValue(), activeUntil: weekFromNowInputValue(),
     targetRole: 'admin',
   }
 }
 
 function formFromRow(row: AdminNotificationRow): NotifFormState {
+  const titleI18n = isLocalizedText(row.title_i18n) ? row.title_i18n : null
+  const messageI18n = isLocalizedText(row.message_i18n) ? row.message_i18n : null
   return {
-    title: row.title,
-    message: row.message,
+    titleEs: titleI18n?.es ?? row.title,
+    titleEn: titleI18n?.en ?? row.title,
+    messageEs: messageI18n?.es ?? row.message,
+    messageEn: messageI18n?.en ?? row.message,
     severity: row.severity,
     activeFrom: isoToLocalInput(row.active_from),
     activeUntil: isoToLocalInput(row.active_until),
     targetRole: row.target_role ?? 'all',
   }
+}
+
+function isFormComplete(form: NotifFormState): boolean {
+  return Boolean(
+    form.titleEs.trim() &&
+    form.titleEn.trim() &&
+    form.messageEs.trim() &&
+    form.messageEn.trim(),
+  )
 }
 
 interface NotifFormProps {
@@ -153,22 +171,58 @@ function NotifForm({ form, onChange, onSubmit, onCancel, isPending, isEdit }: No
       </h3>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        {/* Title */}
-        <div className="sm:col-span-2 space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">Título *</label>
-          <Input value={form.title} onChange={e => onChange({ ...form, title: e.target.value })} placeholder="Ej: Mantenimiento programado" className="bg-background" />
+        {/* ES content */}
+        <div className="sm:col-span-2 rounded-xl border border-border bg-secondary/20 p-4 space-y-3">
+          <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground flex items-center gap-2">
+            <span className="inline-flex px-1.5 py-0.5 rounded bg-primary text-primary-foreground text-[10px]">ES</span>
+            Texto para usuarios con la página en español
+          </p>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">Título (ES) *</label>
+            <Input
+              value={form.titleEs}
+              onChange={e => onChange({ ...form, titleEs: e.target.value })}
+              placeholder="Ej: Mantenimiento programado"
+              className="bg-background"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">Mensaje (ES) *</label>
+            <textarea
+              value={form.messageEs}
+              onChange={e => onChange({ ...form, messageEs: e.target.value })}
+              placeholder="Describe el aviso que verán los usuarios en español..."
+              rows={3}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none"
+            />
+          </div>
         </div>
 
-        {/* Message */}
-        <div className="sm:col-span-2 space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">Mensaje *</label>
-          <textarea
-            value={form.message}
-            onChange={e => onChange({ ...form, message: e.target.value })}
-            placeholder="Describe el aviso que verán los usuarios..."
-            rows={3}
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none"
-          />
+        {/* EN content */}
+        <div className="sm:col-span-2 rounded-xl border border-border bg-secondary/20 p-4 space-y-3">
+          <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground flex items-center gap-2">
+            <span className="inline-flex px-1.5 py-0.5 rounded bg-primary text-primary-foreground text-[10px]">EN</span>
+            Text for users with the page in English
+          </p>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">Title (EN) *</label>
+            <Input
+              value={form.titleEn}
+              onChange={e => onChange({ ...form, titleEn: e.target.value })}
+              placeholder="E.g.: Scheduled maintenance"
+              className="bg-background"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">Message (EN) *</label>
+            <textarea
+              value={form.messageEn}
+              onChange={e => onChange({ ...form, messageEn: e.target.value })}
+              placeholder="Describe the notice English-speaking users will see..."
+              rows={3}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none"
+            />
+          </div>
         </div>
 
         {/* Severity */}
@@ -232,7 +286,7 @@ function NotifForm({ form, onChange, onSubmit, onCancel, isPending, isEdit }: No
         <Button
           size="sm"
           onClick={onSubmit}
-          disabled={isPending || !form.title.trim() || !form.message.trim()}
+          disabled={isPending || !isFormComplete(form)}
           className="gap-2 bg-[#4A6CF7] hover:bg-[#3a5ce6] text-white"
         >
           {isPending
@@ -263,6 +317,7 @@ export function AdminNotificationsManager() {
 
   // Delete
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const [timezoneOpen, setTimezoneOpen] = useState(false)
 
   const loadNotifications = useCallback(async () => {
     setLoading(true)
@@ -275,13 +330,19 @@ export function AdminNotificationsManager() {
 
   // ── Create ────────────────────────────────────────────────────────────────────
   function handleCreate() {
+    if (!isFormComplete(createForm)) {
+      toast.error('Completa título y mensaje en español e inglés.')
+      return
+    }
     if (new Date(createForm.activeUntil) <= new Date(createForm.activeFrom)) {
       toast.error('La fecha de fin debe ser posterior a la de inicio.')
       return
     }
     const fd = new FormData()
-    fd.append('title',        createForm.title.trim())
-    fd.append('message',      createForm.message.trim())
+    fd.append('title_es',     createForm.titleEs.trim())
+    fd.append('title_en',     createForm.titleEn.trim())
+    fd.append('message_es',   createForm.messageEs.trim())
+    fd.append('message_en',   createForm.messageEn.trim())
     fd.append('severity',     createForm.severity)
     fd.append('active_from',  createForm.activeFrom)
     fd.append('active_until', createForm.activeUntil)
@@ -313,13 +374,19 @@ export function AdminNotificationsManager() {
 
   function handleUpdate() {
     if (!editingId) return
+    if (!isFormComplete(editForm)) {
+      toast.error('Completa título y mensaje en español e inglés.')
+      return
+    }
     if (new Date(editForm.activeUntil) <= new Date(editForm.activeFrom)) {
       toast.error('La fecha de fin debe ser posterior a la de inicio.')
       return
     }
     const fd = new FormData()
-    fd.append('title',        editForm.title.trim())
-    fd.append('message',      editForm.message.trim())
+    fd.append('title_es',     editForm.titleEs.trim())
+    fd.append('title_en',     editForm.titleEn.trim())
+    fd.append('message_es',   editForm.messageEs.trim())
+    fd.append('message_en',   editForm.messageEn.trim())
     fd.append('severity',     editForm.severity)
     fd.append('active_from',  editForm.activeFrom)
     fd.append('active_until', editForm.activeUntil)
@@ -386,6 +453,18 @@ export function AdminNotificationsManager() {
               </span>
             )}
             <Button
+              onClick={() => setTimezoneOpen(v => !v)}
+              size="sm"
+              variant={timezoneOpen ? 'default' : 'outline'}
+              className={cn(
+                'gap-2',
+                timezoneOpen && 'bg-[#4A6CF7] hover:bg-[#3a5ce6] text-white',
+              )}
+            >
+              <Globe2 className="w-4 h-4" />
+              Zona horaria
+            </Button>
+            <Button
               onClick={() => { setShowCreateForm(v => !v); setEditingId(null) }}
               size="sm"
               className="gap-2 bg-[#4A6CF7] hover:bg-[#3a5ce6] text-white"
@@ -395,6 +474,8 @@ export function AdminNotificationsManager() {
             </Button>
           </div>
         </div>
+
+        <TimezoneGlobePanel open={timezoneOpen} onOpenChange={setTimezoneOpen} />
 
         {/* Create form */}
         {showCreateForm && !editingId && (
@@ -471,6 +552,12 @@ export function AdminNotificationsManager() {
                             <span className="font-semibold text-sm text-foreground truncate">{notif.title}</span>
                           </div>
                           <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">{notif.message}</p>
+                          {isLocalizedText(notif.title_i18n) && notif.title_i18n.en !== notif.title_i18n.es && (
+                            <p className="text-[11px] text-muted-foreground/80 leading-relaxed line-clamp-1">
+                              <span className="font-semibold text-[10px] uppercase mr-1">EN</span>
+                              {notif.title_i18n.en}
+                            </p>
+                          )}
                           <div className="flex items-center gap-3 pt-0.5">
                             <span className="text-[10px] text-muted-foreground flex items-center gap-1">
                               <CalendarDays className="w-3 h-3" />

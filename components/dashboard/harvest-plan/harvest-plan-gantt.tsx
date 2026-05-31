@@ -8,10 +8,11 @@ import {
   daysBetween,
   formatWindowRange,
   type HarvestPlanRow,
-  WINDOW_SOURCE_LABELS,
+  type HarvestWindowSource,
 } from '@/lib/agronomy/harvest-plan-windows'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { useLocale } from '@/components/i18n/locale-provider'
 
 const SOURCE_STYLE = {
   manual: 'bg-emerald-500/80 border-emerald-400',
@@ -19,9 +20,11 @@ const SOURCE_STYLE = {
   variety: 'bg-sky-500/70 border-sky-400',
 } as const
 
-const MONTHS_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
-
-function monthTicks(rangeStart: string, rangeEnd: string): Array<{ label: string; leftPct: number }> {
+function monthTicks(
+  rangeStart: string,
+  rangeEnd: string,
+  dateLocale: string,
+): Array<{ label: string; leftPct: number }> {
   const start = new Date(rangeStart + 'T12:00:00')
   const end = new Date(rangeEnd + 'T12:00:00')
   const totalDays = daysBetween(rangeStart, rangeEnd)
@@ -32,7 +35,7 @@ function monthTicks(rangeStart: string, rangeEnd: string): Array<{ label: string
     const iso = cursor.toISOString().slice(0, 10)
     const offset = daysBetween(rangeStart, iso) - 1
     ticks.push({
-      label: `${MONTHS_ES[cursor.getMonth()]} ${cursor.getFullYear()}`,
+      label: cursor.toLocaleDateString(dateLocale, { month: 'short', year: 'numeric' }),
       leftPct: Math.max(0, Math.min(100, (offset / totalDays) * 100)),
     })
     cursor.setMonth(cursor.getMonth() + 1)
@@ -40,21 +43,29 @@ function monthTicks(rangeStart: string, rangeEnd: string): Array<{ label: string
   return ticks
 }
 
+function sourceLabel(t: (key: string) => string, source: HarvestWindowSource) {
+  if (source === 'manual') return t('estimacionCosecha.plan.sourceManual')
+  if (source === 'count') return t('estimacionCosecha.plan.sourceCount')
+  return t('estimacionCosecha.plan.sourceVariety')
+}
+
 interface HarvestPlanGanttProps {
   rows: HarvestPlanRow[]
 }
 
 export function HarvestPlanGantt({ rows }: HarvestPlanGanttProps) {
+  const { t, locale } = useLocale()
+  const dateLocale = locale === 'en' ? 'en-US' : 'es-CL'
   const range = useMemo(() => computeTimelineRange(rows), [rows])
   const ticks = useMemo(
-    () => (range ? monthTicks(range.start, range.end) : []),
-    [range],
+    () => (range ? monthTicks(range.start, range.end, dateLocale) : []),
+    [range, dateLocale],
   )
 
   if (rows.length === 0 || !range) {
     return (
       <div className="rounded-xl border border-dashed p-10 text-center text-muted-foreground text-sm">
-        Sin ventanas de cosecha para mostrar con los filtros actuales.
+        {t('estimacionCosecha.plan.noWindows')}
       </div>
     )
   }
@@ -62,9 +73,9 @@ export function HarvestPlanGantt({ rows }: HarvestPlanGanttProps) {
   return (
     <div className="rounded-xl border overflow-hidden bg-card">
       <div className="px-4 py-3 border-b bg-muted/30">
-        <p className="font-medium text-sm">Calendario de cosecha por cuartel</p>
+        <p className="font-medium text-sm">{t('estimacionCosecha.plan.ganttTitle')}</p>
         <p className="text-xs text-muted-foreground mt-0.5">
-          Barras = ventana esperada · Ancho proporcional a kg estimados
+          {t('estimacionCosecha.plan.ganttSub')}
         </p>
       </div>
 
@@ -125,7 +136,7 @@ export function HarvestPlanGantt({ rows }: HarvestPlanGanttProps) {
             {(Object.keys(SOURCE_STYLE) as Array<keyof typeof SOURCE_STYLE>).map((source) => (
               <div key={source} className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <span className={cn('w-3 h-3 rounded-sm border', SOURCE_STYLE[source])} />
-                {WINDOW_SOURCE_LABELS[source]}
+                {sourceLabel(t, source)}
               </div>
             ))}
           </div>
@@ -141,6 +152,8 @@ interface HarvestPlanTableProps {
 }
 
 export function HarvestPlanTable({ rows, onEdit }: HarvestPlanTableProps) {
+  const { t } = useLocale()
+
   if (rows.length === 0) return null
 
   return (
@@ -149,14 +162,14 @@ export function HarvestPlanTable({ rows, onEdit }: HarvestPlanTableProps) {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-muted/40 text-left">
-              <th className="px-3 py-3 font-medium">Campo</th>
-              <th className="px-3 py-3 font-medium">Cuartel</th>
-              <th className="px-3 py-3 font-medium">Variedad</th>
-              <th className="px-3 py-3 font-medium">Kg estimados</th>
-              <th className="px-3 py-3 font-medium">Inicio</th>
-              <th className="px-3 py-3 font-medium">Fin</th>
-              <th className="px-3 py-3 font-medium">Origen</th>
-              <th className="px-3 py-3 font-medium">Conteo</th>
+              <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.field')}</th>
+              <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.block')}</th>
+              <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.variety')}</th>
+              <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.estimatedKg')}</th>
+              <th className="px-3 py-3 font-medium">{t('estimacionCosecha.plan.tableStart')}</th>
+              <th className="px-3 py-3 font-medium">{t('estimacionCosecha.plan.tableEnd')}</th>
+              <th className="px-3 py-3 font-medium">{t('estimacionCosecha.plan.tableOrigin')}</th>
+              <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.count')}</th>
               {onEdit && <th className="px-3 py-3 w-20" />}
             </tr>
           </thead>
@@ -171,7 +184,7 @@ export function HarvestPlanTable({ rows, onEdit }: HarvestPlanTableProps) {
                 <td className="px-3 py-3 tabular-nums">{row.window_end.split('-').reverse().join('/')}</td>
                 <td className="px-3 py-3">
                   <Badge variant="outline" className="text-xs font-normal">
-                    {WINDOW_SOURCE_LABELS[row.source]}
+                    {sourceLabel(t, row.source)}
                   </Badge>
                 </td>
                 <td className="px-3 py-3 text-muted-foreground text-xs">{row.count_label ?? '—'}</td>
@@ -183,7 +196,7 @@ export function HarvestPlanTable({ rows, onEdit }: HarvestPlanTableProps) {
                         onClick={() => onEdit(row)}
                         className="text-xs text-primary hover:underline"
                       >
-                        Editar
+                        {t('common.actions.edit')}
                       </button>
                     )}
                   </td>

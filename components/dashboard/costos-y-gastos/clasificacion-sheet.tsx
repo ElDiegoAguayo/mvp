@@ -34,6 +34,7 @@ import { toast } from 'sonner'
 import { AsignacionPanel } from './asignacion-panel'
 import { usePagination } from '@/hooks/use-pagination'
 import { TablePaginationBar } from '@/components/ui/table-pagination-bar'
+import { useLocale } from '@/components/i18n/locale-provider'
 
 const PAGE_SIZE = 10
 
@@ -49,26 +50,31 @@ type OptColKey =
 
 interface OptColDef {
   key: OptColKey
-  label: string
-  group: string
+  labelKey: string
+  groupKey: string
   numeric?: boolean
 }
 
-const OPT_COLUMNS: OptColDef[] = [
-  { key: 'fecha_devengo',       label: 'Fecha Devengo',     group: 'Fechas' },
-  { key: 'fecha_vencimiento',   label: 'Fecha Vencimiento', group: 'Fechas' },
-  { key: 'tipo_obligacion',     label: 'Tipo Obligación',   group: 'Otros' },
-  { key: 'monto_exento',        label: 'Monto Exento',      group: 'Montos',  numeric: true },
-  { key: 'iva_no_recuperable',  label: 'IVA No Recup.',     group: 'Montos',  numeric: true },
-  { key: 'otros_impuestos',     label: 'Otros Imp.',        group: 'Montos',  numeric: true },
-  { key: 'retencion_honorarios',label: 'Ret. Honorarios',   group: 'Montos',  numeric: true },
-  { key: 'monto_base',          label: 'Monto Base',        group: 'Cálculo', numeric: true },
-  { key: 'monto_calculado',     label: 'Monto Calculado',   group: 'Cálculo', numeric: true },
-  { key: 'porcentaje',          label: 'Porcentaje',        group: 'Cálculo', numeric: true },
-  { key: 'anula_o_modifica',    label: 'Anula/Modifica',    group: 'Otros' },
+const OPT_COLUMN_DEFS: OptColDef[] = [
+  { key: 'fecha_devengo',       labelKey: 'costosGastos.clasificacion.columns.fechaDevengo',     groupKey: 'costosGastos.clasificacion.columnGroups.fechas' },
+  { key: 'fecha_vencimiento',   labelKey: 'costosGastos.clasificacion.columns.fechaVencimiento', groupKey: 'costosGastos.clasificacion.columnGroups.fechas' },
+  { key: 'tipo_obligacion',     labelKey: 'costosGastos.clasificacion.columns.tipoObligacion',   groupKey: 'costosGastos.clasificacion.columnGroups.otros' },
+  { key: 'monto_exento',        labelKey: 'costosGastos.clasificacion.columns.montoExento',      groupKey: 'costosGastos.clasificacion.columnGroups.montos',  numeric: true },
+  { key: 'iva_no_recuperable',  labelKey: 'costosGastos.clasificacion.columns.ivaNoRecuperable', groupKey: 'costosGastos.clasificacion.columnGroups.montos',  numeric: true },
+  { key: 'otros_impuestos',     labelKey: 'costosGastos.clasificacion.columns.otrosImpuestos',   groupKey: 'costosGastos.clasificacion.columnGroups.montos',  numeric: true },
+  { key: 'retencion_honorarios',labelKey: 'costosGastos.clasificacion.columns.retencionHonorarios', groupKey: 'costosGastos.clasificacion.columnGroups.montos', numeric: true },
+  { key: 'monto_base',          labelKey: 'costosGastos.clasificacion.columns.montoBase',        groupKey: 'costosGastos.clasificacion.columnGroups.calculo', numeric: true },
+  { key: 'monto_calculado',     labelKey: 'costosGastos.clasificacion.columns.montoCalculado',   groupKey: 'costosGastos.clasificacion.columnGroups.calculo', numeric: true },
+  { key: 'porcentaje',          labelKey: 'costosGastos.clasificacion.columns.porcentaje',       groupKey: 'costosGastos.clasificacion.columnGroups.calculo', numeric: true },
+  { key: 'anula_o_modifica',    labelKey: 'costosGastos.clasificacion.columns.anulaModifica',    groupKey: 'costosGastos.clasificacion.columnGroups.otros' },
 ]
 
-const OPT_GROUPS = [...new Set(OPT_COLUMNS.map((c) => c.group))]
+const OPT_GROUP_KEYS = [
+  'costosGastos.clasificacion.columnGroups.fechas',
+  'costosGastos.clasificacion.columnGroups.otros',
+  'costosGastos.clasificacion.columnGroups.montos',
+  'costosGastos.clasificacion.columnGroups.calculo',
+] as const
 
 function ColumnPicker({
   visible,
@@ -77,6 +83,7 @@ function ColumnPicker({
   visible: Set<OptColKey>
   onChange: (key: OptColKey, checked: boolean) => void
 }) {
+  const { t } = useLocale()
   const [open, setOpen] = useState(false)
 
   return (
@@ -88,10 +95,10 @@ function ColumnPicker({
             ? 'border-primary/40 bg-primary/10 text-primary'
             : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground'
         }`}
-        title="Mostrar / ocultar columnas"
+        title={t('costosGastos.clasificacion.columnPicker.title')}
       >
         <Columns className="w-3.5 h-3.5" />
-        Columnas
+        {t('costosGastos.clasificacion.columnPicker.button')}
         {visible.size > 0 && (
           <span className="bg-primary text-primary-foreground rounded-full text-[10px] w-4 h-4 flex items-center justify-center">
             {visible.size}
@@ -104,19 +111,19 @@ function ColumnPicker({
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div className="absolute right-0 top-full mt-1 z-50 w-56 rounded-xl border border-border bg-popover shadow-xl overflow-hidden">
             <div className="px-3 py-2 border-b border-border flex items-center justify-between">
-              <span className="text-xs font-semibold text-foreground">Columnas adicionales</span>
+              <span className="text-xs font-semibold text-foreground">{t('costosGastos.clasificacion.columnPicker.header')}</span>
               <button
-                onClick={() => { OPT_COLUMNS.forEach((c) => onChange(c.key, false)) }}
+                onClick={() => { OPT_COLUMN_DEFS.forEach((c) => onChange(c.key, false)) }}
                 className="text-[11px] text-muted-foreground hover:text-destructive"
               >
-                Limpiar
+                {t('costosGastos.common.limpiar')}
               </button>
             </div>
             <div className="p-2 max-h-72 overflow-y-auto">
-              {OPT_GROUPS.map((group) => (
-                <div key={group} className="mb-2">
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide px-1 mb-1">{group}</p>
-                  {OPT_COLUMNS.filter((c) => c.group === group).map((col) => (
+              {OPT_GROUP_KEYS.map((groupKey) => (
+                <div key={groupKey} className="mb-2">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide px-1 mb-1">{t(groupKey)}</p>
+                  {OPT_COLUMN_DEFS.filter((c) => c.groupKey === groupKey).map((col) => (
                     <label key={col.key} className="flex items-center gap-2 px-1 py-1 rounded hover:bg-secondary/50 cursor-pointer">
                       <input
                         type="checkbox"
@@ -124,7 +131,7 @@ function ColumnPicker({
                         onChange={(e) => onChange(col.key, e.target.checked)}
                         className="rounded border-border accent-primary"
                       />
-                      <span className="text-xs text-foreground">{col.label}</span>
+                      <span className="text-xs text-foreground">{t(col.labelKey)}</span>
                     </label>
                   ))}
                 </div>
@@ -165,14 +172,14 @@ function initRows(docs: DocumentoPendiente[]): Record<string, RowState> {
   )
 }
 
-const DEFAULT_TAXONOMY: TaxonomiaParaSheet = {
+const DEFAULT_TAXONOMY = (t: (key: string) => string): TaxonomiaParaSheet => ({
   niveles: [
-    { numero: 1, label: 'Cuenta Madre' },
-    { numero: 2, label: 'Sub-Cuenta' },
-    { numero: 3, label: 'Detalle' },
+    { numero: 1, label: t('costosGastos.clasificacion.taxonomy.cuentaMadre') },
+    { numero: 2, label: t('costosGastos.clasificacion.taxonomy.subCuenta') },
+    { numero: 3, label: t('costosGastos.clasificacion.taxonomy.detalle') },
   ],
   opciones: {},
-}
+})
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Row selects — one Select per active nivel
@@ -185,6 +192,7 @@ interface RowSelectsProps {
 }
 
 function RowSelects({ rowState, taxonomy, onChange }: RowSelectsProps) {
+  const { t } = useLocale()
   return (
     <>
       {taxonomy.niveles.map((nivel) => {
@@ -201,14 +209,14 @@ function RowSelects({ rowState, taxonomy, onChange }: RowSelectsProps) {
               disabled={isDisabled}
             >
               <SelectTrigger className="h-7 text-[11px] w-[145px]">
-                <SelectValue placeholder={isDisabled ? '—' : `${nivel.label}…`} />
+                <SelectValue placeholder={isDisabled ? '—' : t('costosGastos.clasificacion.selectPlaceholder', { label: nivel.label })} />
               </SelectTrigger>
               <SelectContent>
                 {opts.map((opt) => (
                   <SelectItem key={opt} value={opt} className="text-xs">{opt}</SelectItem>
                 ))}
                 {opts.length === 0 && (
-                  <div className="px-2 py-1.5 text-xs text-muted-foreground italic">Sin opciones</div>
+                  <div className="px-2 py-1.5 text-xs text-muted-foreground italic">{t('costosGastos.clasificacion.noOptions')}</div>
                 )}
               </SelectContent>
             </Select>
@@ -238,11 +246,12 @@ export function ClasificacionSheet({
   clienteId,
   onGuardado,
 }: Props) {
+  const { t } = useLocale()
   const [docs, setDocs]             = useState<DocumentoPendiente[]>([])
   const [loadingDocs, setLoadingDocs] = useState(false)
   const [rows, setRows]             = useState<Record<string, RowState>>({})
   const [saving, setSaving]         = useState(false)
-  const [taxonomy, setTaxonomy]     = useState<TaxonomiaParaSheet>(DEFAULT_TAXONOMY)
+  const [taxonomy, setTaxonomy]     = useState<TaxonomiaParaSheet>(() => DEFAULT_TAXONOMY(t))
   const [expandedAsignacion, setExpandedAsignacion] = useState<string | null>(null)
   const [visibleCols, setVisibleCols] = useState<Set<OptColKey>>(new Set())
 
@@ -273,11 +282,11 @@ export function ClasificacionSheet({
           setDocs(docsRes.data)
           setRows(initRows(docsRes.data))
         } else {
-          toast.error(docsRes.message ?? 'Error al cargar documentos.')
+          toast.error(docsRes.message ?? t('costosGastos.clasificacion.errorLoadDocs'))
         }
         setTaxonomy(taxRes)
       })
-      .catch(() => toast.error('Error al cargar documentos.'))
+      .catch(() => toast.error(t('costosGastos.clasificacion.errorLoadDocs')))
       .finally(() => setLoadingDocs(false))
   }, [open, contraparte?.rut_contraparte, clienteId])
 
@@ -311,7 +320,7 @@ export function ClasificacionSheet({
   const applyBatchToAll = useCallback(() => {
     const first = taxonomy.niveles[0]
     if (!first || !batchState[first.numero]) {
-      toast.error('Completa al menos el primer nivel antes de aplicar a todos.')
+      toast.error(t('costosGastos.clasificacion.batch.firstLevelRequired'))
       return
     }
     setRows((prev) => {
@@ -322,8 +331,8 @@ export function ClasificacionSheet({
       }
       return next
     })
-    toast.success('Clasificación aplicada a todos los documentos pendientes.')
-  }, [batchState, docs, isRowComplete, taxonomy.niveles])
+    toast.success(t('costosGastos.clasificacion.batch.appliedSuccess'))
+  }, [batchState, docs, isRowComplete, taxonomy.niveles, t])
 
   const {
     page,
@@ -358,7 +367,7 @@ export function ClasificacionSheet({
       })
 
     if (updates.length === 0) {
-      toast.error('Selecciona al menos el primer nivel en algún documento.')
+      toast.error(t('costosGastos.clasificacion.save.firstLevelRequired'))
       return
     }
 
@@ -373,7 +382,7 @@ export function ClasificacionSheet({
         toast.error(res.message)
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Error al guardar.')
+      toast.error(e instanceof Error ? e.message : t('costosGastos.clasificacion.save.error'))
     } finally {
       setSaving(false)
     }
@@ -395,7 +404,7 @@ export function ClasificacionSheet({
                 {contraparte.razon_social}
               </SheetTitle>
               <SheetDescription className="font-mono text-xs mt-0.5">
-                RUT {contraparte.rut_contraparte}
+                {t('costosGastos.common.rutPrefix', { rut: contraparte.rut_contraparte })}
               </SheetDescription>
             </div>
             <div className="flex items-center gap-2 shrink-0 pt-0.5">
@@ -405,13 +414,13 @@ export function ClasificacionSheet({
                 <>
                   {docs.length > 0 && (
                     <Badge className="gap-1 bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 text-[11px]">
-                      {docs.length - completedCount} pendiente{docs.length - completedCount !== 1 ? 's' : ''}
+                      {t('costosGastos.clasificacion.badge.pending', { count: docs.length - completedCount })}
                     </Badge>
                   )}
                   {completedCount > 0 && (
                     <Badge className="gap-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[11px]">
                       <CheckCircle2 className="w-3 h-3" />
-                      {completedCount} listo{completedCount !== 1 ? 's' : ''}
+                      {t('costosGastos.clasificacion.badge.ready', { count: completedCount })}
                     </Badge>
                   )}
                   <ColumnPicker visible={visibleCols} onChange={toggleCol} />
@@ -423,9 +432,9 @@ export function ClasificacionSheet({
 
         {!loadingDocs && docs.length > 0 && (
           <div className="shrink-0 px-6 py-3 border-b border-border bg-secondary/20 space-y-2">
-            <p className="text-xs font-semibold text-foreground">Clasificar en lote</p>
+            <p className="text-xs font-semibold text-foreground">{t('costosGastos.clasificacion.batch.title')}</p>
             <p className="text-[11px] text-muted-foreground">
-              Define una categoría y aplícala a todos los documentos pendientes de esta contraparte.
+              {t('costosGastos.clasificacion.batch.description')}
             </p>
             <div className="flex flex-wrap items-end gap-2">
               <table className="text-xs">
@@ -466,7 +475,7 @@ export function ClasificacionSheet({
                 </tbody>
               </table>
               <Button type="button" size="sm" variant="secondary" onClick={applyBatchToAll}>
-                Aplicar a todos ({docs.length - completedCount})
+                {t('costosGastos.clasificacion.batch.applyToAll', { count: docs.length - completedCount })}
               </Button>
             </div>
           </div>
@@ -482,9 +491,9 @@ export function ClasificacionSheet({
           ) : docs.length === 0 ? (
             <div className="flex flex-col items-center gap-3 py-20 text-center px-6">
               <FileX className="w-10 h-10 text-muted-foreground/50" />
-              <p className="text-sm font-medium text-foreground">Sin documentos pendientes</p>
+              <p className="text-sm font-medium text-foreground">{t('costosGastos.clasificacion.empty.title')}</p>
               <p className="text-xs text-muted-foreground">
-                Todos los documentos de esta contraparte ya están clasificados.
+                {t('costosGastos.clasificacion.empty.description')}
               </p>
             </div>
           ) : (
@@ -497,15 +506,15 @@ export function ClasificacionSheet({
                 <thead className="sticky top-0 z-10 bg-background border-b border-border">
                   <tr>
                     <th className="text-left font-semibold text-muted-foreground px-4 py-2.5 whitespace-nowrap">#</th>
-                    <th className="text-left font-semibold text-muted-foreground px-2 py-2.5 whitespace-nowrap">N° Documento</th>
-                    <th className="text-left font-semibold text-muted-foreground px-2 py-2.5 whitespace-nowrap">Tipo Documento</th>
-                    <th className="text-left font-semibold text-muted-foreground px-2 py-2.5 whitespace-nowrap">Fecha Emisión</th>
-                    <th className="text-right font-semibold text-muted-foreground px-2 py-2.5 whitespace-nowrap">Monto Neto</th>
-                    <th className="text-right font-semibold text-muted-foreground px-2 py-2.5 whitespace-nowrap">IVA</th>
-                    <th className="text-right font-semibold text-muted-foreground px-2 py-2.5 whitespace-nowrap">Monto Bruto</th>
-                    {OPT_COLUMNS.filter((c) => visibleCols.has(c.key)).map((c) => (
+                    <th className="text-left font-semibold text-muted-foreground px-2 py-2.5 whitespace-nowrap">{t('costosGastos.common.numeroDocumento')}</th>
+                    <th className="text-left font-semibold text-muted-foreground px-2 py-2.5 whitespace-nowrap">{t('costosGastos.clasificacion.columns.tipoDocumento')}</th>
+                    <th className="text-left font-semibold text-muted-foreground px-2 py-2.5 whitespace-nowrap">{t('costosGastos.common.fechaEmision')}</th>
+                    <th className="text-right font-semibold text-muted-foreground px-2 py-2.5 whitespace-nowrap">{t('costosGastos.common.montoNeto')}</th>
+                    <th className="text-right font-semibold text-muted-foreground px-2 py-2.5 whitespace-nowrap">{t('costosGastos.common.iva')}</th>
+                    <th className="text-right font-semibold text-muted-foreground px-2 py-2.5 whitespace-nowrap">{t('costosGastos.common.montoBruto')}</th>
+                    {OPT_COLUMN_DEFS.filter((c) => visibleCols.has(c.key)).map((c) => (
                       <th key={c.key} className={`font-semibold text-muted-foreground px-2 py-2.5 whitespace-nowrap ${c.numeric ? 'text-right' : 'text-left'}`}>
-                        {c.label}
+                        {t(c.labelKey)}
                       </th>
                     ))}
                     {taxonomy.niveles.map((n) => (
@@ -513,7 +522,7 @@ export function ClasificacionSheet({
                         {n.label}
                       </th>
                     ))}
-                    <th className="py-2.5 px-2 whitespace-nowrap text-left font-semibold text-muted-foreground">Asignar</th>
+                    <th className="py-2.5 px-2 whitespace-nowrap text-left font-semibold text-muted-foreground">{t('costosGastos.clasificacion.table.asignar')}</th>
                     <th className="py-2.5 w-8" />
                   </tr>
                 </thead>
@@ -543,7 +552,7 @@ export function ClasificacionSheet({
                         <td className="px-2 py-1.5 text-right tabular-nums font-semibold whitespace-nowrap">
                           {formatCLP(doc.monto_bruto)}
                         </td>
-                        {OPT_COLUMNS.filter((c) => visibleCols.has(c.key)).map((c) => {
+                        {OPT_COLUMN_DEFS.filter((c) => visibleCols.has(c.key)).map((c) => {
                           const val = doc[c.key as keyof DocumentoPendiente]
                           const display = val == null ? '—'
                             : c.numeric ? formatCLP(Number(val))
@@ -562,7 +571,7 @@ export function ClasificacionSheet({
                         <td className="px-2 py-1.5">
                           <button
                             onClick={() => setExpandedAsignacion(asignacionOpen ? null : doc.id)}
-                            title="Asignar a centro de costo"
+                            title={t('costosGastos.clasificacion.assignTooltip')}
                             className={`flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-md border transition-colors ${
                               asignacionOpen
                                 ? 'border-primary/50 bg-primary/10 text-primary'
@@ -570,7 +579,7 @@ export function ClasificacionSheet({
                             }`}
                           >
                             <Split className="w-3 h-3 shrink-0" />
-                            Asignar
+                            {t('costosGastos.clasificacion.assignButton')}
                           </button>
                         </td>
                         <td className="px-2 py-1.5 text-center">
@@ -604,7 +613,7 @@ export function ClasificacionSheet({
                   startIndex={startIndex}
                   endIndex={endIndex}
                   onPageChange={setPage}
-                  itemLabel="documentos"
+                  itemLabel={t('costosGastos.common.itemLabel.documentos')}
                 />
               )}
             </>
@@ -616,12 +625,14 @@ export function ClasificacionSheet({
           <SheetFooter className="shrink-0 px-6 py-4 border-t border-border">
             <div className="flex items-center justify-between w-full gap-4">
               <p className="text-xs text-muted-foreground">
-                <span className="font-semibold text-foreground">{completedCount}</span>
-                /{docs.length} documentos con clasificación completa
+                {t('costosGastos.clasificacion.footer.progress', {
+                  completed: completedCount,
+                  total: docs.length,
+                })}
               </p>
               <div className="flex items-center gap-3">
                 <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
-                  Cancelar
+                  {t('common.actions.cancel')}
                 </Button>
                 <Button
                   size="sm"
@@ -630,9 +641,9 @@ export function ClasificacionSheet({
                   disabled={saving || completedCount === 0}
                 >
                   {saving ? (
-                    <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Guardando…</>
+                    <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {t('costosGastos.common.guardando')}</>
                   ) : (
-                    <><CheckCircle2 className="w-3.5 h-3.5" /> Guardar {completedCount} clasificacion{completedCount !== 1 ? 'es' : ''}</>
+                    <><CheckCircle2 className="w-3.5 h-3.5" /> {t('costosGastos.clasificacion.footer.saveButton', { count: completedCount })}</>
                   )}
                 </Button>
               </div>

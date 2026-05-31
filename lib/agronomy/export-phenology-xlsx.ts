@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs'
+import { BRAND_NAME } from '@/lib/brand'
 import {
   UPCROP_HEADER_FILL,
   UPCROP_SUMMARY_FILL,
@@ -173,7 +174,7 @@ export async function exportPhenologyToExcel(
   let processedImages = 0
 
   const workbook = new ExcelJS.Workbook()
-  workbook.creator = 'UpCrop'
+  workbook.creator = BRAND_NAME
   workbook.created = new Date()
   const sheetName = `${options.crop} ${options.seasonLabel}`.slice(0, 31)
   const sheet = workbook.addWorksheet(sheetName, {

@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { useLocale } from '@/components/i18n/locale-provider'
 
 function formatCLP(amount: number): string {
   return new Intl.NumberFormat('es-CL', {
@@ -26,11 +27,11 @@ function formatCLP(amount: number): string {
   }).format(amount)
 }
 
-function formatPeriodoLabel(mes: string): string {
+function formatPeriodoLabel(mes: string, locale: string): string {
   if (/^\d{4}-\d{2}$/.test(mes)) {
     const [y, m] = mes.split('-')
     const d = new Date(Number(y), Number(m) - 1, 1)
-    return d.toLocaleDateString('es-CL', { month: 'long', year: 'numeric' })
+    return d.toLocaleDateString(locale === 'en' ? 'en-US' : 'es-CL', { month: 'long', year: 'numeric' })
   }
   return mes
 }
@@ -84,6 +85,7 @@ export function ClasificacionView({
   isAdmin,
   errorMessage,
 }: Props) {
+  const { t, locale } = useLocale()
   const router = useRouter()
   const [gastos, setGastos] = useState(initialGastos)
   const [mesFilter, setMesFilter] = useState<string>('todos')
@@ -126,15 +128,15 @@ export function ClasificacionView({
 
       {periodos.length > 0 && (
         <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-          <label className="text-sm text-muted-foreground shrink-0">Período de devengo</label>
+          <label className="text-sm text-muted-foreground shrink-0">{t('costosGastos.clasificacion.periodo.label')}</label>
           <Select value={mesFilter} onValueChange={handlePeriodChange} disabled={pending}>
             <SelectTrigger className="w-full sm:w-64">
-              <SelectValue placeholder="Todos los períodos" />
+              <SelectValue placeholder={t('costosGastos.clasificacion.periodo.all')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="todos">Todos los períodos</SelectItem>
+              <SelectItem value="todos">{t('costosGastos.clasificacion.periodo.all')}</SelectItem>
               {periodos.map((p) => (
-                <SelectItem key={p} value={p}>{formatPeriodoLabel(p)}</SelectItem>
+                <SelectItem key={p} value={p}>{formatPeriodoLabel(p, locale)}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -147,10 +149,14 @@ export function ClasificacionView({
           <div className="rounded-xl border border-border bg-card/40 px-4 py-3">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
               <p className="text-sm font-medium text-foreground">
-                Progreso de clasificación
+                {t('costosGastos.clasificacion.progress.title')}
               </p>
               <p className="text-xs text-muted-foreground">
-                {totalClasificados} de {totalRegistros} documentos ({pctClasificado}%)
+                {t('costosGastos.clasificacion.progress.summary', {
+                  classified: totalClasificados,
+                  total: totalRegistros,
+                  pct: pctClasificado,
+                })}
               </p>
             </div>
             <div className="h-2.5 rounded-full bg-secondary overflow-hidden">
@@ -164,23 +170,23 @@ export function ClasificacionView({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <KpiCard
               icon={TrendingDown}
-              label="Gasto total acumulado"
+              label={t('costosGastos.clasificacion.kpi.gastoTotal')}
               value={formatCLP(totalGasto)}
-              sub={`${totalRegistros} documentos`}
+              sub={t('costosGastos.clasificacion.kpi.documentosCount', { count: totalRegistros })}
               accent="primary"
             />
             <KpiCard
               icon={Building2}
-              label="Contrapartes"
+              label={t('costosGastos.clasificacion.kpi.contrapartes')}
               value={String(gastos.length)}
-              sub="proveedores únicos"
+              sub={t('costosGastos.clasificacion.kpi.proveedoresUnicos')}
               accent="emerald"
             />
             <KpiCard
               icon={Clock}
-              label="Documentos pendientes"
+              label={t('costosGastos.clasificacion.kpi.pendientes')}
               value={String(totalPendientes)}
-              sub={totalPendientes === 0 ? 'Todo clasificado' : 'por clasificar'}
+              sub={totalPendientes === 0 ? t('costosGastos.clasificacion.kpi.todoClasificado') : t('costosGastos.clasificacion.kpi.porClasificar')}
               accent={totalPendientes > 0 ? 'amber' : 'emerald'}
             />
           </div>
@@ -192,20 +198,20 @@ export function ClasificacionView({
           <div className="w-20 h-20 rounded-2xl bg-muted border border-border flex items-center justify-center mb-6">
             <FileX className="w-9 h-9 text-muted-foreground" />
           </div>
-          <h2 className="text-xl font-semibold text-foreground mb-2">Sin registros de gastos</h2>
+          <h2 className="text-xl font-semibold text-foreground mb-2">{t('costosGastos.clasificacion.noRecords.title')}</h2>
           <p className="text-muted-foreground text-sm max-w-md leading-relaxed">
             {mesFilter !== 'todos'
-              ? `No hay documentos para el período seleccionado. Prueba otro mes o "Todos los períodos".`
+              ? t('costosGastos.clasificacion.noRecords.periodEmpty')
               : isAdmin
-                ? 'Importa el Libro de Compras SII desde Admin → Clientes → Costos y Gastos.'
-                : 'Tu administrador aún no ha cargado el Libro de Compras SII para este período.'}
+                ? t('costosGastos.clasificacion.noRecords.adminHint')
+                : t('costosGastos.clasificacion.noRecords.userHint')}
           </p>
           {isAdmin ? (
             <Link
               href="/admin?tab=clientes"
               className="mt-8 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 transition-colors"
             >
-              Ir a importar datos
+              {t('costosGastos.clasificacion.noRecords.goImport')}
             </Link>
           ) : (
             <Link
@@ -213,7 +219,7 @@ export function ClasificacionView({
               className="mt-8 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary text-foreground text-sm hover:bg-muted transition-colors"
             >
               <ArrowLeft className="w-4 h-4" />
-              Volver al inicio
+              {t('costosGastos.clasificacion.noRecords.backHome')}
             </Link>
           )}
         </div>

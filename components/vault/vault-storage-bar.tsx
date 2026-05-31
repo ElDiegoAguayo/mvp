@@ -3,16 +3,22 @@
 import { HardDrive } from 'lucide-react'
 import { Progress } from '@/components/ui/progress'
 import { cn } from '@/lib/utils'
+import { useLocale } from '@/components/i18n/locale-provider'
+import { translateStorageFilesLabel, translateClientStorageModule } from '@/lib/i18n/translate'
 import {
   formatAvailableStorage,
   formatQuotaLimit,
   formatStorageBytes,
-  formatStorageUsageLabel,
+  formatQuotaSharePercent,
   storageBarTone,
   storageUsagePercent,
 } from '@/lib/vault-storage'
 import type { ClientStorageModule } from '@/lib/client-storage'
-import { formatModuleStorageLine } from '@/lib/client-storage'
+
+const STORAGE_MODULE_SLUGS: Record<string, string> = {
+  boveda: 'boveda-documental',
+  fenologia: 'estados-fenologicos',
+}
 
 interface ClientStorageBarProps {
   usedBytes: number
@@ -29,9 +35,15 @@ export function ClientStorageBar({
   className,
   compact = false,
 }: ClientStorageBarProps) {
+  const { locale, t, tModule } = useLocale()
   const percent = storageUsagePercent(usedBytes, quotaBytes)
   const tone = storageBarTone(percent)
   const visibleModules = (modules ?? []).filter((m) => m.bytes > 0 || m.files > 0)
+
+  const usedLabel =
+    quotaBytes <= 0 || usedBytes <= 0
+      ? `0% ${t('storage.usedSuffix')}`
+      : `${formatQuotaSharePercent(usedBytes, quotaBytes)} ${t('storage.usedSuffix')}`
 
   const barClass =
     tone === 'critical'
@@ -39,6 +51,17 @@ export function ClientStorageBar({
       : tone === 'warning'
         ? '[&_[data-slot=progress-indicator]]:bg-amber-500'
         : ''
+
+  function formatModuleLine(mod: ClientStorageModule): string {
+    const filesLabel = translateStorageFilesLabel(locale, mod.files)
+    return `${formatStorageBytes(mod.bytes)} · ${filesLabel}`
+  }
+
+  function moduleLabel(mod: ClientStorageModule): string {
+    const slug = STORAGE_MODULE_SLUGS[mod.id]
+    if (slug) return tModule(slug, mod.label)
+    return translateClientStorageModule(mod.id, locale, mod.label)
+  }
 
   return (
     <div className={cn('rounded-xl border border-border bg-card p-4', className)}>
@@ -48,11 +71,9 @@ export function ClientStorageBar({
             <HardDrive className="w-4 h-4 text-primary" />
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-medium text-foreground">Almacenamiento</p>
+            <p className="text-sm font-medium text-foreground">{t('storage.title')}</p>
             {!compact && (
-              <p className="text-xs text-muted-foreground">
-                Cuota compartida de tu empresa en todos los módulos
-              </p>
+              <p className="text-xs text-muted-foreground">{t('storage.subtitle')}</p>
             )}
           </div>
         </div>
@@ -63,24 +84,29 @@ export function ClientStorageBar({
       </div>
       <Progress value={percent} className={cn('h-2', barClass)} />
       <div className="flex items-center justify-between mt-1.5 text-xs text-muted-foreground">
-        <span>{formatStorageUsageLabel(usedBytes, quotaBytes)}</span>
-        <span>{formatAvailableStorage(usedBytes, quotaBytes)} disponibles</span>
+        <span>{usedLabel}</span>
+        <span>
+          {formatAvailableStorage(usedBytes, quotaBytes)} {t('storage.available')}
+        </span>
       </div>
 
       {visibleModules.length > 0 && (
         <div className="mt-3 pt-3 border-t border-border/60 space-y-1.5">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Uso por módulo
+            {t('storage.usedByModule')}
           </p>
           {visibleModules.map((mod) => {
-            const modPct = usedBytes > 0 ? Math.max(1, Math.round((mod.bytes / usedBytes) * 100)) : 0
+            const modPctLabel =
+              mod.bytes > 0 && quotaBytes > 0
+                ? formatQuotaSharePercent(mod.bytes, quotaBytes)
+                : null
             return (
               <div key={mod.id} className="flex items-center justify-between gap-3 text-xs">
-                <span className="text-foreground truncate">{mod.label}</span>
+                <span className="text-foreground truncate">{moduleLabel(mod)}</span>
                 <span className="text-muted-foreground shrink-0 tabular-nums">
-                  {formatModuleStorageLine(mod)}
-                  {usedBytes > 0 && mod.bytes > 0 && (
-                    <span className="ml-1 text-muted-foreground/70">({modPct}%)</span>
+                  {formatModuleLine(mod)}
+                  {modPctLabel && (
+                    <span className="ml-1 text-muted-foreground/70">({modPctLabel})</span>
                   )}
                 </span>
               </div>
@@ -90,20 +116,16 @@ export function ClientStorageBar({
       )}
 
       {tone === 'critical' && (
-        <p className="mt-2 text-xs text-red-600 dark:text-red-400">
-          Cuota casi agotada. Elimina archivos o contacta a soporte para ampliar tu plan.
-        </p>
+        <p className="mt-2 text-xs text-red-600 dark:text-red-400">{t('storage.quotaAlmostFull')}</p>
       )}
       {tone === 'warning' && (
-        <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
-          Estás cerca del límite de almacenamiento de tu plan.
-        </p>
+        <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">{t('storage.quotaNearLimit')}</p>
       )}
     </div>
   )
 }
 
 /** @deprecated Usar ClientStorageBar */
-export function VaultStorageBar(props: Omit<ClientStorageBarProps, 'modules'>) {
+export function VaultStorageBar(props: ClientStorageBarProps) {
   return <ClientStorageBar {...props} />
 }

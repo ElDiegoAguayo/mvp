@@ -6,9 +6,10 @@ import {
   Grape,
   TrendingUp,
   TrendingDown,
-  Loader2,
 } from 'lucide-react'
 import { DashboardCard } from '@/components/dashboard/dashboard-card'
+import { WidgetSkeleton } from '@/components/dashboard/widget-skeleton'
+import { useLocale } from '@/components/i18n/locale-provider'
 
 interface MarketRow {
   key: string
@@ -22,19 +23,19 @@ interface MarketRow {
  * Mock fetch that simulates a network call to a market export API.
  * Real implementation would hit an internal /api/markets route.
  */
-async function fetchMarketsMock(): Promise<MarketRow[]> {
+async function fetchMarketsMock(t: (key: string) => string): Promise<MarketRow[]> {
   await new Promise((resolve) => setTimeout(resolve, 600))
   return [
     {
       key: 'cherry',
-      label: 'Cereza',
+      label: t('mercado.commodities.cherry'),
       Icon: Cherry,
       pricePerKg: 8.5,
       previousPrice: 8.2,
     },
     {
       key: 'grape',
-      label: 'Uva de Mesa',
+      label: t('mercado.commodities.tableGrape'),
       Icon: Grape,
       pricePerKg: 2.1,
       previousPrice: 2.25,
@@ -43,12 +44,13 @@ async function fetchMarketsMock(): Promise<MarketRow[]> {
 }
 
 export function MarketWidget() {
+  const { t } = useLocale()
   const [rows, setRows] = useState<MarketRow[] | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let cancelled = false
-    fetchMarketsMock()
+    fetchMarketsMock(t)
       .then((data) => {
         if (!cancelled) setRows(data)
       })
@@ -58,7 +60,11 @@ export function MarketWidget() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [t])
+
+  if (loading || !rows) {
+    return <WidgetSkeleton />
+  }
 
   return (
     <DashboardCard
@@ -69,20 +75,15 @@ export function MarketWidget() {
               <TrendingUp className="w-4 h-4 text-primary" />
             </div>
             <h3 className="text-sm font-semibold text-foreground">
-              Mercados de Exportación
+              {t('mercado.widget.title')}
             </h3>
           </div>
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-mono">
-            USD / kg
+            {t('mercado.widget.unit')}
           </span>
         </>
       }
     >
-      {loading || !rows ? (
-        <div className="flex items-center justify-center h-full">
-          <Loader2 className="w-5 h-5 text-muted-foreground animate-spin" />
-        </div>
-      ) : (
         <ul className="flex flex-col gap-2">
           {rows.map((r) => {
             const Icon = r.Icon
@@ -121,7 +122,6 @@ export function MarketWidget() {
             )
           })}
         </ul>
-      )}
     </DashboardCard>
   )
 }

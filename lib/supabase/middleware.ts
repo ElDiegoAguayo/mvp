@@ -49,6 +49,9 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith('/dashboard') || pathname.startsWith('/admin')
 
   if (isProtected && !user) {
+    if (isServerActionRequest(request)) {
+      return supabaseResponse
+    }
     const url = request.nextUrl.clone()
     url.pathname = '/auth/login'
     const response = NextResponse.redirect(url)

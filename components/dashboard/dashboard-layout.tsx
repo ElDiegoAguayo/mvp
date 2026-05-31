@@ -17,6 +17,7 @@ import {
   filterWidgetsByPermissions,
   UserPermissions,
 } from '@/lib/dashboard/layout-permissions'
+import { useLocale } from '@/components/i18n/locale-provider'
 
 interface DashboardLayoutProps {
   /**
@@ -41,10 +42,10 @@ interface DashboardLayoutProps {
  * Prevents one broken widget from crashing the entire dashboard
  */
 class WidgetErrorBoundary extends React.Component<
-  { children: React.ReactNode; widgetId: string },
+  { children: React.ReactNode; widgetId: string; errorMessage: string },
   { hasError: boolean }
 > {
-  constructor(props: { children: React.ReactNode; widgetId: string }) {
+  constructor(props: { children: React.ReactNode; widgetId: string; errorMessage: string }) {
     super(props)
     this.state = { hasError: false }
   }
@@ -61,9 +62,7 @@ class WidgetErrorBoundary extends React.Component<
     if (this.state.hasError) {
       return (
         <div className="col-span-1 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
-          <p className="text-sm text-destructive">
-            Error cargando widget: {this.props.widgetId}
-          </p>
+          <p className="text-sm text-destructive">{this.props.errorMessage}</p>
         </div>
       )
     }
@@ -95,6 +94,7 @@ export function DashboardLayout({
   permissions,
   containerClassName = '',
 }: DashboardLayoutProps) {
+  const { t } = useLocale()
   // Filter widgets based on permissions
   const visibleWidgets = (permissions
     ? filterWidgetsByPermissions(widgets, permissions)
@@ -106,7 +106,7 @@ export function DashboardLayout({
     return (
       <div className="rounded-lg border border-border bg-card p-8 text-center">
         <p className="text-muted-foreground">
-          No hay widgets configurados para mostrar en el dashboard.
+          {t('homeWidgets.noWidgets')}
         </p>
       </div>
     )
@@ -119,7 +119,7 @@ export function DashboardLayout({
       aria-label="Dashboard layout"
     >
       {visibleWidgets.map((widgetConfig) => (
-        <DashboardWidget key={widgetConfig.id} config={widgetConfig} />
+        <DashboardWidget key={widgetConfig.id} config={widgetConfig} t={t} />
       ))}
     </div>
   )
@@ -135,9 +135,10 @@ export function DashboardLayout({
  */
 interface DashboardWidgetProps {
   config: WidgetConfig
+  t: (key: string, params?: Record<string, string | number>) => string
 }
 
-function DashboardWidget({ config }: DashboardWidgetProps) {
+function DashboardWidget({ config, t }: DashboardWidgetProps) {
   const Component = getWidgetComponent(config.type)
 
   // Handle missing component type
@@ -146,7 +147,7 @@ function DashboardWidget({ config }: DashboardWidgetProps) {
     return (
       <div className="rounded-lg border border-yellow-500/30 bg-yellow-50/5 p-4 dark:bg-yellow-950/10">
         <p className="text-sm text-yellow-600 dark:text-yellow-500">
-          Widget no disponible: {config.type}
+          {t('dashboard.widgetUnavailable', { type: config.type })}
         </p>
       </div>
     )
@@ -156,7 +157,10 @@ function DashboardWidget({ config }: DashboardWidgetProps) {
 
   return (
     <div className={`${gridClass}`}>
-      <WidgetErrorBoundary widgetId={config.id}>
+      <WidgetErrorBoundary
+        widgetId={config.id}
+        errorMessage={t('dashboard.widgetLoadError', { id: config.id })}
+      >
         <div className="h-full">
           <Component {...(config.props ?? {})} />
         </div>

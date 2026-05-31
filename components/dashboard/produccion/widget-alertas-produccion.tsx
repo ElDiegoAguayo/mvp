@@ -17,6 +17,8 @@ import { toast } from 'sonner'
 import { usePagination } from '@/hooks/use-pagination'
 import { TablePaginationBar } from '@/components/ui/table-pagination-bar'
 import { exportListaCompraExcel } from '@/lib/produccion/export-lista-compra-xlsx'
+import { useLocale } from '@/components/i18n/locale-provider'
+import { localeToBcp47 } from '@/lib/i18n/config'
 import {
   UMBRAL_CRITICO_PALLETS,
   UMBRAL_BAJO_PALLETS,
@@ -28,8 +30,12 @@ import {
 const PAGE_SIZE = 10
 const CRIT_MATS_PAGE_SIZE = 5
 
-const fmt  = (n: number) => n.toLocaleString('es-CL')
-const fmtK = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : fmt(n)
+function createNumberFormatters(locale: 'es' | 'en') {
+  const tag = localeToBcp47(locale)
+  const fmt = (n: number) => n.toLocaleString(tag)
+  const fmtK = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : fmt(n))
+  return { fmt, fmtK }
+}
 
 type MaterialCatalogRow = {
   key: string
@@ -41,7 +47,7 @@ type MaterialCatalogRow = {
   codigos_embalaje: string[]
 }
 
-function buildMaterialsCatalog(data: CapacidadReceta[]): MaterialCatalogRow[] {
+function buildMaterialsCatalog(data: CapacidadReceta[], locale: 'es' | 'en'): MaterialCatalogRow[] {
   const map = new Map<string, MaterialCatalogRow>()
 
   for (const receta of data) {
@@ -68,7 +74,7 @@ function buildMaterialsCatalog(data: CapacidadReceta[]): MaterialCatalogRow[] {
     }
   }
 
-  return [...map.values()].sort((a, b) => a.descripcion.localeCompare(b.descripcion, 'es'))
+  return [...map.values()].sort((a, b) => a.descripcion.localeCompare(b.descripcion, localeToBcp47(locale)))
 }
 
 function AllMaterialsDialog({
@@ -80,6 +86,8 @@ function AllMaterialsDialog({
   onOpenChange: (open: boolean) => void
   materials: MaterialCatalogRow[]
 }) {
+  const { t, locale } = useLocale()
+  const { fmt } = createNumberFormatters(locale)
   const [query, setQuery] = useState('')
 
   const filtered = useMemo(() => {
@@ -96,35 +104,35 @@ function AllMaterialsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-3xl max-h-[85vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle>Todos los materiales</DialogTitle>
+          <DialogTitle>{t('produccion.materialsDialog.title')}</DialogTitle>
         </DialogHeader>
         <div className="relative shrink-0">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Buscar material, código o embalaje…"
+            placeholder={t('produccion.materialsDialog.searchPlaceholder')}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="pl-9 h-9"
           />
         </div>
         <p className="text-xs text-muted-foreground shrink-0">
-          {filtered.length} de {materials.length} materiales
+          {t('produccion.materialsDialog.count', { filtered: filtered.length, total: materials.length })}
         </p>
         <div className="flex-1 min-h-0 overflow-auto rounded-lg border">
           <table className="w-full text-sm">
             <thead className="bg-muted/60 sticky top-0 z-10">
               <tr className="text-left">
-                <th className="px-3 py-2.5 font-medium text-muted-foreground min-w-[240px]">Material</th>
-                <th className="px-3 py-2.5 font-medium text-muted-foreground">Stock</th>
-                <th className="px-3 py-2.5 font-medium text-muted-foreground text-right">× caja</th>
-                <th className="px-3 py-2.5 font-medium text-muted-foreground min-w-[140px]">Códigos embalaje</th>
+                <th className="px-3 py-2.5 font-medium text-muted-foreground min-w-[240px]">{t('produccion.materialsDialog.columns.material')}</th>
+                <th className="px-3 py-2.5 font-medium text-muted-foreground">{t('produccion.materialsDialog.columns.stock')}</th>
+                <th className="px-3 py-2.5 font-medium text-muted-foreground text-right">{t('produccion.materialsDialog.columns.perBox')}</th>
+                <th className="px-3 py-2.5 font-medium text-muted-foreground min-w-[140px]">{t('produccion.materialsDialog.columns.packagingCodes')}</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="px-3 py-8 text-center text-muted-foreground text-sm">
-                    Ningún material coincide con la búsqueda.
+                    {t('produccion.materialsDialog.noResults')}
                   </td>
                 </tr>
               ) : filtered.map((mat) => (
@@ -139,7 +147,7 @@ function AllMaterialsDialog({
                     'px-3 py-2.5 tabular-nums whitespace-nowrap',
                     mat.stock_actual === 0 ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-foreground',
                   )}>
-                    {mat.stock_actual === 0 ? 'Sin stock' : `${fmt(mat.stock_actual)} ${mat.unidad_medida}`}
+                    {mat.stock_actual === 0 ? t('produccion.stock.none') : `${fmt(mat.stock_actual)} ${mat.unidad_medida}`}
                   </td>
                   <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground whitespace-nowrap">
                     {mat.necesario_por_caja}
@@ -164,7 +172,6 @@ const ESTADO: Record<EstadoAlerta, {
   bg: string
   border: string
   dot: string
-  label: string
   panel: string
   panelBorder: string
   limitanteBg: string
@@ -178,7 +185,6 @@ const ESTADO: Record<EstadoAlerta, {
     bg: 'bg-red-50 dark:bg-red-950/40',
     border: 'border-red-200 dark:border-red-500/50',
     dot: 'bg-red-500',
-    label: 'Crítico',
     panel: 'bg-white dark:bg-white/5',
     panelBorder: 'border-red-100 dark:border-transparent',
     limitanteBg: 'bg-red-100/90 dark:bg-red-900/30',
@@ -192,7 +198,6 @@ const ESTADO: Record<EstadoAlerta, {
     bg: 'bg-amber-50 dark:bg-amber-950/25',
     border: 'border-amber-200 dark:border-amber-500/40',
     dot: 'bg-amber-500',
-    label: 'Stock Bajo',
     panel: 'bg-white dark:bg-white/5',
     panelBorder: 'border-amber-100 dark:border-transparent',
     limitanteBg: 'bg-amber-100/90 dark:bg-amber-900/20',
@@ -206,7 +211,6 @@ const ESTADO: Record<EstadoAlerta, {
     bg: 'bg-emerald-50 dark:bg-emerald-950/15',
     border: 'border-emerald-200 dark:border-emerald-500/25',
     dot: 'bg-emerald-500',
-    label: 'OK',
     panel: 'bg-white dark:bg-white/5',
     panelBorder: 'border-emerald-100 dark:border-transparent',
     limitanteBg: 'bg-muted dark:bg-emerald-900/20',
@@ -218,10 +222,11 @@ const ESTADO: Record<EstadoAlerta, {
 }
 
 function KpiCard({
-  label, value, sub, color, icon: Icon,
+  label, value, sub, color, icon: Icon, fmt,
 }: {
   label: string; value: string | number; sub?: string
   color: string; icon: React.ElementType
+  fmt: (n: number) => string
 }) {
   return (
     <div className="rounded-xl border border-border bg-card p-4 flex items-center gap-3 shadow-sm">
@@ -293,6 +298,8 @@ function CriticalMaterialsPanel({
   onHighlight: (codigos: string[]) => void
   highlightCodigos: string[]
 }) {
+  const { t, locale } = useLocale()
+  const { fmt } = createNumberFormatters(locale)
   const crits = buildCritMats(data)
   const [expandedMat, setExpandedMat] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
@@ -313,9 +320,9 @@ function CriticalMaterialsPanel({
     setExporting(true)
     try {
       await exportListaCompraExcel(crits)
-      toast.success('Lista de compra exportada en Excel')
+      toast.success(t('produccion.criticalMaterials.exportSuccess'))
     } catch {
-      toast.error('No se pudo exportar la lista de compra')
+      toast.error(t('produccion.criticalMaterials.exportError'))
     } finally {
       setExporting(false)
     }
@@ -326,7 +333,7 @@ function CriticalMaterialsPanel({
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="flex items-center gap-2 flex-1">
           <ShoppingCart className="w-4 h-4 text-red-600 dark:text-red-400" />
-          <h2 className="font-semibold text-sm text-red-900 dark:text-red-200">Insumos que debes reponer</h2>
+          <h2 className="font-semibold text-sm text-red-900 dark:text-red-200">{t('produccion.criticalMaterials.title')}</h2>
         </div>
         <Button
           type="button"
@@ -337,7 +344,7 @@ function CriticalMaterialsPanel({
           onClick={handleExport}
         >
           <Download className="w-3.5 h-3.5" />
-          {exporting ? 'Generando…' : 'Exportar Excel'}
+          {exporting ? t('produccion.export.generating') : t('produccion.export.button')}
         </Button>
       </div>
 
@@ -375,8 +382,9 @@ function CriticalMaterialsPanel({
                     }}
                     className="text-xs text-red-700 dark:text-red-300/80 mt-1 hover:text-red-800 dark:hover:text-red-200 text-left"
                   >
-                    Afecta {mat.afecta.length} código{mat.afecta.length > 1 ? 's' : ''} —{' '}
-                    {isExpanded ? 'ocultar' : 'ver todos'}
+                    {isExpanded
+                      ? t('produccion.criticalMaterials.affectsHide', { count: mat.afecta.length })
+                      : t('produccion.criticalMaterials.affectsShow', { count: mat.afecta.length })}
                   </button>
                   {isExpanded && (
                     <p className="text-xs font-mono text-red-800 dark:text-red-200/90 mt-1 leading-relaxed">
@@ -390,14 +398,14 @@ function CriticalMaterialsPanel({
                       {fmt(mat.stock_actual)}
                       <span className="text-xs font-normal text-muted-foreground ml-1">{mat.unidad_medida}</span>
                     </p>
-                    <p className="text-[10px] text-muted-foreground/60">stock actual</p>
+                    <p className="text-[10px] text-muted-foreground/60">{t('produccion.stock.current')}</p>
                   </div>
                   {mat.sugerido_comprar > 0 && (
                     <div>
                       <p className="text-sm font-bold text-emerald-700 dark:text-emerald-400">
                         +{fmt(Math.ceil(mat.sugerido_comprar))}
                       </p>
-                      <p className="text-[10px] text-muted-foreground/60">sugerido comprar</p>
+                      <p className="text-[10px] text-muted-foreground/60">{t('produccion.stock.suggestedPurchase')}</p>
                     </div>
                   )}
                 </div>
@@ -421,7 +429,7 @@ function CriticalMaterialsPanel({
           startIndex={startIndex}
           endIndex={endIndex}
           onPageChange={setPage}
-          itemLabel="insumos"
+          itemLabel={t('produccion.pagination.supplies')}
           className="rounded-lg border border-red-200 dark:border-red-500/20 bg-white dark:bg-red-950/20 border-t-red-200 dark:border-t-red-500/20"
         />
       )}
@@ -430,6 +438,8 @@ function CriticalMaterialsPanel({
 }
 
 function SimuladorCompra({ data, crits }: { data: CapacidadReceta[]; crits: CritMat[] }) {
+  const { t, locale } = useLocale()
+  const { fmt } = createNumberFormatters(locale)
   const [material, setMaterial] = useState(crits[0]?.descripcion ?? '')
   const [cantidad, setCantidad] = useState('')
 
@@ -460,10 +470,10 @@ function SimuladorCompra({ data, crits }: { data: CapacidadReceta[]; crits: Crit
     <div className="rounded-xl border border-border bg-card p-4 space-y-3 shadow-sm">
       <div className="flex items-center gap-2">
         <Calculator className="w-4 h-4 text-primary" />
-        <h3 className="text-sm font-semibold text-foreground">Simulador de compra</h3>
+        <h3 className="text-sm font-semibold text-foreground">{t('produccion.simulator.title')}</h3>
       </div>
       <p className="text-xs text-muted-foreground">
-        Estima cuántas cajas adicionales podrías armar si compras un insumo.
+        {t('produccion.simulator.description')}
       </p>
       <div className="flex flex-col sm:flex-row gap-2">
         <select
@@ -478,7 +488,7 @@ function SimuladorCompra({ data, crits }: { data: CapacidadReceta[]; crits: Crit
         <Input
           type="number"
           min={0}
-          placeholder="Cantidad a comprar"
+          placeholder={t('produccion.simulator.quantityPlaceholder')}
           value={cantidad}
           onChange={(e) => setCantidad(e.target.value)}
           className="sm:w-44 h-9"
@@ -489,10 +499,10 @@ function SimuladorCompra({ data, crits }: { data: CapacidadReceta[]; crits: Crit
           <table className="w-full text-xs">
             <thead className="bg-secondary/50">
               <tr>
-                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Código</th>
-                <th className="text-right px-3 py-2 font-medium text-muted-foreground">Hoy</th>
-                <th className="text-right px-3 py-2 font-medium text-muted-foreground">Con compra</th>
-                <th className="text-right px-3 py-2 font-medium text-emerald-500">+Cajas</th>
+                <th className="text-left px-3 py-2 font-medium text-muted-foreground">{t('produccion.simulator.columns.code')}</th>
+                <th className="text-right px-3 py-2 font-medium text-muted-foreground">{t('produccion.simulator.columns.today')}</th>
+                <th className="text-right px-3 py-2 font-medium text-muted-foreground">{t('produccion.simulator.columns.withPurchase')}</th>
+                <th className="text-right px-3 py-2 font-medium text-emerald-500">{t('produccion.simulator.columns.extraBoxes')}</th>
               </tr>
             </thead>
             <tbody>
@@ -508,7 +518,7 @@ function SimuladorCompra({ data, crits }: { data: CapacidadReceta[]; crits: Crit
           </table>
           {resultados.length > 12 && (
             <p className="text-[10px] text-muted-foreground px-3 py-2">
-              y {resultados.length - 12} códigos más…
+              {t('produccion.simulator.moreCodes', { count: resultados.length - 12 })}
             </p>
           )}
         </div>
@@ -526,6 +536,8 @@ function RecetaMaterialsDialog({
   onOpenChange: (open: boolean) => void
   receta: CapacidadReceta
 }) {
+  const { t, locale } = useLocale()
+  const { fmt } = createNumberFormatters(locale)
   const [query, setQuery] = useState('')
   const isBad = receta.estado_alerta !== 'ok'
 
@@ -542,7 +554,7 @@ function RecetaMaterialsDialog({
       <DialogContent className="sm:max-w-3xl max-h-[85vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="space-y-1">
-            <span>Materiales — {receta.codigo_receta}</span>
+            <span>{t('produccion.recipeMaterialsDialog.title', { code: receta.codigo_receta })}</span>
             {(receta.variedad || receta.descripcion) && (
               <span className="block text-sm font-normal text-muted-foreground">
                 {[receta.variedad, receta.descripcion].filter(Boolean).join(' · ')}
@@ -553,32 +565,35 @@ function RecetaMaterialsDialog({
         <div className="relative shrink-0">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Buscar material o código…"
+            placeholder={t('produccion.recipeMaterialsDialog.searchPlaceholder')}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="pl-9 h-9"
           />
         </div>
         <p className="text-xs text-muted-foreground shrink-0">
-          {filtered.length} de {receta.detalle_materiales.length} materiales
+          {t('produccion.recipeMaterialsDialog.count', {
+            filtered: filtered.length,
+            total: receta.detalle_materiales.length,
+          })}
           {' · '}
-          Puedes armar {fmt(receta.capacidad_maxima)} cajas
+          {t('produccion.recipeMaterialsDialog.canAssemble', { count: fmt(receta.capacidad_maxima) })}
         </p>
         <div className="flex-1 min-h-0 overflow-auto rounded-lg border">
           <table className="w-full text-sm">
             <thead className="bg-muted/60 sticky top-0 z-10">
               <tr className="text-left">
-                <th className="px-3 py-2.5 font-medium text-muted-foreground min-w-[280px]">Material</th>
-                <th className="px-3 py-2.5 font-medium text-muted-foreground">Stock</th>
-                <th className="px-3 py-2.5 font-medium text-muted-foreground text-right">× caja</th>
-                <th className="px-3 py-2.5 font-medium text-muted-foreground text-right">Alcanza para</th>
+                <th className="px-3 py-2.5 font-medium text-muted-foreground min-w-[280px]">{t('produccion.materialsDialog.columns.material')}</th>
+                <th className="px-3 py-2.5 font-medium text-muted-foreground">{t('produccion.materialsDialog.columns.stock')}</th>
+                <th className="px-3 py-2.5 font-medium text-muted-foreground text-right">{t('produccion.materialsDialog.columns.perBox')}</th>
+                <th className="px-3 py-2.5 font-medium text-muted-foreground text-right">{t('produccion.recipeMaterialsDialog.columns.reachesFor')}</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="px-3 py-8 text-center text-muted-foreground text-sm">
-                    Ningún material coincide con la búsqueda.
+                    {t('produccion.materialsDialog.noResults')}
                   </td>
                 </tr>
               ) : filtered.map((mat) => {
@@ -607,7 +622,7 @@ function RecetaMaterialsDialog({
                       'px-3 py-2.5 tabular-nums whitespace-nowrap',
                       mat.stock_actual === 0 ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-foreground',
                     )}>
-                      {mat.stock_actual === 0 ? 'Sin stock' : `${fmt(mat.stock_actual)} ${mat.unidad_medida}`}
+                      {mat.stock_actual === 0 ? t('produccion.stock.none') : `${fmt(mat.stock_actual)} ${mat.unidad_medida}`}
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground whitespace-nowrap">
                       {mat.necesario_por_caja}
@@ -616,7 +631,7 @@ function RecetaMaterialsDialog({
                       'px-3 py-2.5 text-right font-semibold tabular-nums whitespace-nowrap',
                       isBot ? 'text-red-700 dark:text-red-300' : 'text-foreground',
                     )}>
-                      {mat.capacidad_aportada >= 999999 ? '∞' : `${fmt(mat.capacidad_aportada)} cajas`}
+                      {mat.capacidad_aportada >= 999999 ? '∞' : t('produccion.boxes.count', { count: fmt(mat.capacidad_aportada) })}
                     </td>
                   </tr>
                 )
@@ -642,6 +657,8 @@ function RecetaCard({
   materialsExpanded: boolean
   onToggleMaterials: () => void
 }) {
+  const { t, locale } = useLocale()
+  const { fmt, fmtK } = createNumberFormatters(locale)
   const [materialsDialogOpen, setMaterialsDialogOpen] = useState(false)
   const est = ESTADO[receta.estado_alerta]
   const isBad = receta.estado_alerta !== 'ok'
@@ -673,26 +690,26 @@ function RecetaCard({
           receta.estado_alerta === 'bajo'    ? 'bg-amber-500 text-white' :
                                                'bg-emerald-600 text-white',
         )}>
-          {est.label}
+          {t(`produccion.status.${receta.estado_alerta}`)}
         </span>
       </div>
 
       <div className={cn('rounded-lg border px-3 py-2.5', est.panel, est.panelBorder)}>
         <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-0.5 font-medium">
-          Puedes armar
+          {t('produccion.recipeCard.canAssemble')}
         </p>
         <div className="flex items-baseline gap-2">
           <span className={cn('text-4xl font-black leading-none tracking-tight', est.metric)}>
             {fmt(receta.capacidad_maxima)}
           </span>
-          <span className="text-base font-semibold text-muted-foreground">cajas</span>
+          <span className="text-base font-semibold text-muted-foreground">{t('produccion.recipeCard.boxes')}</span>
         </div>
         {receta.cajas_por_pallet && (
           <p className="text-xs text-muted-foreground mt-1">
             <span className={cn('font-semibold', est.metric)}>{fmt(receta.capacidad_pallets)}</span>
-            {' pallets completos'}
-            <span className="text-muted-foreground/70 ml-1">· bloques de {PALLETS_STEP}</span>
-            <span className="text-muted-foreground/70 ml-1">· {receta.cajas_por_pallet} cajas/pallet</span>
+            {' '}{t('produccion.recipeCard.completePallets')}
+            <span className="text-muted-foreground/70 ml-1">{t('produccion.recipeCard.blocksOf', { step: PALLETS_STEP })}</span>
+            <span className="text-muted-foreground/70 ml-1">{t('produccion.recipeCard.boxesPerPallet', { count: receta.cajas_por_pallet })}</span>
           </p>
         )}
         <div className={cn('mt-2 h-1.5 rounded-full overflow-hidden', est.progressTrack)}>
@@ -715,7 +732,7 @@ function RecetaCard({
           est.limitanteBorder,
         )}>
           <p className={cn('text-[10px] font-semibold uppercase tracking-wide', est.limitanteTitle)}>
-            Para producir más, necesitas
+            {t('produccion.recipeCard.needMoreTitle')}
           </p>
           <div className="flex items-start justify-between gap-2">
             <p className={cn('text-xs font-semibold leading-tight line-clamp-2 min-w-0 flex-1', est.limitanteMat)}>
@@ -726,13 +743,13 @@ function RecetaCard({
                 'text-xs font-bold font-mono',
                 limitante.stock_actual === 0 ? 'text-red-600 dark:text-red-400' : 'text-amber-700 dark:text-amber-300',
               )}>
-                {limitante.stock_actual === 0 ? 'Sin stock' : `${fmt(limitante.stock_actual)} uds.`}
+                {limitante.stock_actual === 0 ? t('produccion.stock.none') : `${fmt(limitante.stock_actual)} ${t('produccion.units.abbrev')}`}
               </p>
-              <p className="text-[10px] text-muted-foreground">stock actual</p>
+              <p className="text-[10px] text-muted-foreground">{t('produccion.stock.current')}</p>
             </div>
           </div>
           <p className="text-[10px] text-muted-foreground">
-            Necesitas {limitante.necesario_por_caja} unidad{limitante.necesario_por_caja > 1 ? 'es' : ''} por caja
+            {t('produccion.recipeCard.unitsPerBox', { count: limitante.necesario_por_caja })}
           </p>
         </div>
       )}
@@ -747,7 +764,9 @@ function RecetaCard({
             >
               {materialsExpanded ? <ChevronUp className="w-3 h-3 shrink-0" /> : <ChevronDown className="w-3 h-3 shrink-0" />}
               <span className="truncate">
-                {materialsExpanded ? 'Ocultar' : 'Ver desglose de'} materiales ({receta.detalle_materiales.length})
+                {materialsExpanded
+                  ? t('produccion.recipeCard.hideMaterials', { count: receta.detalle_materiales.length })
+                  : t('produccion.recipeCard.showMaterials', { count: receta.detalle_materiales.length })}
               </span>
             </button>
             <Button
@@ -758,7 +777,7 @@ function RecetaCard({
               onClick={() => setMaterialsDialogOpen(true)}
             >
               <Maximize2 className="w-3 h-3" />
-              Ver todo
+              {t('produccion.recipeCard.viewAll')}
             </Button>
           </div>
 
@@ -773,10 +792,10 @@ function RecetaCard({
               <table className="w-full text-xs">
                 <thead className="bg-muted/60 dark:bg-white/5">
                   <tr>
-                    <th className="px-2 py-1.5 text-left text-muted-foreground font-medium w-[min(50%,180px)]">Material</th>
-                    <th className="px-2 py-1.5 text-right text-muted-foreground font-medium">Stock</th>
-                    <th className="px-2 py-1.5 text-right text-muted-foreground font-medium">×caja</th>
-                    <th className="px-2 py-1.5 text-right text-muted-foreground font-medium">Alcanza para</th>
+                    <th className="px-2 py-1.5 text-left text-muted-foreground font-medium w-[min(50%,180px)]">{t('produccion.materialsDialog.columns.material')}</th>
+                    <th className="px-2 py-1.5 text-right text-muted-foreground font-medium">{t('produccion.materialsDialog.columns.stock')}</th>
+                    <th className="px-2 py-1.5 text-right text-muted-foreground font-medium">{t('produccion.materialsDialog.columns.perBox')}</th>
+                    <th className="px-2 py-1.5 text-right text-muted-foreground font-medium">{t('produccion.recipeMaterialsDialog.columns.reachesFor')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -791,11 +810,11 @@ function RecetaCard({
                           </div>
                         </td>
                         <td className={cn('px-2 py-1.5 text-right font-mono', mat.stock_actual === 0 ? 'text-red-600 dark:text-red-400 font-bold' : 'text-muted-foreground')}>
-                          {mat.stock_actual === 0 ? '0 ⚠' : fmtK(mat.stock_actual)}
+                          {mat.stock_actual === 0 ? t('produccion.stock.zeroWarning') : fmtK(mat.stock_actual)}
                         </td>
                         <td className="px-2 py-1.5 text-right text-muted-foreground">{mat.necesario_por_caja}</td>
                         <td className={cn('px-2 py-1.5 text-right font-semibold tabular-nums', isBot ? 'text-red-700 dark:text-red-300' : 'text-foreground/70')}>
-                          {mat.capacidad_aportada >= 999999 ? '∞' : `${fmtK(mat.capacidad_aportada)} cajas`}
+                          {mat.capacidad_aportada >= 999999 ? '∞' : t('produccion.boxes.count', { count: fmtK(mat.capacidad_aportada) })}
                         </td>
                       </tr>
                     )
@@ -823,6 +842,7 @@ function VarietySection({
   highlightCodigos: string[]
   defaultCollapsed: boolean
 }) {
+  const { t } = useLocale()
   const [collapsed, setCollapsed] = useState(defaultCollapsed)
   const [expandedMaterialCards, setExpandedMaterialCards] = useState<Set<string>>(() => new Set())
   const vCrit = cards.filter((c) => c.estado_alerta === 'critico').length
@@ -859,12 +879,12 @@ function VarietySection({
         <div className="flex items-center gap-1.5">
           {vCrit > 0 && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 font-medium">
-              {vCrit} crítico{vCrit > 1 ? 's' : ''}
+              {t('produccion.varietySection.critical', { count: vCrit })}
             </span>
           )}
           {vBaj > 0 && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 font-medium">
-              {vBaj} bajo{vBaj > 1 ? 's' : ''}
+              {t('produccion.varietySection.low', { count: vBaj })}
             </span>
           )}
         </div>
@@ -903,7 +923,7 @@ function VarietySection({
               startIndex={startIndex}
               endIndex={endIndex}
               onPageChange={setPage}
-              itemLabel="códigos"
+              itemLabel={t('produccion.pagination.codes')}
             />
           )}
         </>
@@ -918,21 +938,23 @@ interface Props {
 }
 
 export function WidgetAlertasProduccion({ data, updatedAt }: Props) {
+  const { t, locale } = useLocale()
+  const { fmt } = createNumberFormatters(locale)
   const [filter, setFilter] = useState<EstadoAlerta | 'todos'>('todos')
   const [search, setSearch] = useState('')
   const [highlightCodigos, setHighlightCodigos] = useState<string[]>([])
   const [allMaterialsOpen, setAllMaterialsOpen] = useState(false)
 
   const crits = useMemo(() => buildCritMats(data), [data])
-  const materialsCatalog = useMemo(() => buildMaterialsCatalog(data), [data])
+  const materialsCatalog = useMemo(() => buildMaterialsCatalog(data, locale), [data, locale])
 
   if (!data.length) {
     return (
       <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/50 p-16 text-center">
         <Package className="w-12 h-12 text-muted-foreground/30 mb-4" />
-        <p className="text-sm font-medium text-muted-foreground">Sin datos de producción</p>
+        <p className="text-sm font-medium text-muted-foreground">{t('produccion.empty.title')}</p>
         <p className="text-xs text-muted-foreground/50 mt-1 max-w-xs">
-          Importa el archivo Excel de Códigos de Embalaje desde Admin → Clientes para ver las alertas.
+          {t('produccion.empty.description')}
         </p>
       </div>
     )
@@ -953,17 +975,17 @@ export function WidgetAlertasProduccion({ data, updatedAt }: Props) {
       r.detalle_materiales.some((m) => m.descripcion.toLowerCase().includes(q)),
     )
 
-  const varieties = [...new Set(filtered.map((r) => r.variedad ?? 'Sin variedad'))]
+  const varieties = [...new Set(filtered.map((r) => r.variedad ?? t('produccion.noVariety')))]
   const groupedFiltered = new Map<string, CapacidadReceta[]>()
   for (const r of filtered) {
-    const v = r.variedad ?? 'Sin variedad'
+    const v = r.variedad ?? t('produccion.noVariety')
     const list = groupedFiltered.get(v) ?? []
     list.push(r)
     groupedFiltered.set(v, list)
   }
 
   const updatedLabel = updatedAt
-    ? new Date(updatedAt).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })
+    ? new Date(updatedAt).toLocaleString(localeToBcp47(locale), { dateStyle: 'medium', timeStyle: 'short' })
     : null
 
   return (
@@ -976,15 +998,15 @@ export function WidgetAlertasProduccion({ data, updatedAt }: Props) {
 
       {updatedLabel && (
         <p className="text-xs text-muted-foreground">
-          Inventario actualizado: <span className="font-medium text-foreground">{updatedLabel}</span>
+          {t('produccion.inventoryUpdated', { date: updatedLabel })}
         </p>
       )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <KpiCard label="Pallets totales disponibles" value={totalPallets} sub="suma de todos los códigos" color="bg-primary/10 text-primary" icon={Boxes} />
-        <KpiCard label="Códigos críticos" value={critCount} sub={`< ${UMBRAL_CRITICO_PALLETS} pallets`} color={critCount > 0 ? 'bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400' : 'bg-muted text-muted-foreground'} icon={PackageX} />
-        <KpiCard label="Stock bajo" value={bajCount} sub={`< ${UMBRAL_BAJO_PALLETS} pallets`} color={bajCount > 0 ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' : 'bg-muted text-muted-foreground'} icon={TrendingDown} />
-        <KpiCard label="Códigos OK" value={okCount} sub={`≥ ${UMBRAL_OK_PALLETS} pallets`} color={okCount > 0 ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' : 'bg-muted text-muted-foreground'} icon={CheckCircle2} />
+        <KpiCard label={t('produccion.kpi.totalPallets')} value={totalPallets} sub={t('produccion.kpi.totalPalletsSub')} color="bg-primary/10 text-primary" icon={Boxes} fmt={fmt} />
+        <KpiCard label={t('produccion.kpi.criticalCodes')} value={critCount} sub={`< ${UMBRAL_CRITICO_PALLETS} pallets`} color={critCount > 0 ? 'bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400' : 'bg-muted text-muted-foreground'} icon={PackageX} fmt={fmt} />
+        <KpiCard label={t('produccion.kpi.lowStock')} value={bajCount} sub={`< ${UMBRAL_BAJO_PALLETS} pallets`} color={bajCount > 0 ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' : 'bg-muted text-muted-foreground'} icon={TrendingDown} fmt={fmt} />
+        <KpiCard label={t('produccion.kpi.okCodes')} value={okCount} sub={`≥ ${UMBRAL_OK_PALLETS} pallets`} color={okCount > 0 ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' : 'bg-muted text-muted-foreground'} icon={CheckCircle2} fmt={fmt} />
       </div>
 
       <CriticalMaterialsPanel
@@ -1006,10 +1028,10 @@ export function WidgetAlertasProduccion({ data, updatedAt }: Props) {
         <div className="flex items-center gap-1 p-1 rounded-lg bg-muted border border-border w-fit flex-wrap">
           {(
             [
-              { key: 'todos',   label: `Todos (${data.length})`,   cls: '' },
-              { key: 'critico', label: `Críticos (${critCount})`,  cls: 'text-red-600 dark:text-red-300'    },
-              { key: 'bajo',    label: `Stock Bajo (${bajCount})`, cls: 'text-amber-700 dark:text-amber-300'  },
-              { key: 'ok',      label: `OK (${okCount})`,          cls: 'text-emerald-700 dark:text-emerald-300'},
+              { key: 'todos',   label: t('produccion.filters.all', { count: data.length }),   cls: '' },
+              { key: 'critico', label: t('produccion.filters.critical', { count: critCount }),  cls: 'text-red-600 dark:text-red-300'    },
+              { key: 'bajo',    label: t('produccion.filters.low', { count: bajCount }), cls: 'text-amber-700 dark:text-amber-300'  },
+              { key: 'ok',      label: t('produccion.filters.ok', { count: okCount }),          cls: 'text-emerald-700 dark:text-emerald-300'},
             ] as const
           ).map(({ key, label, cls }) => (
             <button
@@ -1035,14 +1057,14 @@ export function WidgetAlertasProduccion({ data, updatedAt }: Props) {
           onClick={() => setAllMaterialsOpen(true)}
         >
           <List className="w-4 h-4" />
-          Ver todos los materiales ({materialsCatalog.length})
+          {t('produccion.viewAllMaterials', { count: materialsCatalog.length })}
         </Button>
         </div>
 
         <div className="relative w-full sm:max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Buscar código, variedad o material…"
+            placeholder={t('produccion.searchPlaceholder')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9 h-9"
@@ -1052,7 +1074,7 @@ export function WidgetAlertasProduccion({ data, updatedAt }: Props) {
 
       {filtered.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
-          Ningún código coincide con la búsqueda o filtro.
+          {t('produccion.noSearchResults')}
         </div>
       ) : (
         varieties.map((variety) => {
@@ -1073,7 +1095,12 @@ export function WidgetAlertasProduccion({ data, updatedAt }: Props) {
       )}
 
       <p className="text-[10px] text-muted-foreground text-center">
-        Capacidad en pallets redondeada hacia abajo en bloques de {PALLETS_STEP} · Crítico &lt; {UMBRAL_CRITICO_PALLETS} · Bajo &lt; {UMBRAL_BAJO_PALLETS} · OK ≥ {UMBRAL_OK_PALLETS} · Compra sugerida en múltiplos de 5
+        {t('produccion.footerLegend', {
+          step: PALLETS_STEP,
+          critical: UMBRAL_CRITICO_PALLETS,
+          low: UMBRAL_BAJO_PALLETS,
+          ok: UMBRAL_OK_PALLETS,
+        })}
       </p>
     </div>
   )

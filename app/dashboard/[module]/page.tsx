@@ -1,11 +1,10 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import Link from 'next/link'
-import { ShieldAlert, ArrowLeft, AlertTriangle } from 'lucide-react'
 import { getModuleIcon } from '@/lib/module-icons'
 import { ModuleDataView } from '@/components/dashboard/module-data-view'
 import { resolveModuleHref } from '@/lib/dashboard/module-routes'
 import { userCanAccessModule } from '@/lib/dashboard/module-access'
+import { DynamicModuleAccessDenied } from '@/components/dashboard/dynamic-module-access-denied'
 
 export const dynamic = 'force-dynamic'
 
@@ -51,7 +50,7 @@ export default async function DynamicModulePage({
     const moduleRow = moduleData as ModuleRow | null
 
     if (!moduleRow || !moduleRow.is_active) {
-      return <AccessDenied reason="missing" />
+      return <DynamicModuleAccessDenied reason="missing" />
     }
 
     const canonicalHref = resolveModuleHref(slug, moduleRow.name)
@@ -61,7 +60,7 @@ export default async function DynamicModulePage({
 
     const hasAccess = await userCanAccessModule(supabase, user.id, moduleRow.id)
     if (!hasAccess) {
-      return <AccessDenied reason="forbidden" moduleName={moduleRow.name} />
+      return <DynamicModuleAccessDenied reason="forbidden" moduleName={moduleRow.name} />
     }
 
     const Icon = getModuleIcon(moduleRow.icon)
@@ -92,47 +91,11 @@ export default async function DynamicModulePage({
     )
   } catch (error) {
     console.error('[v0] Unexpected error in dynamic module page:', error)
-    return <AccessDenied reason="error" errorMessage="Error interno del servidor" />
+    return (
+      <DynamicModuleAccessDenied
+        reason="error"
+        errorMessage="common.errors.internalServer"
+      />
+    )
   }
-}
-
-function AccessDenied({
-  reason,
-  moduleName,
-  errorMessage,
-}: {
-  reason: 'missing' | 'forbidden' | 'error'
-  moduleName?: string
-  errorMessage?: string
-}) {
-  return (
-    <div className="min-h-[70vh] flex items-center justify-center">
-      <div className="max-w-md w-full bg-card border border-border rounded-xl p-8 text-center">
-        <div className="w-14 h-14 rounded-xl bg-destructive/15 border border-destructive/30 flex items-center justify-center mx-auto mb-4">
-          {reason === 'error' ? (
-            <AlertTriangle className="w-7 h-7 text-destructive" />
-          ) : (
-            <ShieldAlert className="w-7 h-7 text-destructive" />
-          )}
-        </div>
-        <h1 className="text-2xl font-bold text-foreground mb-2">
-          {reason === 'error' ? 'Error' : 'Acceso Denegado'}
-        </h1>
-        <p className="text-muted-foreground mb-6">
-          {reason === 'missing'
-            ? 'El módulo solicitado no existe o ha sido deshabilitado.'
-            : reason === 'forbidden'
-              ? `No tienes permisos para acceder al módulo "${moduleName}". Contacta al administrador si crees que es un error.`
-              : errorMessage || 'Ocurrió un error inesperado.'}
-        </p>
-        <Link
-          href="/dashboard"
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Volver al inicio
-        </Link>
-      </div>
-    </div>
-  )
 }

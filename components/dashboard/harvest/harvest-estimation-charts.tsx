@@ -15,6 +15,7 @@ import {
   YAxis,
 } from 'recharts'
 import { formatKg } from '@/lib/agronomy/format'
+import { useLocale } from '@/components/i18n/locale-provider'
 
 export interface HarvestChartPoint {
   name: string
@@ -242,12 +243,14 @@ function TimelineChart({
   data,
   axisColor,
   gridColor,
+  estimatedLabel,
 }: {
   title: string
   subtitle: string
   data: TimelinePoint[]
   axisColor: string
   gridColor: string
+  estimatedLabel: string
 }) {
   if (data.length === 0) return null
 
@@ -278,7 +281,7 @@ function TimelineChart({
             />
             <Tooltip content={<KgTooltip />} />
             <Legend wrapperStyle={{ fontSize: 11 }} />
-            <Line type="monotone" dataKey="estimated" name="Kg estimados" stroke={UPCROP.primary} strokeWidth={2} dot={{ r: 3 }} />
+            <Line type="monotone" dataKey="estimated" name={estimatedLabel} stroke={UPCROP.primary} strokeWidth={2} dot={{ r: 3 }} />
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -302,8 +305,11 @@ export function HarvestEstimationCharts({
   timeline,
 }: HarvestEstimationChartsProps) {
   const isDark = useIsDarkMode()
+  const { t } = useLocale()
   const axisColor = isDark ? UPCROP.axisDark : UPCROP.axisLight
   const gridColor = isDark ? UPCROP.gridDark : UPCROP.gridLight
+  const preKey = 'Pre-poda'
+  const postKey = 'Post-poda'
 
   if (byField.length === 0 && byBlock.length === 0 && byVariety.length === 0) {
     return null
@@ -313,15 +319,15 @@ export function HarvestEstimationCharts({
     <div className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-2">
         <KgBarChart
-          title="Kg por campo"
-          subtitle="Suma de estimaciones por campo"
+          title={t('estimacionCosecha.charts.kgByField')}
+          subtitle={t('estimacionCosecha.charts.kgByFieldSub')}
           data={byField}
           axisColor={axisColor}
           gridColor={gridColor}
         />
         <KgBarChart
-          title="Kg por cuartel"
-          subtitle="Detalle por cuartel (campo · cuartel)"
+          title={t('estimacionCosecha.charts.kgByBlock')}
+          subtitle={t('estimacionCosecha.charts.kgByBlockSub')}
           data={byBlock}
           axisColor={axisColor}
           gridColor={gridColor}
@@ -331,8 +337,8 @@ export function HarvestEstimationCharts({
       <div className="grid gap-4 lg:grid-cols-2">
         {byVariety.length > 0 && (
           <KgBarChart
-            title="Kg por variedad"
-            subtitle="Estimación total por variedad"
+            title={t('estimacionCosecha.charts.kgByVariety')}
+            subtitle={t('estimacionCosecha.charts.kgByVarietySub')}
             data={byVariety}
             axisColor={axisColor}
             gridColor={gridColor}
@@ -340,18 +346,18 @@ export function HarvestEstimationCharts({
         )}
         {prePostComparison.length > 0 && (
           <CompareBarChart
-            title="Pre-poda vs Post-poda"
-            subtitle="Kg estimados por cuartel y variedad"
+            title={t('estimacionCosecha.charts.prePostCompare')}
+            subtitle={t('estimacionCosecha.charts.prePostCompareSub')}
             data={prePostComparison.map((row) => ({
               name: row.name,
-              'Pre-poda': row.pre,
-              'Post-poda': row.post,
+              [preKey]: row.pre,
+              [postKey]: row.post,
             }))}
             axisColor={axisColor}
             gridColor={gridColor}
             keys={[
-              { key: 'Pre-poda', label: 'Pre-poda', color: UPCROP.pre },
-              { key: 'Post-poda', label: 'Post-poda', color: UPCROP.post },
+              { key: preKey, label: t('estimacionCosecha.prePost.prePoda'), color: UPCROP.pre },
+              { key: postKey, label: t('estimacionCosecha.prePost.postPoda'), color: UPCROP.post },
             ]}
           />
         )}
@@ -359,11 +365,12 @@ export function HarvestEstimationCharts({
 
       {timeline.length > 1 && (
         <TimelineChart
-          title="Evolución en el tiempo"
-          subtitle="Suma acumulada por fecha de registro"
+          title={t('estimacionCosecha.charts.timeline')}
+          subtitle={t('estimacionCosecha.charts.timelineSub')}
           data={timeline}
           axisColor={axisColor}
           gridColor={gridColor}
+          estimatedLabel={t('estimacionCosecha.charts.estimatedKg')}
         />
       )}
     </div>
@@ -377,8 +384,11 @@ interface HarvestCountChartsProps {
 
 export function HarvestCountCharts({ samplesByBlock, prePostDardos }: HarvestCountChartsProps) {
   const isDark = useIsDarkMode()
+  const { t } = useLocale()
   const axisColor = isDark ? UPCROP.axisDark : UPCROP.axisLight
   const gridColor = isDark ? UPCROP.gridDark : UPCROP.gridLight
+  const preKey = 'Pre-poda'
+  const postKey = 'Post-poda'
 
   if (samplesByBlock.length === 0 && prePostDardos.length === 0) return null
 
@@ -388,8 +398,8 @@ export function HarvestCountCharts({ samplesByBlock, prePostDardos }: HarvestCou
         {samplesByBlock.length > 0 && (
           <div className="rounded-xl border bg-card p-4 flex flex-col min-h-[320px]">
             <div className="mb-3">
-              <h3 className="text-sm font-semibold text-foreground">Muestras por cuartel</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">Cantidad de árboles contados</p>
+              <h3 className="text-sm font-semibold text-foreground">{t('estimacionCosecha.charts.samplesByBlock')}</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">{t('estimacionCosecha.charts.samplesByBlockSub')}</p>
             </div>
             <div className="flex-1 min-h-[240px]">
               <ResponsiveContainer width="100%" height="100%">
@@ -406,7 +416,7 @@ export function HarvestCountCharts({ samplesByBlock, prePostDardos }: HarvestCou
                   />
                   <YAxis stroke={axisColor} tick={{ fontSize: 10, fill: axisColor }} width={40} />
                   <Tooltip />
-                  <Bar dataKey="samples" name="Muestras" fill={UPCROP.primary} radius={[6, 6, 0, 0]} maxBarSize={48} />
+                  <Bar dataKey="samples" name={t('estimacionCosecha.charts.samples')} fill={UPCROP.primary} radius={[6, 6, 0, 0]} maxBarSize={48} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -414,18 +424,18 @@ export function HarvestCountCharts({ samplesByBlock, prePostDardos }: HarvestCou
         )}
         {prePostDardos.length > 0 && (
           <CompareBarChart
-            title="Dardos/planta Pre vs Post"
-            subtitle="Promedio por cuartel y variedad"
+            title={t('estimacionCosecha.charts.spursPrePost')}
+            subtitle={t('estimacionCosecha.charts.spursPrePostSub')}
             data={prePostDardos.map((row) => ({
               name: row.name,
-              'Pre-poda': row.pre,
-              'Post-poda': row.post,
+              [preKey]: row.pre,
+              [postKey]: row.post,
             }))}
             axisColor={axisColor}
             gridColor={gridColor}
             keys={[
-              { key: 'Pre-poda', label: 'Pre-poda', color: UPCROP.pre },
-              { key: 'Post-poda', label: 'Post-poda', color: UPCROP.post },
+              { key: preKey, label: t('estimacionCosecha.prePost.prePoda'), color: UPCROP.pre },
+              { key: postKey, label: t('estimacionCosecha.prePost.postPoda'), color: UPCROP.post },
             ]}
           />
         )}

@@ -45,6 +45,8 @@ import {
   Clock,
   Eye,
   Layers,
+  Crown,
+  HardHat,
 } from 'lucide-react'
 import { getModuleIcon, getIconShape, resolveIconContainerStyle, resolveIconStyle, resolveTextStyle } from '@/lib/module-icons'
 import { cn } from '@/lib/utils'
@@ -53,16 +55,29 @@ import {
   isSubuserModuleSwitchDisabled,
   subuserModuleSwitchTitle,
 } from '@/lib/admin/subuser-module-access'
+import {
+  inspectorModuleCellState,
+  inspectorModuleSwitchTitle,
+} from '@/lib/admin/inspector-module-access'
 import { exportStyledReportExcel } from '@/lib/excel/upcrop-excel-theme'
 import { CreateModuleDialog } from './create-module-dialog'
 import { EditModuleDialog } from './edit-module-dialog'
 import { EditUserDialog } from './edit-user-dialog'
 import { UserDataAccessDialog } from './user-data-access-dialog'
 import { CreateSubuserDialog } from './create-subuser-dialog'
+import { InspectorClientsDialog } from './inspector-clients-dialog'
 import { ModuleOrderDialog } from './module-order-dialog'
 import { ManageModuleAreasDialog } from './manage-module-areas-dialog'
+import { AssignServicePlanDialog } from './assign-service-plan-dialog'
+import {
+  getServicePlanBadgeClass,
+  getServicePlanLabel,
+} from '@/lib/service-plan-admin'
+import { isPrincipalClientProfile } from '@/lib/profiles/principal-clients'
+import { isServicePlanId, type ServicePlanId } from '@/lib/subscription-plans'
 import { logAudit } from '@/lib/audit-log'
 import { compareModulesByAreaThenName, groupModulesByArea, buildModuleAreaCellMeta, moduleAreaCellClassName, type ModuleArea } from '@/lib/modules/areas'
+import { fetchActiveModules } from '@/lib/modules/fetch-active-modules'
 import { startImpersonationAction } from '@/app/admin/impersonation-actions'
 
 interface ModuleRow {
@@ -73,6 +88,9 @@ interface ModuleRow {
   color?: string | null
   text_color?: string | null
   icon_shape?: string | null
+  icon_size?: string | null
+  icon_style?: string | null
+  menu_badge?: string | null
   description: string | null
   is_active: boolean
   is_core?: boolean
@@ -98,8 +116,9 @@ interface UserRow {
   last_activity_at: string | null
   parent_user_id: string | null
   avatar_url?: string | null
+  service_plan_id?: ServicePlanId | null
+  is_tech_inspector?: boolean
 }
-
 const PAGE_SIZE = 10
 const AREA_HEADER_ROW_HEIGHT = 52
 const MODULE_HEADER_ROW_HEIGHT = 112
@@ -113,7 +132,7 @@ const STICKY_USER_BODY =
 const STICKY_ACTIVITY_BODY =
   'sticky left-[340px] z-[40] w-[140px] min-w-[140px] max-w-[140px] bg-card border-r border-border shadow-[4px_0_8px_-4px_rgba(0,0,0,0.18)]'
 
-type FilterValue = 'all' | 'blocked' | 'admins' | 'clients' | 'principal' | 'sub'
+type FilterValue = 'all' | 'blocked' | 'admins' | 'clients' | 'principal' | 'sub' | 'inspector'
 
 function formatDateTime(iso: string | null) {
   if (!iso) return '—'
@@ -283,8 +302,10 @@ export function UserPermissionsTable() {
   const [isDeletingModule, setIsDeletingModule] = useState(false)
   const [editUserTarget, setEditUserTarget] = useState<UserRow | null>(null)
   const [dataAccessTarget, setDataAccessTarget] = useState<UserRow | null>(null)
+  const [inspectorClientsTarget, setInspectorClientsTarget] = useState<UserRow | null>(null)
   const [subuserTarget, setSubuserTarget] = useState<UserRow | null>(null)
   const [orderTarget, setOrderTarget] = useState<UserRow | null>(null)
+  const [assignPlanTarget, setAssignPlanTarget] = useState<UserRow | null>(null)
   const [impersonatingId, setImpersonatingId] = useState<string | null>(null)
   const [, startTransition] = useTransition()
   // Ticker to force re-render every 30s so relative times stay fresh
@@ -292,74 +313,57 @@ export function UserPermissionsTable() {
 
   const accessKey = (userId: string, moduleId: string) => `${userId}:${moduleId}`
 
+  const refreshModules = useCallback(async () => {
+    try {
+      const loaded = (await fetchActiveModules(supabase)) as ModuleRow[]
+      setModules(loaded)
+    } catch (err) {
+      console.error('[v0] modules refresh error:', err)
+    }
+  }, [supabase])
+
   const fetchAll = useCallback(async () => {
-    // Fetch users and access normally
-    const [usersRes, accessRes] = await Promise.all([
-      supabase
+    const accessPromise = supabase
+      .from('user_module_access')
+      .select('user_id, module_id, enabled, display_order')
+
+    let usersRes = await supabase
+      .from('profiles')
+      .select(
+        'id, full_name, email, role, created_at, is_active, last_activity_at, parent_user_id, avatar_url, service_plan_id, is_tech_inspector',
+      )
+      .order('created_at', { ascending: false })
+
+    if (usersRes.error?.message?.includes('service_plan_id') || usersRes.error?.message?.includes('is_tech_inspector')) {
+      usersRes = await supabase
         .from('profiles')
         .select(
           'id, full_name, email, role, created_at, is_active, last_activity_at, parent_user_id, avatar_url',
         )
-        .order('created_at', { ascending: false }),
-      supabase.from('user_module_access').select('user_id, module_id, enabled, display_order'),
-    ])
+        .order('created_at', { ascending: false })
+    }
+
+    const accessRes = await accessPromise
 
     // Resilient modules fetch (supports missing is_core column during migration)
-    let modulesRes: any = { data: [], error: null }
+    let loadedModules: ModuleRow[] = []
     try {
-      const resWithCore = await supabase
-        .from('modules')
-        .select('id, slug, name, icon, color, text_color, icon_shape, description, is_active, is_core, embed_url, area_id, area:module_areas(id, name, display_order)')
-          .eq('is_active', true)
-          .order('created_at', { ascending: true })
-
-      if (!resWithCore.error) {
-        modulesRes = resWithCore
-      } else {
-        // Fallback: try without area join
-        const resWithCoreNoArea = await supabase
-          .from('modules')
-          .select('id, slug, name, icon, color, text_color, icon_shape, description, is_active, is_core, embed_url, area_id')
-          .eq('is_active', true)
-          .order('created_at', { ascending: true })
-        if (!resWithCoreNoArea.error) {
-          modulesRes = resWithCoreNoArea
-        } else {
-        // Fallback: try without is_core
-        const res2 = await supabase
-          .from('modules')
-          .select('id, slug, name, icon, color, text_color, icon_shape, description, is_active, embed_url')
-          .eq('is_active', true)
-          .order('created_at', { ascending: true })
-        if (!res2.error) {
-          modulesRes = res2
-        } else {
-          // Fallback: try without new color columns (pre-migration)
-          const res3 = await supabase
-            .from('modules')
-            .select('id, slug, name, icon, description, is_active, embed_url')
-            .eq('is_active', true)
-            .order('created_at', { ascending: true })
-          modulesRes = res3
-        }
-        }
-      }
+      loadedModules = (await fetchActiveModules(supabase)) as ModuleRow[]
     } catch {
-      // Last resort: bare minimum columns
-      modulesRes = await supabase
-        .from('modules')
-        .select('id, slug, name, icon, description, is_active, embed_url')
-        .eq('is_active', true)
-        .order('created_at', { ascending: true })
+      loadedModules = []
     }
 
     if (usersRes.error) console.error('[v0] users error:', usersRes.error)
-    if (modulesRes.error) console.error('[v0] modules error:', modulesRes.error)
     if (accessRes.error) console.error('[v0] access error:', accessRes.error)
 
-    setUsers((usersRes.data ?? []) as UserRow[])
-    const loadedModules = ((modulesRes.data ?? []) as ModuleRow[]).filter(m => m.slug !== 'inicio')
-    loadedModules.sort((a, b) => compareModulesByAreaThenName(a, b))
+    const normalizedUsers = ((usersRes.data ?? []) as UserRow[]).map(user => ({
+      ...user,
+      service_plan_id: isServicePlanId(user.service_plan_id as string | null)
+        ? user.service_plan_id
+        : null,
+    }))
+
+    setUsers(normalizedUsers)
     setModules(loadedModules)
 
 
@@ -386,8 +390,13 @@ export function UserPermissionsTable() {
         { event: 'INSERT', schema: 'public', table: 'profiles' },
         (payload) => {
           const newUser = payload.new as UserRow
+          const service_plan_id = isServicePlanId(newUser.service_plan_id as string | null)
+            ? newUser.service_plan_id
+            : null
           setUsers((prev) =>
-            prev.some((u) => u.id === newUser.id) ? prev : [newUser, ...prev],
+            prev.some((u) => u.id === newUser.id)
+              ? prev
+              : [{ ...newUser, service_plan_id }, ...prev],
           )
         },
       )
@@ -396,8 +405,13 @@ export function UserPermissionsTable() {
         { event: 'UPDATE', schema: 'public', table: 'profiles' },
         (payload) => {
           const updated = payload.new as UserRow
+          const service_plan_id = isServicePlanId(updated.service_plan_id as string | null)
+            ? updated.service_plan_id
+            : null
           setUsers((prev) =>
-            prev.map((u) => (u.id === updated.id ? { ...u, ...updated } : u)),
+            prev.map((u) =>
+              u.id === updated.id ? { ...u, ...updated, service_plan_id } : u,
+            ),
           )
         },
       )
@@ -412,26 +426,12 @@ export function UserPermissionsTable() {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'modules' },
-        async () => {
-          // Try full columns first, progressively degrade if columns missing
-          const { data: d1, error: e1 } = await supabase
-            .from('modules')
-            .select('id, slug, name, icon, color, text_color, icon_shape, description, is_active, is_core, embed_url')
-            .eq('is_active', true).order('created_at', { ascending: true })
-          if (!e1) { setModules((d1 as ModuleRow[]).filter(m => m.slug !== 'inicio')); return }
-
-          const { data: d2, error: e2 } = await supabase
-            .from('modules')
-            .select('id, slug, name, icon, color, text_color, icon_shape, description, is_active, embed_url')
-            .eq('is_active', true).order('created_at', { ascending: true })
-          if (!e2) { setModules((d2 as ModuleRow[]).filter(m => m.slug !== 'inicio')); return }
-
-          const { data: d3 } = await supabase
-            .from('modules')
-            .select('id, slug, name, icon, description, is_active, embed_url')
-            .eq('is_active', true).order('created_at', { ascending: true })
-          setModules(((d3 ?? []) as ModuleRow[]).filter(m => m.slug !== 'inicio'))
-        },
+        () => { void refreshModules() },
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'module_areas' },
+        () => { void refreshModules() },
       )
       .on(
         'postgres_changes',
@@ -467,7 +467,7 @@ export function UserPermissionsTable() {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [supabase, fetchAll])
+  }, [supabase, fetchAll, refreshModules])
 
   // Refresh relative times every 30s
   useEffect(() => {
@@ -480,11 +480,12 @@ export function UserPermissionsTable() {
     setImpersonatingId(user.id)
     startTransition(async () => {
       const res = await startImpersonationAction(user.id)
-      if (res && !res.ok) {
+      if (!res.ok) {
         toast.error('No se pudo iniciar modo soporte', { description: res.message })
         setImpersonatingId(null)
+        return
       }
-      // redirect() on success — no cleanup needed
+      window.location.assign(res.redirectTo)
     })
   }, [impersonatingId, startTransition])
 
@@ -499,6 +500,11 @@ export function UserPermissionsTable() {
 
     const user = users.find((u) => u.id === userId)
     if (!user) return
+
+    if (user.is_tech_inspector) {
+      toast.error('Los inspectores solo pueden tener Asistencia técnica')
+      return
+    }
 
     if (user.parent_user_id && checked && !canEnableSubuserModule(access, user.parent_user_id, moduleId)) {
       toast.error('No se puede activar el módulo', {
@@ -711,14 +717,23 @@ export function UserPermissionsTable() {
       if (filter === 'blocked'   && u.is_active)                    return false
       if (filter === 'admins'    && u.role !== 'admin')              return false
       if (filter === 'clients'   && u.role !== 'user')               return false
-      if (filter === 'principal' && u.parent_user_id !== null)       return false
-      if (filter === 'sub'       && u.parent_user_id === null)       return false
+      if (filter === 'principal' && (u.parent_user_id !== null || u.is_tech_inspector)) return false
+      if (filter === 'sub'       && u.parent_user_id === null && !u.is_tech_inspector) return false
+      if (filter === 'inspector' && !u.is_tech_inspector)                              return false
       if (!q) return true
       const name = (u.full_name ?? '').toLowerCase()
       const email = (u.email ?? '').toLowerCase()
       return name.includes(q) || email.includes(q)
     })
   }, [users, debouncedSearch, filter])
+
+  const primaryClientOptions = useMemo(
+    () =>
+      users
+        .filter(isPrincipalClientProfile)
+        .map(u => ({ id: u.id, label: u.full_name?.trim() || u.email || u.id })),
+    [users],
+  )
 
   const usersById = useMemo(() => {
     const map = new Map<string, UserRow>()
@@ -845,6 +860,7 @@ export function UserPermissionsTable() {
               <SelectItem value="admins">Solo Administradores</SelectItem>
               <SelectItem value="principal">Solo Clientes</SelectItem>
               <SelectItem value="sub">Solo Subusuarios</SelectItem>
+              <SelectItem value="inspector">Solo Inspectores</SelectItem>
               <SelectItem value="blocked">Solo Bloqueados</SelectItem>
             </SelectContent>
           </Select>
@@ -958,8 +974,8 @@ export function UserPermissionsTable() {
                   {sortedModules.map((module) => {
                     const Icon = getModuleIcon(module.icon)
                     const shapeCfg = getIconShape(module.icon_shape)
-                    const iconContainer = resolveIconContainerStyle(module.color, shapeCfg.className)
-                    const iconStyle = resolveIconStyle(module.color)
+                    const iconContainer = resolveIconContainerStyle(module.color, shapeCfg.className, module.icon_style)
+                    const iconStyle = resolveIconStyle(module.color, module.icon_style)
                     const textStyle = resolveTextStyle(module.text_color ?? null, module.color)
                     return (
                       <th
@@ -1033,7 +1049,7 @@ export function UserPermissionsTable() {
                     usersById.get(user.parent_user_id)?.email ||
                     'Cuenta principal'
                   : null
-                const isPrimaryClient = user.role === 'user' && !user.parent_user_id
+                const isPrimaryClient = isPrincipalClientProfile(user)
                 const online = isUserOnline(user.last_activity_at)
 
                 return (
@@ -1101,6 +1117,11 @@ export function UserPermissionsTable() {
                                 Subusuario
                               </Badge>
                             )}
+                            {user.is_tech_inspector && (
+                              <Badge className="h-4 px-1.5 text-[10px] bg-sky-500/15 text-sky-700 dark:text-sky-400 border border-sky-500/30">
+                                Inspector
+                              </Badge>
+                            )}
                             {!user.is_active && (
                               <Badge className="h-4 px-1.5 text-[10px] bg-destructive/15 text-destructive border border-destructive/30">
                                 Bloqueado
@@ -1120,6 +1141,23 @@ export function UserPermissionsTable() {
                             </p>
                           )}
 
+                          {isPrimaryClient && (
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                              {user.service_plan_id ? (
+                                <Badge
+                                  variant="outline"
+                                  className={cn('h-5 px-1.5 text-[10px]', getServicePlanBadgeClass(user.service_plan_id))}
+                                >
+                                  {getServicePlanLabel(user.service_plan_id)}
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="h-5 px-1.5 text-[10px] text-muted-foreground">
+                                  Sin plan
+                                </Badge>
+                              )}
+                            </div>
+                          )}
+
                           {/* Row 4: action buttons */}
                           <div className="flex items-center gap-0.5 mt-1.5">
                             <Button
@@ -1131,24 +1169,39 @@ export function UserPermissionsTable() {
                             >
                               <Pencil className="w-3.5 h-3.5" />
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => setDataAccessTarget(user)}
-                              title="Acceso a tablas y gráficos"
-                              className="h-7 w-7 p-0 text-muted-foreground hover:text-primary hover:bg-primary/10"
-                            >
-                              <Database className="w-3.5 h-3.5" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => setOrderTarget(user)}
-                              title="Orden de módulos"
-                              className="h-7 w-7 p-0 text-muted-foreground hover:text-primary hover:bg-primary/10"
-                            >
-                              <ListOrdered className="w-3.5 h-3.5" />
-                            </Button>
+                            {!user.is_tech_inspector && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setDataAccessTarget(user)}
+                                title="Acceso a tablas y gráficos"
+                                className="h-7 w-7 p-0 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                              >
+                                <Database className="w-3.5 h-3.5" />
+                              </Button>
+                            )}
+                            {!user.is_tech_inspector && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setOrderTarget(user)}
+                                title="Orden de módulos"
+                                className="h-7 w-7 p-0 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                              >
+                                <ListOrdered className="w-3.5 h-3.5" />
+                              </Button>
+                            )}
+                            {isPrimaryClient && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setAssignPlanTarget(user)}
+                                title="Asignar plan de servicio"
+                                className="h-7 w-7 p-0 text-muted-foreground hover:text-amber-600 hover:bg-amber-500/10"
+                              >
+                                <Crown className="w-3.5 h-3.5" />
+                              </Button>
+                            )}
                             {isPrimaryClient && (
                               <Button
                                 size="sm"
@@ -1160,13 +1213,28 @@ export function UserPermissionsTable() {
                                 <UserPlus className="w-3.5 h-3.5" />
                               </Button>
                             )}
+                            {user.is_tech_inspector && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setInspectorClientsTarget(user)}
+                                title="Asignar clientes al inspector"
+                                className="h-7 w-7 p-0 text-muted-foreground hover:text-sky-600 hover:bg-sky-500/10"
+                              >
+                                <HardHat className="w-3.5 h-3.5" />
+                              </Button>
+                            )}
                             {user.role === 'user' && user.is_active && (
                               <Button
                                 size="sm"
                                 variant="ghost"
                                 disabled={impersonatingId === user.id}
                                 onClick={() => handleViewAsClient(user)}
-                                title="Ver como cliente (modo soporte)"
+                                title={
+                                  user.is_tech_inspector
+                                    ? 'Ver como inspector (modo soporte)'
+                                    : 'Ver como cliente (modo soporte)'
+                                }
                                 className="h-7 w-7 p-0 text-muted-foreground hover:text-violet-600 hover:bg-violet-500/10"
                               >
                                 {impersonatingId === user.id ? (
@@ -1232,8 +1300,13 @@ export function UserPermissionsTable() {
                       const key = accessKey(user.id, module.id)
                       const isChecked = !!access[key]
                       const loading = loadingStates[key]
-                      const switchDisabled = isSubuserModuleSwitchDisabled(access, user, module.id, isChecked)
-                      const switchTitle = subuserModuleSwitchTitle(access, user, module.id, isChecked)
+                      const inspectorCell = inspectorModuleCellState(user, module)
+                      const switchDisabled =
+                        inspectorCell !== null ||
+                        isSubuserModuleSwitchDisabled(access, user, module.id, isChecked)
+                      const switchTitle =
+                        inspectorModuleSwitchTitle(user, module) ??
+                        subuserModuleSwitchTitle(access, user, module.id, isChecked)
                       return (
                         <td
                           key={module.id}
@@ -1245,6 +1318,17 @@ export function UserPermissionsTable() {
                            <div className="flex justify-center">
                              {loading ? (
                                <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                             ) : inspectorCell === 'locked-on' ? (
+                               <span
+                                 className="inline-flex items-center rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-medium text-sky-700 dark:text-sky-400 border border-sky-500/30"
+                                 title={switchTitle}
+                               >
+                                 Inspector
+                               </span>
+                             ) : inspectorCell === 'locked-off' ? (
+                               <span className="text-xs text-muted-foreground" title={switchTitle}>
+                                 —
+                               </span>
                              ) : module.is_core ? (
                                <span
                                  className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700 border border-emerald-200"
@@ -1367,7 +1451,7 @@ export function UserPermissionsTable() {
                 usersById.get(user.parent_user_id)?.email ||
                 'Cuenta principal'
               : null
-            const isPrimaryClient = user.role === 'user' && !user.parent_user_id
+            const isPrimaryClient = isPrincipalClientProfile(user)
             return (
               <div
                 key={user.id}
@@ -1390,6 +1474,22 @@ export function UserPermissionsTable() {
                         Subusuario de {parentLabel}
                       </p>
                     )}
+                    {isPrimaryClient && (
+                      <div className="mt-1">
+                        {user.service_plan_id ? (
+                          <Badge
+                            variant="outline"
+                            className={cn('text-[10px]', getServicePlanBadgeClass(user.service_plan_id))}
+                          >
+                            {getServicePlanLabel(user.service_plan_id)}
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                            Sin plan de servicio
+                          </Badge>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div className="flex flex-col items-end gap-1 shrink-0">
                     {user.role === 'admin' && (
@@ -1406,6 +1506,11 @@ export function UserPermissionsTable() {
                     {user.role === 'user' && user.parent_user_id && (
                       <Badge className="bg-violet-500/15 text-violet-600 dark:text-violet-400 border border-violet-500/30">
                         Subusuario
+                      </Badge>
+                    )}
+                    {user.is_tech_inspector && (
+                      <Badge className="bg-sky-500/15 text-sky-700 dark:text-sky-400 border border-sky-500/30">
+                        Inspector
                       </Badge>
                     )}
                     {user.is_active ? (
@@ -1456,25 +1561,29 @@ export function UserPermissionsTable() {
                     <Pencil className="w-4 h-4 mr-2" />
                     Editar
                   </Button>
+                  {!user.is_tech_inspector && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setDataAccessTarget(user)}
+                      className="flex-1"
+                    >
+                      <Database className="w-4 h-4 mr-2" />
+                      Datos
+                    </Button>
+                  )}
+                </div>
+                {!user.is_tech_inspector && (
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => setDataAccessTarget(user)}
-                    className="flex-1"
+                    onClick={() => setOrderTarget(user)}
+                    className="w-full"
                   >
-                    <Database className="w-4 h-4 mr-2" />
-                    Datos
+                    <ListOrdered className="w-4 h-4 mr-2" />
+                    Orden de módulos
                   </Button>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setOrderTarget(user)}
-                  className="w-full"
-                >
-                  <ListOrdered className="w-4 h-4 mr-2" />
-                  Orden de módulos
-                </Button>
+                )}
                 {user.role === 'user' && user.is_active && (
                   <Button
                     size="sm"
@@ -1488,7 +1597,18 @@ export function UserPermissionsTable() {
                     ) : (
                       <Eye className="w-4 h-4 mr-2" />
                     )}
-                    Ver como cliente
+                    {user.is_tech_inspector ? 'Ver como inspector' : 'Ver como cliente'}
+                  </Button>
+                )}
+                {isPrimaryClient && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setAssignPlanTarget(user)}
+                    className="w-full border-amber-500/30 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10"
+                  >
+                    <Crown className="w-4 h-4 mr-2" />
+                    Asignar plan de servicio
                   </Button>
                 )}
                 {isPrimaryClient && (
@@ -1526,8 +1646,13 @@ export function UserPermissionsTable() {
                           const key = accessKey(user.id, module.id)
                           const isChecked = !!access[key]
                           const loading = loadingStates[key]
-                          const switchDisabled = isSubuserModuleSwitchDisabled(access, user, module.id, isChecked)
-                          const switchTitle = subuserModuleSwitchTitle(access, user, module.id, isChecked)
+                          const inspectorCell = inspectorModuleCellState(user, module)
+                          const switchDisabled =
+                            inspectorCell !== null ||
+                            isSubuserModuleSwitchDisabled(access, user, module.id, isChecked)
+                          const switchTitle =
+                            inspectorModuleSwitchTitle(user, module) ??
+                            subuserModuleSwitchTitle(access, user, module.id, isChecked)
                           return (
                             <div
                               key={module.id}
@@ -1541,6 +1666,10 @@ export function UserPermissionsTable() {
                               </div>
                               {loading ? (
                                 <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                              ) : inspectorCell === 'locked-on' ? (
+                                <span className="text-[10px] text-sky-600 dark:text-sky-400">Inspector</span>
+                              ) : inspectorCell === 'locked-off' ? (
+                                <span className="text-xs text-muted-foreground">—</span>
                               ) : module.is_core ? (
                                 <span className="text-[10px] text-emerald-600">Obligatorio</span>
                               ) : (
@@ -1638,12 +1767,14 @@ export function UserPermissionsTable() {
       <CreateModuleDialog
         open={moduleDialogOpen}
         onOpenChange={setModuleDialogOpen}
+        onCreated={refreshModules}
       />
 
       <EditModuleDialog
         open={!!editModuleTarget}
         onOpenChange={(open) => !open && setEditModuleTarget(null)}
         module={editModuleTarget}
+        onSaved={refreshModules}
       />
 
       {/* Delete module confirmation */}
@@ -1717,6 +1848,13 @@ export function UserPermissionsTable() {
         parentUser={subuserTarget}
       />
 
+      <InspectorClientsDialog
+        open={!!inspectorClientsTarget}
+        onOpenChange={open => !open && setInspectorClientsTarget(null)}
+        inspector={inspectorClientsTarget}
+        clients={primaryClientOptions}
+      />
+
       <ModuleOrderDialog
         open={!!orderTarget}
         onOpenChange={(open) => !open && setOrderTarget(null)}
@@ -1738,6 +1876,17 @@ export function UserPermissionsTable() {
         open={areasDialogOpen}
         onOpenChange={setAreasDialogOpen}
         onAreasChanged={fetchAll}
+      />
+
+      <AssignServicePlanDialog
+        open={!!assignPlanTarget}
+        onOpenChange={open => !open && setAssignPlanTarget(null)}
+        user={assignPlanTarget}
+        onSaved={(userId, planId) => {
+          setUsers(prev =>
+            prev.map(u => (u.id === userId ? { ...u, service_plan_id: planId } : u)),
+          )
+        }}
       />
     </div>
   )

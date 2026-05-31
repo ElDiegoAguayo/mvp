@@ -1,24 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Fuel, TrendingUp, TrendingDown } from 'lucide-react'
 import { DashboardCard } from '@/components/dashboard/dashboard-card'
+import { useLocale } from '@/components/i18n/locale-provider'
 import {
   ResponsiveContainer,
   LineChart,
   Line,
 } from 'recharts'
-
-// Datos simulados realistas para los últimos 7 días (precios en USD)
-const FUELS_DATA = [
-  { date: 'Lun', wti: 78.50, brent: 82.30, diesel: 2.85, naturalGas: 3.24 },
-  { date: 'Mar', wti: 78.10, brent: 81.95, diesel: 2.87, naturalGas: 3.19 },
-  { date: 'Mié', wti: 77.80, brent: 81.60, diesel: 2.89, naturalGas: 3.28 },
-  { date: 'Jue', wti: 77.45, brent: 81.20, diesel: 2.91, naturalGas: 3.35 },
-  { date: 'Vie', wti: 77.20, brent: 80.85, diesel: 2.88, naturalGas: 3.42 },
-  { date: 'Sáb', wti: 76.95, brent: 80.50, diesel: 2.90, naturalGas: 3.38 },
-  { date: 'Dom', wti: 76.80, brent: 80.20, diesel: 2.92, naturalGas: 3.45 },
-]
 
 const EXCHANGE_RATE_CLP = 940
 const CURRENCIES = [
@@ -27,19 +17,14 @@ const CURRENCIES = [
   { code: 'EUR', symbol: '€', label: 'EUR' },
 ]
 
-interface FuelMetric {
-  key: string
-  name: string
-  unit: string
-  color: string
-  dataKey: string
-}
-
-const FUEL_METRICS: FuelMetric[] = [
-  { key: 'wti', name: 'Petróleo WTI (Referencia Base)', unit: 'USD/barril', color: '#60a5fa', dataKey: 'wti' },
-  { key: 'brent', name: 'Petróleo Brent (Referencia Global)', unit: 'USD/barril', color: '#1e40af', dataKey: 'brent' },
-  { key: 'diesel', name: 'Diésel / Gasoil (Maquinaria)', unit: 'USD/galón', color: '#f97316', dataKey: 'diesel' },
-  { key: 'naturalGas', name: 'Gas Natural (Energía)', unit: 'USD/MMBtu', color: '#9ca3af', dataKey: 'naturalGas' },
+const FUEL_VALUES = [
+  { wti: 78.50, brent: 82.30, diesel: 2.85, naturalGas: 3.24 },
+  { wti: 78.10, brent: 81.95, diesel: 2.87, naturalGas: 3.19 },
+  { wti: 77.80, brent: 81.60, diesel: 2.89, naturalGas: 3.28 },
+  { wti: 77.45, brent: 81.20, diesel: 2.91, naturalGas: 3.35 },
+  { wti: 77.20, brent: 80.85, diesel: 2.88, naturalGas: 3.42 },
+  { wti: 76.95, brent: 80.50, diesel: 2.90, naturalGas: 3.38 },
+  { wti: 76.80, brent: 80.20, diesel: 2.92, naturalGas: 3.45 },
 ]
 
 function formatPrice(value: number, currency: string): string {
@@ -52,14 +37,40 @@ function formatPrice(value: number, currency: string): string {
 }
 
 export function InputsPriceWidget() {
+  const { t } = useLocale()
   const [selectedCurrency, setSelectedCurrency] = useState<string>('USD')
   const currencySymbol = CURRENCIES.find(c => c.code === selectedCurrency)?.symbol || '$'
 
-  // Función auxiliar para calcular cambio
+  const dayKeys = ['dayMon', 'dayTue', 'dayWed', 'dayThu', 'dayFri', 'daySat', 'daySun'] as const
+
+  const fuelsData = useMemo(
+    () =>
+      FUEL_VALUES.map((row, index) => ({
+        date: t(`homeWidgets.${dayKeys[index]}`),
+        ...row,
+      })),
+    [t],
+  )
+
+  const fuelMetrics = useMemo(
+    () => [
+      { key: 'wti', name: t('homeWidgets.fuelWti'), unit: t('homeWidgets.unitUsdBarrel'), color: '#60a5fa', dataKey: 'wti' },
+      { key: 'brent', name: t('homeWidgets.fuelBrent'), unit: t('homeWidgets.unitUsdBarrel'), color: '#1e40af', dataKey: 'brent' },
+      { key: 'diesel', name: t('homeWidgets.fuelDiesel'), unit: t('homeWidgets.unitUsdGallon'), color: '#f97316', dataKey: 'diesel' },
+      { key: 'naturalGas', name: t('homeWidgets.fuelGas'), unit: t('homeWidgets.unitUsdMmbtu'), color: '#9ca3af', dataKey: 'naturalGas' },
+    ],
+    [t],
+  )
+
   const calculateChange = (currentVal: number, previousVal: number) => {
     const change = currentVal - previousVal
     const changePercent = ((change / previousVal) * 100).toFixed(2)
     return { change, changePercent }
+  }
+
+  const displayUnit = (unit: string) => {
+    if (selectedCurrency !== 'CLP' || !unit.includes('USD/')) return unit
+    return unit.replace('USD/', 'CLP/')
   }
 
   return (
@@ -69,11 +80,10 @@ export function InputsPriceWidget() {
           <div className="flex items-center gap-2">
             <Fuel className="w-5 h-5 text-blue-400" />
             <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
-              Costos de Combustibles (Energía)
+              {t('homeWidgets.fuelsTitle')}
             </h3>
           </div>
 
-          {/* Currency Selector */}
           <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 rounded-lg p-1">
             {CURRENCIES.map((curr) => (
               <button
@@ -93,13 +103,13 @@ export function InputsPriceWidget() {
       }
       contentClassName="space-y-4"
     >
-      {FUEL_METRICS.map((metric, idx) => {
-        const currentValue = FUELS_DATA[FUELS_DATA.length - 1][metric.dataKey as keyof typeof FUELS_DATA[0]] as number
-        const previousValue = FUELS_DATA[0][metric.dataKey as keyof typeof FUELS_DATA[0]] as number
+      {fuelMetrics.map((metric, idx) => {
+        const currentValue = fuelsData[fuelsData.length - 1][metric.dataKey as keyof typeof fuelsData[0]] as number
+        const previousValue = fuelsData[0][metric.dataKey as keyof typeof fuelsData[0]] as number
         const { change, changePercent } = calculateChange(currentValue, previousValue)
 
         return (
-          <div key={metric.key} className={idx < FUEL_METRICS.length - 1 ? 'border-b border-gray-300 dark:border-gray-700 pb-4' : ''}>
+          <div key={metric.key} className={idx < fuelMetrics.length - 1 ? 'border-b border-gray-300 dark:border-gray-700 pb-4' : ''}>
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
                 {metric.name}
@@ -125,14 +135,11 @@ export function InputsPriceWidget() {
               </div>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
-              {selectedCurrency === 'CLP' && metric.unit.includes('USD') 
-                ? metric.unit.replace('USD/', 'CLP/') 
-                : metric.unit}
+              {displayUnit(metric.unit)}
             </p>
 
-            {/* Mini gráfico */}
             <ResponsiveContainer width="100%" height={40}>
-              <LineChart data={FUELS_DATA}>
+              <LineChart data={fuelsData}>
                 <Line
                   type="monotone"
                   dataKey={metric.dataKey}
@@ -147,9 +154,8 @@ export function InputsPriceWidget() {
         )
       })}
 
-      {/* Data Source Footer */}
       <div className="text-[10px] text-gray-500 dark:text-gray-600 border-t border-gray-300 dark:border-gray-700 pt-2 mt-2">
-        Fuente de datos: Índices de mercados energéticos internacionales (NYMEX / ICE) actualizados semanalmente.
+        {t('homeWidgets.fuelsSource')}
       </div>
     </DashboardCard>
   )

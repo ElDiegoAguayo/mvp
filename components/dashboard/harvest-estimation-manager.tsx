@@ -63,8 +63,12 @@ import { HarvestSeasonSummary } from '@/components/dashboard/harvest/harvest-sea
 import { HarvestPrePostTable } from '@/components/dashboard/harvest/harvest-pre-post-table'
 import { HarvestEstimationCards } from '@/components/dashboard/harvest/harvest-estimation-cards'
 import { HarvestRowBadge, isComputedHarvestRow } from '@/components/dashboard/harvest/harvest-row-badge'
+import { OfflinePendingBadge } from '@/components/dashboard/offline-pending-badge'
 import { computePrePostDeltaRows } from '@/lib/agronomy/compute-pre-post-delta'
 import { HarvestPlanManager } from '@/components/dashboard/harvest-plan/harvest-plan-manager'
+import { loadHarvestModuleData, offlineWrite } from '@/lib/offline/agronomy-offline'
+import { OFFLINE_EVENT } from '@/lib/offline/types'
+import { useLocale } from '@/components/i18n/locale-provider'
 
 export type HarvestEstimationTab = 'conteo' | 'estimacion' | 'plan'
 
@@ -197,6 +201,10 @@ const COUNT_STYLE: Record<HarvestCountState, string> = {
   'Post-poda': 'bg-orange-500/10 text-orange-700 dark:text-orange-300 border-orange-500/30',
 }
 
+function tCountState(t: (k: string) => string, state: HarvestCountState) {
+  return state === 'Post-poda' ? t('estimacionCosecha.countState.postPoda') : t('estimacionCosecha.countState.prePoda')
+}
+
 function numStr(v: number | null | undefined, fallback = '') {
   if (v == null || !Number.isFinite(Number(v))) return fallback
   return String(v)
@@ -211,12 +219,12 @@ function fmtNum(v: number, decimals = 2) {
   return v.toLocaleString('es-CL', { maximumFractionDigits: decimals, minimumFractionDigits: 0 })
 }
 
-function ExcelCalcPanel({ form }: { form: FormState }) {
+function ExcelCalcPanel({ form, t }: { form: FormState; t: (k: string) => string }) {
   const params = computeCherryHarvestLive(form)
   if (!params) {
     return (
       <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-        Completa superficie, plantas/ha y parámetros de referencia para ver los cálculos.
+        {t('estimacionCosecha.calc.fillParams')}
       </div>
     )
   }
@@ -226,18 +234,18 @@ function ExcelCalcPanel({ form }: { form: FormState }) {
 
   return (
     <div className="rounded-lg border bg-muted/20 p-3 space-y-3">
-      <p className="text-xs font-medium">Cálculo automático (como Excel)</p>
+      <p className="text-xs font-medium">{t('estimacionCosecha.calc.autoTitle')}</p>
       <p className="text-[11px] text-muted-foreground font-mono leading-relaxed">
         Frutos = ({fmtNum(params.dardosPerPlant, 1)} × {fmtNum(params.primordiaPerDardo, 2)}
         {' + '}{fmtNum(params.dardosPerBranch, 1)} × {fmtNum(params.primordiaPerBranch, 2)}) × {pct}%
       </p>
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
         {[
-          { label: 'Frutos cuajados', value: fmtNum(steps.fruitsSet, 2) },
-          { label: 'Peso fruto (kg)', value: fmtNum(steps.fruitWeightKg, 3) },
-          { label: 'Kg/planta', value: fmtNum(steps.kgPerPlant, 4) },
-          { label: 'Kg/ha', value: fmtNum(steps.kgPerHa, 1) },
-          { label: 'Kg totales', value: fmtNum(steps.kgTotal, 0) },
+          { label: t('estimacionCosecha.calc.fruitsSet'), value: fmtNum(steps.fruitsSet, 2) },
+          { label: t('estimacionCosecha.calc.fruitWeight'), value: fmtNum(steps.fruitWeightKg, 3) },
+          { label: t('estimacionCosecha.calc.kgPerPlant'), value: fmtNum(steps.kgPerPlant, 4) },
+          { label: t('estimacionCosecha.calc.kgPerHa'), value: fmtNum(steps.kgPerHa, 1) },
+          { label: t('estimacionCosecha.calc.totalKg'), value: fmtNum(steps.kgTotal, 0) },
         ].map((cell) => (
           <div key={cell.label} className="rounded-md border bg-background px-2 py-1.5">
             <p className="text-[10px] text-muted-foreground truncate">{cell.label}</p>
@@ -287,6 +295,7 @@ function computeFromForm(form: FormState, forSave = false) {
 }
 
 export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab?: HarvestEstimationTab } = {}) {
+  const { t } = useLocale()
   const router = useRouter()
   const supabase = useMemo(() => createClient(), [])
   const [loading, setLoading] = useState(true)
@@ -379,78 +388,79 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
     [blocks, form.field_name],
   )
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (options?: { silent?: boolean }) => {
+    if (!options?.silent) setLoading(true)
     const { effectiveUserId } = await getEffectiveUserId(supabase)
     if (!effectiveUserId) {
-      setLoading(false)
+      if (!options?.silent) setLoading(false)
       return
     }
     setOwnerId(effectiveUserId)
 
-    const [estRes, blockRes, fieldRes] = await Promise.all([
-      supabase
-        .from('harvest_estimates')
-        .select('*')
-        .eq('user_id', effectiveUserId)
-        .order('record_date', { ascending: false }),
-      supabase
-        .from('harvest_blocks')
-        .select('*')
-        .eq('user_id', effectiveUserId)
-        .order('field_name')
-        .order('block_name'),
-      supabase
-        .from('harvest_fields')
-        .select('id, name')
-        .eq('user_id', effectiveUserId)
-        .order('name'),
-    ])
+    try {
+      const data = await loadHarvestModuleData(supabase, effectiveUserId)
+      const loadedRows = data.estimates as unknown as HarvestEstimate[]
+      const loadedBlocks = data.blocks as unknown as HarvestBlock[]
+      const loadedFields = data.fields as unknown as HarvestField[]
 
-    if (estRes.error) toast.error('No se pudieron cargar las estimaciones')
-    else setRows((estRes.data ?? []) as HarvestEstimate[])
+      setRows(loadedRows)
+      setBlocks(loadedBlocks)
 
-    const loadedBlocks = blockRes.error ? [] : ((blockRes.data ?? []) as HarvestBlock[])
-    const loadedRows = estRes.error ? [] : ((estRes.data ?? []) as HarvestEstimate[])
-    const loadedFields = fieldRes.error ? [] : ((fieldRes.data ?? []) as HarvestField[])
-
-    if (blockRes.error) console.error(blockRes.error)
-    else setBlocks(loadedBlocks)
-
-    if (fieldRes.error) console.error(fieldRes.error)
-
-    const catalogNames = new Set(loadedFields.map((f) => f.name))
-    const orphanNames = [
-      ...new Set([
-        ...loadedRows.map((r) => r.field_name?.trim()).filter(Boolean) as string[],
-        ...loadedBlocks.map((b) => b.field_name?.trim()).filter(Boolean) as string[],
-      ].filter((name) => !catalogNames.has(name))),
-    ]
-
-    if (orphanNames.length > 0) {
-      const { error: syncError } = await supabase.from('harvest_fields').upsert(
-        orphanNames.map((name) => ({ user_id: effectiveUserId, name })),
-        { onConflict: 'user_id,name', ignoreDuplicates: true },
-      )
-      if (syncError) {
-        console.error(syncError)
+      if (data.fromCache) {
+        if (loadedRows.length === 0 && loadedBlocks.length === 0) {
+          toast.info(t('estimacionCosecha.toasts.offlinePreload'))
+        }
         setFields(loadedFields)
-      } else {
-        const { data: syncedFields } = await supabase
-          .from('harvest_fields')
-          .select('id, name')
-          .eq('user_id', effectiveUserId)
-          .order('name')
-        setFields((syncedFields ?? loadedFields) as HarvestField[])
+        return
       }
-    } else {
-      setFields(loadedFields)
+
+      const catalogNames = new Set(loadedFields.map((f) => f.name))
+      const orphanNames = [
+        ...new Set([
+          ...loadedRows.map((r) => r.field_name?.trim()).filter(Boolean) as string[],
+          ...loadedBlocks.map((b) => b.field_name?.trim()).filter(Boolean) as string[],
+        ].filter((name) => !catalogNames.has(name))),
+      ]
+
+      if (orphanNames.length > 0) {
+        const { error: syncError } = await supabase.from('harvest_fields').upsert(
+          orphanNames.map((name) => ({ user_id: effectiveUserId, name })),
+          { onConflict: 'user_id,name', ignoreDuplicates: true },
+        )
+        if (syncError) {
+          console.error(syncError)
+          setFields(loadedFields)
+        } else {
+          const { data: syncedFields } = await supabase
+            .from('harvest_fields')
+            .select('id, name')
+            .eq('user_id', effectiveUserId)
+            .order('name')
+          setFields((syncedFields ?? loadedFields) as HarvestField[])
+        }
+      } else {
+        setFields(loadedFields)
+      }
+    } catch (err) {
+      console.error(err)
+      toast.error(t('estimacionCosecha.toasts.loadFailed'))
+    } finally {
+      if (!options?.silent) setLoading(false)
     }
+  }, [supabase, t])
 
-    setLoading(false)
-  }, [supabase])
+  useEffect(() => { void load() }, [load])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    const onSyncDone = (event: Event) => {
+      const detail = (event as CustomEvent<{ synced?: number; failed?: number }>).detail
+      if ((detail?.synced ?? 0) > 0) void load({ silent: true })
+    }
+    window.addEventListener(OFFLINE_EVENT.syncDone, onSyncDone)
+    return () => {
+      window.removeEventListener(OFFLINE_EVENT.syncDone, onSyncDone)
+    }
+  }, [load])
 
   const seasonFiltered = useMemo(() => rows.filter((r) => {
     if (filterSeason && r.season_label !== filterSeason) return false
@@ -633,13 +643,14 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
   )
 
   const totalsByField = useMemo(() => {
+    const noField = t('estimacionCosecha.misc.noField')
     const map = new Map<string, number>()
     for (const r of estimationDisplayRows) {
-      const key = r.field_name || 'Sin campo'
+      const key = r.field_name || noField
       map.set(key, (map.get(key) ?? 0) + Number(r.estimated_kg))
     }
     return [...map.entries()].sort((a, b) => b[1] - a[1])
-  }, [estimationDisplayRows])
+  }, [estimationDisplayRows, t])
 
   const chartByField = useMemo(
     () => totalsByField.map(([name, kg]) => ({ name, kg })),
@@ -682,15 +693,16 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
   }, [estimationDisplayRows])
 
   const chartTimeline = useMemo(() => {
+    const noDate = t('estimacionCosecha.misc.noDate')
     const map = new Map<string, number>()
     for (const r of estimationDisplayRows) {
-      const date = r.record_date ?? 'Sin fecha'
+      const date = r.record_date ?? noDate
       map.set(date, (map.get(date) ?? 0) + Number(r.estimated_kg))
     }
     return [...map.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, estimated]) => ({ date, estimated }))
-  }, [estimationDisplayRows])
+  }, [estimationDisplayRows, t])
 
   const countSamplesByBlock = useMemo(() => {
     const map = new Map<string, number>()
@@ -890,64 +902,64 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
   }
 
   async function handleClearAllData() {
-    if (!confirm('¿Eliminar TODOS tus campos, cuarteles y estimaciones? Esta acción no se puede deshacer.')) return
+    if (!confirm(t('estimacionCosecha.confirms.clearAll'))) return
     setSaving(true)
     const result = await clearAllHarvestDataAction()
     setSaving(false)
     if (!result.ok) {
-      toast.error('No se pudo vaciar', { description: result.error })
+      toast.error(t('estimacionCosecha.toasts.clearFailed'), { description: result.error })
       return
     }
-    toast.success('Datos eliminados')
+    toast.success(t('estimacionCosecha.toasts.dataDeleted'))
     setImportPreview(null)
     load()
   }
 
   async function handleDeleteAllFields() {
-    if (!confirm(`¿Eliminar los ${fieldOptions.length} campos registrados?`)) return
+    if (!confirm(t('estimacionCosecha.confirms.deleteAllFields', { count: fieldOptions.length }))) return
     setSaving(true)
     const result = await deleteAllHarvestFieldsAction()
     setSaving(false)
     if (!result.ok) toast.error(result.error)
-    else { toast.success('Campos eliminados'); load() }
+    else { toast.success(t('estimacionCosecha.toasts.fieldsDeleted')); load() }
   }
 
   async function handleDeleteAllBlocks() {
-    if (!confirm(`¿Eliminar los ${blocks.length} cuarteles registrados?`)) return
+    if (!confirm(t('estimacionCosecha.confirms.deleteAllBlocks', { count: blocks.length }))) return
     setSaving(true)
     const result = await deleteAllHarvestBlocksAction()
     setSaving(false)
     if (!result.ok) toast.error(result.error)
-    else { toast.success('Cuarteles eliminados'); load() }
+    else { toast.success(t('estimacionCosecha.toasts.blocksDeleted')); load() }
   }
 
   async function handleExportCount() {
     if (countRows.length === 0) {
-      toast.error('No hay conteos para exportar con los filtros actuales')
+      toast.error(t('estimacionCosecha.toasts.noCountExport'))
       return
     }
     try {
       await exportCountToExcel(countRows, filterSeason || undefined)
-      toast.success('Excel de conteo descargado', {
-        description: `${countRows.length} muestras exportadas`,
+      toast.success(t('estimacionCosecha.toasts.countExcelDownloaded'), {
+        description: t('estimacionCosecha.toasts.samplesExported', { count: countRows.length }),
       })
     } catch {
-      toast.error('Error al exportar Excel de conteo')
+      toast.error(t('estimacionCosecha.toasts.countExportError'))
     }
   }
 
   async function handleExportEstimation() {
     if (estimationDisplayRows.length === 0) {
-      toast.error('No hay estimaciones para exportar con los filtros actuales')
+      toast.error(t('estimacionCosecha.toasts.noEstimationExport'))
       return
     }
     try {
       await exportHarvestToExcel(estimationDisplayRows, filterSeason || undefined)
-      toast.success('Excel de estimación descargado', {
-        description: `${estimationDisplayRows.length} estimaciones exportadas`,
+      toast.success(t('estimacionCosecha.toasts.estimationExcelDownloaded'), {
+        description: t('estimacionCosecha.toasts.estimationsExported', { count: estimationDisplayRows.length }),
       })
     } catch {
-      toast.error('Error al exportar Excel de estimación')
+      toast.error(t('estimacionCosecha.toasts.estimationExportError'))
     }
   }
 
@@ -956,11 +968,11 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
     const result = await syncEstimationsFromCountAction(filterSeason || undefined)
     setSaving(false)
     if (!result.ok) {
-      toast.error('No se pudo calcular', { description: result.error })
+      toast.error(t('estimacionCosecha.toasts.calcFailed'), { description: result.error })
       return
     }
-    toast.success('Estimaciones actualizadas', {
-      description: `${result.updated} cuarteles calculados desde promedios de conteo`,
+    toast.success(t('estimacionCosecha.toasts.estimationsUpdated'), {
+      description: t('estimacionCosecha.toasts.blocksCalculated', { count: result.updated }),
     })
     load()
   }
@@ -983,8 +995,8 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
         setImportMode('conteo')
         setActiveTab('conteo')
         if (mode === 'estimacion') {
-          toast.info('Excel de conteo detectado', {
-            description: 'Dashboard Agrícola con Dardo/Ramillas → se importa solo en Conteo.',
+          toast.info(t('estimacionCosecha.toasts.countWorkbookDetected'), {
+            description: t('estimacionCosecha.toasts.countWorkbookDesc'),
           })
         }
       }
@@ -993,12 +1005,15 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
         ? parseCountWorkbook(buffer)
         : parseHarvestWorkbook(buffer)
       setImportPreview(parsed)
-      toast.success(effectiveMode === 'conteo' ? 'Conteo leído' : 'Estimación leída', {
-        description: `${parsed.estimates.length} cuarteles · ${parsed.source_row_count ?? parsed.estimates.length} filas procesadas`,
+      toast.success(effectiveMode === 'conteo' ? t('estimacionCosecha.toasts.countRead') : t('estimacionCosecha.toasts.estimationRead'), {
+        description: t('estimacionCosecha.toasts.importPreview', {
+          blocks: parsed.estimates.length,
+          rows: parsed.source_row_count ?? parsed.estimates.length,
+        }),
       })
     } catch (err) {
-      toast.error('No se pudo leer el Excel', {
-        description: err instanceof Error ? err.message : 'Formato no válido',
+      toast.error(t('estimacionCosecha.toasts.excelReadError'), {
+        description: err instanceof Error ? err.message : t('estimacionCosecha.toasts.invalidFormat'),
       })
       setImportPreview(null)
     }
@@ -1012,17 +1027,21 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
       : await importEstimationFromExcelAction(importPreview, importReplace)
     setImporting(false)
     if (!result.ok) {
-      toast.error('Importación fallida', { description: result.error })
+      toast.error(t('estimacionCosecha.toasts.importFailed'), { description: result.error })
       return
     }
-    toast.success(importMode === 'conteo' ? 'Conteo importado' : 'Estimación importada', {
-      description: `${result.fields} campos · ${result.blocks} cuarteles · ${result.estimates} registros`,
+    toast.success(importMode === 'conteo' ? t('estimacionCosecha.toasts.countImported') : t('estimacionCosecha.toasts.estimationImported'), {
+      description: t('estimacionCosecha.toasts.importSummary', {
+        fields: result.fields,
+        blocks: result.blocks,
+        records: result.estimates,
+      }),
     })
     if (importMode === 'conteo') {
       const sync = await syncEstimationsFromCountAction(importPreview.season_label)
       if (sync.ok) {
-        toast.success('Estimación calculada', {
-          description: `${sync.updated} cuarteles con kg desde promedios de conteo`,
+        toast.success(t('estimacionCosecha.toasts.estimationCalculated'), {
+          description: t('estimacionCosecha.toasts.kgFromCount', { count: sync.updated }),
         })
       }
     }
@@ -1037,39 +1056,58 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
   async function handleSaveField() {
     if (!ownerId) return
     if (!fieldFormName.trim()) {
-      toast.error('Indica el nombre del campo')
+      toast.error(t('estimacionCosecha.toasts.fieldNameRequired'))
       return
     }
     setSaving(true)
-    const { error } = await supabase.from('harvest_fields').upsert({
-      user_id: ownerId,
-      name: fieldFormName.trim(),
-    }, { onConflict: 'user_id,name' })
+    const name = fieldFormName.trim()
+    const result = await offlineWrite(supabase, {
+      userId: ownerId,
+      table: 'harvest_fields',
+      operation: 'upsert',
+      payload: { user_id: ownerId, name },
+      onConflict: 'user_id,name',
+      cacheModule: 'harvest',
+      cacheListKey: 'fields',
+      optimisticRecord: { id: `local-field-${name}`, name, user_id: ownerId },
+    })
     setSaving(false)
-    if (error) {
-      toast.error('No se pudo crear el campo', { description: error.message })
+    if (!result.ok) {
+      toast.error(t('estimacionCosecha.toasts.fieldCreateFailed'), { description: result.error })
       return
     }
-    toast.success('Campo agregado')
+    toast.success(result.offline ? t('estimacionCosecha.toasts.fieldSavedLocal') : t('estimacionCosecha.toasts.fieldAdded'))
     setFieldFormName('')
     load()
   }
 
   async function handleDeleteField(id: string, name: string) {
-    if (!confirm(`¿Eliminar campo "${name}"? Los cuarteles y estimaciones existentes conservan el nombre.`)) return
-    const { error } = await supabase.from('harvest_fields').delete().eq('id', id)
-    if (error) toast.error('No se pudo eliminar')
-    else { toast.success('Campo eliminado'); load() }
+    if (!ownerId) return
+    if (!confirm(t('estimacionCosecha.confirms.deleteField', { name }))) return
+    const result = await offlineWrite(supabase, {
+      userId: ownerId,
+      table: 'harvest_fields',
+      operation: 'delete',
+      payload: {},
+      match: { id },
+      cacheModule: 'harvest',
+      cacheListKey: 'fields',
+    })
+    if (!result.ok) toast.error(t('estimacionCosecha.toasts.deleteFailed'))
+    else {
+      toast.success(result.offline ? t('estimacionCosecha.toasts.deleteQueued') : t('estimacionCosecha.toasts.fieldDeleted'))
+      load()
+    }
   }
 
   async function handleSaveBlock() {
     if (!ownerId) return
     if (!blockForm.field_name.trim() || !blockForm.block_name.trim()) {
-      toast.error('Campo y cuartel son obligatorios')
+      toast.error(t('estimacionCosecha.toasts.fieldBlockRequired'))
       return
     }
     setSaving(true)
-    const { error } = await supabase.from('harvest_blocks').insert({
+    const payload = {
       user_id: ownerId,
       field_name: blockForm.field_name.trim(),
       block_name: blockForm.block_name.trim(),
@@ -1077,13 +1115,22 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
       variety: blockForm.variety.trim() || null,
       hectares: blockForm.hectares ? Number(blockForm.hectares) : null,
       plants_per_ha: blockForm.plants_per_ha ? Number(blockForm.plants_per_ha) : null,
+    }
+    const result = await offlineWrite(supabase, {
+      userId: ownerId,
+      table: 'harvest_blocks',
+      operation: 'insert',
+      payload,
+      cacheModule: 'harvest',
+      cacheListKey: 'blocks',
+      optimisticRecord: payload,
     })
     setSaving(false)
-    if (error) {
-      toast.error('No se pudo crear el cuartel', { description: error.message })
+    if (!result.ok) {
+      toast.error(t('estimacionCosecha.toasts.blockCreateFailed'), { description: result.error })
       return
     }
-    toast.success('Cuartel agregado')
+    toast.success(result.offline ? t('estimacionCosecha.toasts.blockSavedLocal') : t('estimacionCosecha.toasts.blockAdded'))
     setBlockForm({
       field_name: blockForm.field_name,
       block_name: '',
@@ -1096,10 +1143,22 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
   }
 
   async function handleDeleteBlock(id: string, name: string) {
-    if (!confirm(`¿Eliminar cuartel ${name}?`)) return
-    const { error } = await supabase.from('harvest_blocks').delete().eq('id', id)
-    if (error) toast.error('No se pudo eliminar')
-    else { toast.success('Cuartel eliminado'); load() }
+    if (!ownerId) return
+    if (!confirm(t('estimacionCosecha.confirms.deleteBlock', { name }))) return
+    const result = await offlineWrite(supabase, {
+      userId: ownerId,
+      table: 'harvest_blocks',
+      operation: 'delete',
+      payload: {},
+      match: { id },
+      cacheModule: 'harvest',
+      cacheListKey: 'blocks',
+    })
+    if (!result.ok) toast.error(t('estimacionCosecha.toasts.deleteFailed'))
+    else {
+      toast.success(result.offline ? t('estimacionCosecha.toasts.deleteQueued') : t('estimacionCosecha.toasts.blockDeleted'))
+      load()
+    }
   }
 
   async function handleSave() {
@@ -1109,19 +1168,19 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
     const isComputedEdit = editing?.id?.startsWith('computed-')
 
     if (!form.block_name.trim() || !form.crop.trim()) {
-      toast.error('Selecciona o indica un cuartel')
+      toast.error(t('estimacionCosecha.toasts.blockRequired'))
       return
     }
     if (!form.field_name.trim()) {
-      toast.error('Selecciona o indica un campo')
+      toast.error(t('estimacionCosecha.toasts.fieldRequired'))
       return
     }
     if (!form.variety.trim()) {
-      toast.error('Selecciona una variedad')
+      toast.error(t('estimacionCosecha.toasts.varietyRequired'))
       return
     }
     if (!form.record_date) {
-      toast.error('Indica la fecha de la estimación')
+      toast.error(t('estimacionCosecha.toasts.dateRequired'))
       return
     }
 
@@ -1129,26 +1188,34 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
       ? formWithEstimationFallbacks(form, editing)
       : form
 
-    const result = computeFromForm(saveForm, true)
-    if (!result) {
+    const computed = computeFromForm(saveForm, true)
+    if (!computed) {
       toast.error(isEstimation
-        ? 'Completa superficie, plantas/ha y parámetros para calcular la estimación'
-        : 'Completa el conteo fenológico y la superficie para calcular')
+        ? t('estimacionCosecha.toasts.fillEstimation')
+        : t('estimacionCosecha.toasts.fillCount'))
       return
     }
 
     setSaving(true)
 
     if (isEstimation && Number(saveForm.hectares) > 0) {
-      await supabase.from('harvest_blocks').upsert({
-        user_id: ownerId,
-        field_name: saveForm.field_name.trim(),
-        block_name: saveForm.block_name.trim(),
-        crop: saveForm.crop.trim(),
-        variety: saveForm.variety.trim() || null,
-        hectares: Number(saveForm.hectares),
-        plants_per_ha: Number(saveForm.plants_per_ha) || null,
-      }, { onConflict: 'user_id,field_name,block_name' })
+      await offlineWrite(supabase, {
+        userId: ownerId,
+        table: 'harvest_blocks',
+        operation: 'upsert',
+        payload: {
+          user_id: ownerId,
+          field_name: saveForm.field_name.trim(),
+          block_name: saveForm.block_name.trim(),
+          crop: saveForm.crop.trim(),
+          variety: saveForm.variety.trim() || null,
+          hectares: Number(saveForm.hectares),
+          plants_per_ha: Number(saveForm.plants_per_ha) || null,
+        },
+        onConflict: 'user_id,field_name,block_name',
+        cacheModule: 'harvest',
+        cacheListKey: 'blocks',
+      })
     }
 
     const payload: Record<string, unknown> = {
@@ -1160,7 +1227,7 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
       season_label: saveForm.season_label.trim() || currentSeasonLabel(),
       record_date: saveForm.record_date,
       hectares: Number(saveForm.hectares),
-      estimated_kg: result.estimatedKg,
+      estimated_kg: computed.estimatedKg,
       harvested_kg: Number(saveForm.harvested_kg) || 0,
       ...(dialogMode === 'conteo' ? { notes: saveForm.notes.trim() || null } : {}),
       count_state: isCherry ? saveForm.count_state : null,
@@ -1173,7 +1240,7 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
       updated_at: new Date().toISOString(),
     }
 
-    if (isCherry && result.fruitsSet != null) {
+    if (isCherry && computed.fruitsSet != null) {
       Object.assign(payload, {
         plants_per_ha: Number(saveForm.plants_per_ha),
         dardos_per_plant: Number(saveForm.dardos_per_plant) || 0,
@@ -1184,14 +1251,14 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
         fruit_set_pct: Number(saveForm.fruit_set_pct) > 1
           ? Number(saveForm.fruit_set_pct) / 100
           : Number(saveForm.fruit_set_pct),
-        fruits_set: result.fruitsSet,
+        fruits_set: computed.fruitsSet,
         fruit_weight_kg: Number(saveForm.fruit_weight_kg),
-        kg_per_plant: result.kgPerPlant,
-        kg_per_ha: result.kgPerHa,
+        kg_per_plant: computed.kgPerPlant,
+        kg_per_ha: computed.kgPerHa,
       })
     } else {
       Object.assign(payload, {
-        kg_per_ha: result.kgPerHa,
+        kg_per_ha: computed.kgPerHa,
       })
     }
 
@@ -1208,19 +1275,29 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
       if (match && !match.id.startsWith('computed-')) targetId = match.id
     }
 
-    const { error } = targetId && !targetId.startsWith('computed-')
-      ? await supabase.from('harvest_estimates').update(payload).eq('id', targetId)
-      : await supabase.from('harvest_estimates').insert(payload)
+    const isUpdate = !!(targetId && !targetId.startsWith('computed-'))
+    const writeResult = await offlineWrite(supabase, {
+      userId: ownerId,
+      table: 'harvest_estimates',
+      operation: isUpdate ? 'update' : 'insert',
+      payload,
+      match: isUpdate ? { id: targetId! } : undefined,
+      cacheModule: 'harvest',
+      cacheListKey: 'estimates',
+      optimisticRecord: { ...payload, id: targetId ?? undefined },
+    })
 
     setSaving(false)
-    if (error) {
-      toast.error('Error al guardar', { description: error.message })
+    if (!writeResult.ok) {
+      toast.error(t('estimacionCosecha.toasts.saveFailed'), { description: writeResult.error })
       return
     }
     toast.success(
-      isEstimation
-        ? (targetId && !targetId.startsWith('computed-') ? 'Estimación actualizada' : 'Estimación registrada')
-        : (editing ? 'Conteo actualizado' : 'Conteo registrado'),
+      writeResult.offline
+        ? t('estimacionCosecha.toasts.savedLocal')
+        : isEstimation
+          ? (isUpdate ? t('estimacionCosecha.toasts.estimationUpdated') : t('estimacionCosecha.toasts.estimationRegistered'))
+          : (editing ? t('estimacionCosecha.toasts.countUpdated') : t('estimacionCosecha.toasts.countRegistered')),
     )
     setDialogOpen(false)
     load()
@@ -1228,22 +1305,34 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
 
   async function handleDelete(row: HarvestEstimate) {
     if (row.id.startsWith('computed-')) {
-      toast.error('Calcula o crea la estimación primero', {
-        description: 'Usa "Calcular desde conteo" o "Nueva estimación" para guardarla.',
+      toast.error(t('estimacionCosecha.toasts.computeFirst'), {
+        description: t('estimacionCosecha.toasts.computeFirstDesc'),
       })
       return
     }
-    if (!confirm(`¿Eliminar estimación de ${row.block_name}?`)) return
-    const { error } = await supabase.from('harvest_estimates').delete().eq('id', row.id)
-    if (error) toast.error('No se pudo eliminar')
-    else { toast.success('Eliminado'); load() }
+    if (!confirm(t('estimacionCosecha.confirms.deleteEstimation', { block: row.block_name }))) return
+    if (!ownerId) return
+    const result = await offlineWrite(supabase, {
+      userId: ownerId,
+      table: 'harvest_estimates',
+      operation: 'delete',
+      payload: {},
+      match: { id: row.id },
+      cacheModule: 'harvest',
+      cacheListKey: 'estimates',
+    })
+    if (!result.ok) toast.error(t('estimacionCosecha.toasts.deleteFailed'))
+    else {
+      toast.success(result.offline ? t('estimacionCosecha.toasts.deleteQueued') : t('estimacionCosecha.toasts.deleted'))
+      load()
+    }
   }
 
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24 text-muted-foreground">
         <Loader2 className="w-6 h-6 animate-spin mr-2" />
-        Cargando estimaciones…
+        {t('estimacionCosecha.loading')}
       </div>
     )
   }
@@ -1252,9 +1341,9 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
     <div className="rounded-xl border bg-card p-4 space-y-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
         <div className="space-y-1.5 min-w-0">
-          <label className="text-xs font-medium text-muted-foreground">Temporada</label>
+          <label className="text-xs font-medium text-muted-foreground">{t('estimacionCosecha.filters.season')}</label>
           <Select value={filterSeason} onValueChange={setFilterSeason}>
-            <SelectTrigger className="w-full h-9"><SelectValue placeholder="Temporada" /></SelectTrigger>
+            <SelectTrigger className="w-full h-9"><SelectValue placeholder={t('estimacionCosecha.filters.season')} /></SelectTrigger>
             <SelectContent>
               {seasons.length === 0 && (
                 <SelectItem value={currentSeasonLabel()}>{currentSeasonLabel()}</SelectItem>
@@ -1264,51 +1353,51 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
           </Select>
         </div>
         <div className="space-y-1.5 min-w-0">
-          <label className="text-xs font-medium text-muted-foreground">Cultivo</label>
+          <label className="text-xs font-medium text-muted-foreground">{t('estimacionCosecha.filters.crop')}</label>
           <Select value={filterCrop} onValueChange={setFilterCrop}>
-            <SelectTrigger className="w-full h-9"><SelectValue placeholder="Cultivo" /></SelectTrigger>
+            <SelectTrigger className="w-full h-9"><SelectValue placeholder={t('estimacionCosecha.filters.crop')} /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todos los cultivos</SelectItem>
+              <SelectItem value="all">{t('estimacionCosecha.filters.allCrops')}</SelectItem>
               {cropsInUse.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
         <div className="space-y-1.5 min-w-0">
-          <label className="text-xs font-medium text-muted-foreground">Campo</label>
+          <label className="text-xs font-medium text-muted-foreground">{t('estimacionCosecha.filters.field')}</label>
           <Select value={filterField} onValueChange={setFilterField}>
-            <SelectTrigger className="w-full h-9"><SelectValue placeholder="Campo" /></SelectTrigger>
+            <SelectTrigger className="w-full h-9"><SelectValue placeholder={t('estimacionCosecha.filters.field')} /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todos los campos</SelectItem>
+              <SelectItem value="all">{t('estimacionCosecha.filters.allFields')}</SelectItem>
               {fieldOptions.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
         <div className="space-y-1.5 min-w-0">
-          <label className="text-xs font-medium text-muted-foreground">Conteo</label>
+          <label className="text-xs font-medium text-muted-foreground">{t('estimacionCosecha.filters.count')}</label>
           <Select value={filterCountState} onValueChange={setFilterCountState}>
-            <SelectTrigger className="w-full h-9"><SelectValue placeholder="Conteo" /></SelectTrigger>
+            <SelectTrigger className="w-full h-9"><SelectValue placeholder={t('estimacionCosecha.filters.count')} /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Pre + Post poda</SelectItem>
-              {HARVEST_COUNT_STATES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              <SelectItem value="all">{t('estimacionCosecha.filters.preAndPost')}</SelectItem>
+              {HARVEST_COUNT_STATES.map((s) => <SelectItem key={s} value={s}>{tCountState(t, s)}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
         <div className="space-y-1.5 min-w-0">
-          <label className="text-xs font-medium text-muted-foreground">Variedad</label>
+          <label className="text-xs font-medium text-muted-foreground">{t('estimacionCosecha.filters.variety')}</label>
           <Select value={filterVariety} onValueChange={setFilterVariety}>
-            <SelectTrigger className="w-full h-9"><SelectValue placeholder="Variedad" /></SelectTrigger>
+            <SelectTrigger className="w-full h-9"><SelectValue placeholder={t('estimacionCosecha.filters.variety')} /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todas las variedades</SelectItem>
+              <SelectItem value="all">{t('estimacionCosecha.filters.allVarieties')}</SelectItem>
               {varietiesInUse.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
         <div className="space-y-1.5 min-w-0 sm:col-span-2 lg:col-span-1">
-          <label className="text-xs font-medium text-muted-foreground">Cuartel</label>
+          <label className="text-xs font-medium text-muted-foreground">{t('estimacionCosecha.filters.block')}</label>
           <Select value={filterBlock} onValueChange={setFilterBlock}>
-            <SelectTrigger className="w-full h-9"><SelectValue placeholder="Cuartel" /></SelectTrigger>
+            <SelectTrigger className="w-full h-9"><SelectValue placeholder={t('estimacionCosecha.filters.block')} /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todos los cuarteles</SelectItem>
+              <SelectItem value="all">{t('estimacionCosecha.filters.allBlocks')}</SelectItem>
               {blocksInUse.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
             </SelectContent>
           </Select>
@@ -1326,23 +1415,23 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
     <div className="space-y-6">
       <div className="flex gap-2 flex-wrap">
         <Button variant="outline" onClick={() => setFieldsDialogOpen(true)} className="gap-2">
-          <Trees className="w-4 h-4" /> Campos ({fieldOptions.length})
+          <Trees className="w-4 h-4" /> {t('estimacionCosecha.buttons.fields', { count: fieldOptions.length })}
         </Button>
         <Button variant="outline" onClick={() => setBlocksDialogOpen(true)} className="gap-2">
-          <MapPin className="w-4 h-4" /> Cuarteles ({blocks.length})
+          <MapPin className="w-4 h-4" /> {t('estimacionCosecha.buttons.blocks', { count: blocks.length })}
         </Button>
       </div>
 
       <Tabs value={activeTab} onValueChange={(v) => handleMainTabChange(v as HarvestEstimationTab)}>
         <TabsList className="w-full sm:w-auto h-auto flex-wrap">
           <TabsTrigger value="conteo" className="gap-2">
-            <ClipboardList className="w-4 h-4" /> Conteo
+            <ClipboardList className="w-4 h-4" /> {t('estimacionCosecha.tabs.count')}
           </TabsTrigger>
           <TabsTrigger value="estimacion" className="gap-2">
-            <BarChart3 className="w-4 h-4" /> Estimación de cosecha
+            <BarChart3 className="w-4 h-4" /> {t('estimacionCosecha.tabs.estimation')}
           </TabsTrigger>
           <TabsTrigger value="plan" className="gap-2">
-            <CalendarRange className="w-4 h-4" /> Plan de cosecha
+            <CalendarRange className="w-4 h-4" /> {t('estimacionCosecha.tabs.plan')}
           </TabsTrigger>
         </TabsList>
 
@@ -1373,17 +1462,17 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
 
           <div className="flex flex-col lg:flex-row lg:items-center gap-3 justify-between">
             <p className="text-sm text-muted-foreground">
-              Tabla de conteos según los filtros seleccionados.
+              {t('estimacionCosecha.countView.tableDesc')}
             </p>
             <div className="flex gap-2 shrink-0 flex-wrap">
               <Button variant="outline" onClick={handleExportCount} className="gap-2" disabled={countRows.length === 0}>
-                <Download className="w-4 h-4" /> Exportar Excel
+                <Download className="w-4 h-4" /> {t('estimacionCosecha.buttons.exportExcel')}
               </Button>
               <Button variant="outline" onClick={() => openImportDialog('conteo')} className="gap-2">
-                <Upload className="w-4 h-4" /> Importar Excel
+                <Upload className="w-4 h-4" /> {t('estimacionCosecha.buttons.importExcel')}
               </Button>
               <Button onClick={openCreateCount} className="gap-2">
-                <Plus className="w-4 h-4" /> Nuevo conteo
+                <Plus className="w-4 h-4" /> {t('estimacionCosecha.buttons.newCount')}
               </Button>
             </div>
           </div>
@@ -1391,13 +1480,13 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
           {countRows.length === 0 && countSummaries.length === 0 ? (
             <div className="rounded-xl border border-dashed p-12 text-center text-muted-foreground">
               <ClipboardList className="w-10 h-10 mx-auto mb-3 opacity-40" />
-              <p className="font-medium text-foreground mb-1">Sin conteos registrados</p>
+              <p className="font-medium text-foreground mb-1">{t('estimacionCosecha.empty.noCountsTitle')}</p>
               <p className="text-sm mb-4">
-                Registra dardos, primordios y % cuaja por cuartel. Los kg se calculan automáticamente.
+                {t('estimacionCosecha.empty.noCountsDesc')}
               </p>
               <div className="flex gap-2 justify-center flex-wrap">
-                <Button variant="outline" onClick={() => setFieldsDialogOpen(true)}>Agregar campos</Button>
-                <Button onClick={openCreateCount}>Nuevo conteo</Button>
+                <Button variant="outline" onClick={() => setFieldsDialogOpen(true)}>{t('estimacionCosecha.buttons.addFields')}</Button>
+                <Button onClick={openCreateCount}>{t('estimacionCosecha.buttons.newCount')}</Button>
               </div>
             </div>
           ) : (
@@ -1406,18 +1495,18 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                 <Tabs value={countView} onValueChange={(v) => setCountView(v as 'promedios' | 'muestras')}>
                   <TabsList className="h-9">
                     <TabsTrigger value="promedios" className="text-xs sm:text-sm">
-                      Promedios por cuartel ({countSummaries.length})
+                      {t('estimacionCosecha.countView.averages', { count: countSummaries.length })}
                     </TabsTrigger>
                     <TabsTrigger value="muestras" className="text-xs sm:text-sm">
-                      Detalle por árbol ({countRows.length})
+                      {t('estimacionCosecha.countView.samples', { count: countRows.length })}
                     </TabsTrigger>
                   </TabsList>
                 </Tabs>
                 {countRows.length > 0 && (
                   <p className="text-xs text-muted-foreground shrink-0">
                     {countView === 'promedios'
-                      ? `Calculado desde ${countRows.length} muestras`
-                      : `${countRows.length} registro(s) con filtros actuales`}
+                      ? t('estimacionCosecha.countView.calculatedFrom', { count: countRows.length })
+                      : t('estimacionCosecha.countView.recordsWithFilters', { count: countRows.length })}
                   </p>
                 )}
               </div>
@@ -1428,15 +1517,15 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                     <table className="w-full text-sm min-w-[1000px]">
                       <thead>
                         <tr className="border-b bg-muted/40 text-left">
-                          <th className="px-3 py-3 font-medium">Campo</th>
-                          <th className="px-3 py-3 font-medium">Cuartel</th>
-                          <th className="px-3 py-3 font-medium">Variedad</th>
-                          <th className="px-3 py-3 font-medium">Muestras</th>
-                          <th className="px-3 py-3 font-medium">Prom. Arbol</th>
-                          <th className="px-3 py-3 font-medium">Prom. Dardo</th>
-                          <th className="px-3 py-3 font-medium">Prom. Ramillas</th>
-                          <th className="px-3 py-3 font-medium">Prom. Dardo Coral</th>
-                          <th className="px-3 py-3 font-medium">Estado</th>
+                          <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.field')}</th>
+                          <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.block')}</th>
+                          <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.variety')}</th>
+                          <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.samples')}</th>
+                          <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.avgTree')}</th>
+                          <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.avgSpur')}</th>
+                          <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.avgTwigs')}</th>
+                          <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.avgCoral')}</th>
+                          <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.status')}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1454,7 +1543,7 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                               <td className="px-3 py-3 tabular-nums font-medium">{fmtCountAvg(row.dardos_per_branch)}</td>
                               <td className="px-3 py-3 tabular-nums font-medium">{fmtCountAvg(row.dardo_coral)}</td>
                               <td className="px-3 py-3">
-                                <Badge variant="outline" className={COUNT_STYLE[countState]}>{countState}</Badge>
+                                <Badge variant="outline" className={COUNT_STYLE[countState]}>{tCountState(t, countState)}</Badge>
                               </td>
                             </tr>
                           )
@@ -1469,15 +1558,15 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                 <table className="w-full text-sm min-w-[900px]">
                   <thead>
                     <tr className="border-b bg-muted/40 text-left">
-                      <th className="px-3 py-3 font-medium">Campo</th>
-                      <th className="px-3 py-3 font-medium">Cuartel</th>
-                      <th className="px-3 py-3 font-medium">Variedad</th>
-                      <th className="px-3 py-3 font-medium">Hilera</th>
-                      <th className="px-3 py-3 font-medium">Arbol</th>
-                      <th className="px-3 py-3 font-medium">Dardo</th>
-                      <th className="px-3 py-3 font-medium">Ramillas</th>
-                      <th className="px-3 py-3 font-medium">Dardo Coral</th>
-                      <th className="px-3 py-3 font-medium">Estado</th>
+                      <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.field')}</th>
+                      <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.block')}</th>
+                      <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.variety')}</th>
+                      <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.row')}</th>
+                      <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.tree')}</th>
+                      <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.spur')}</th>
+                      <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.twigs')}</th>
+                      <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.coralSpur')}</th>
+                      <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.status')}</th>
                       <th className="px-3 py-3 w-20" />
                     </tr>
                   </thead>
@@ -1495,7 +1584,10 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                           <td className="px-3 py-3 tabular-nums">{fmtCount(row.dardos_per_branch)}</td>
                           <td className="px-3 py-3 tabular-nums">{fmtCount(row.dardo_coral)}</td>
                           <td className="px-3 py-3">
-                            <Badge variant="outline" className={COUNT_STYLE[countState]}>{countState}</Badge>
+                            <div className="flex flex-wrap items-center gap-1">
+                              <Badge variant="outline" className={COUNT_STYLE[countState]}>{tCountState(t, countState)}</Badge>
+                              <OfflinePendingBadge recordId={row.id} />
+                            </div>
                           </td>
                           <td className="px-3 py-3">
                             <div className="flex gap-1">
@@ -1552,7 +1644,7 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
 
           <div className="flex flex-col lg:flex-row lg:items-center gap-3 justify-between">
             <p className="text-sm text-muted-foreground">
-              Tabla detallada de estimaciones según los filtros seleccionados.
+              {t('estimacionCosecha.estimationView.tableDesc')}
             </p>
             <div className="flex gap-2 shrink-0 flex-wrap">
               {computedCount > 0 && (
@@ -1563,7 +1655,7 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                   className="gap-2"
                 >
                   {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <BarChart3 className="w-4 h-4" />}
-                  Guardar {computedCount} calculada(s)
+                  {t('estimacionCosecha.buttons.saveComputed', { count: computedCount })}
                 </Button>
               )}
               <Button
@@ -1573,36 +1665,36 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                 className="gap-2"
               >
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <BarChart3 className="w-4 h-4" />}
-                Calcular desde conteo
+                {t('estimacionCosecha.buttons.calcFromCount')}
               </Button>
               <Button variant="outline" onClick={handleExportEstimation} className="gap-2" disabled={estimationDisplayRows.length === 0}>
-                <Download className="w-4 h-4" /> Exportar Excel
+                <Download className="w-4 h-4" /> {t('estimacionCosecha.buttons.exportExcel')}
               </Button>
               <Button variant="outline" onClick={() => openImportDialog('estimacion')} className="gap-2">
-                <Upload className="w-4 h-4" /> Importar Excel
+                <Upload className="w-4 h-4" /> {t('estimacionCosecha.buttons.importExcel')}
               </Button>
               <Button onClick={openCreateEstimation} className="gap-2">
-                <Plus className="w-4 h-4" /> Nueva estimación
+                <Plus className="w-4 h-4" /> {t('estimacionCosecha.buttons.newEstimation')}
               </Button>
             </div>
           </div>
 
           {missingHaCount > 0 && countSummaries.length > 0 && (
             <p className="text-xs text-amber-600 dark:text-amber-400">
-              {missingHaCount} cuartel(es) sin hectáreas: completa la superficie en Cuarteles para calcular kg totales.
+              {t('estimacionCosecha.estimationView.missingHa', { count: missingHaCount })}
             </p>
           )}
 
           {estimationDisplayRows.length === 0 ? (
             <div className="rounded-xl border border-dashed p-12 text-center text-muted-foreground">
               <CalendarRange className="w-10 h-10 mx-auto mb-3 opacity-40" />
-              <p className="font-medium text-foreground mb-1">Sin estimaciones en esta temporada</p>
+              <p className="font-medium text-foreground mb-1">{t('estimacionCosecha.empty.noEstimationsTitle')}</p>
               <p className="text-sm mb-4">
-                Importa conteos, calcula desde promedios o crea una estimación manualmente.
+                {t('estimacionCosecha.empty.noEstimationsDesc')}
               </p>
               <div className="flex gap-2 justify-center flex-wrap">
-                <Button variant="outline" onClick={() => handleMainTabChange('conteo')}>Ir a Conteo</Button>
-                <Button onClick={openCreateEstimation}>Nueva estimación</Button>
+                <Button variant="outline" onClick={() => handleMainTabChange('conteo')}>{t('estimacionCosecha.buttons.goToCount')}</Button>
+                <Button onClick={openCreateEstimation}>{t('estimacionCosecha.buttons.newEstimation')}</Button>
               </div>
             </div>
           ) : (
@@ -1618,21 +1710,21 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                 <table className="w-full text-sm min-w-[1600px]">
                   <thead>
                     <tr className="border-b bg-muted/40 text-left">
-                      <th className="px-3 py-3 font-medium w-28">Estado</th>
-                      <th className="px-3 py-3 font-medium">Campo</th>
-                      <th className="px-3 py-3 font-medium">Cuartel</th>
-                      <th className="px-3 py-3 font-medium">Variedad</th>
-                      <th className="px-3 py-3 font-medium">Ha</th>
-                      <th className="px-3 py-3 font-medium">Pl/Ha</th>
-                      <th className="px-3 py-3 font-medium">Dardos/pl</th>
-                      <th className="px-3 py-3 font-medium">Dardos/ram</th>
-                      <th className="px-3 py-3 font-medium">Prim/dardo</th>
-                      <th className="px-3 py-3 font-medium">% Cuaja</th>
-                      <th className="px-3 py-3 font-medium">Frutos/pl</th>
-                      <th className="px-3 py-3 font-medium">Kg/pl</th>
-                      <th className="px-3 py-3 font-medium">Kg/ha</th>
-                      <th className="px-3 py-3 font-medium">Kg estimados</th>
-                      <th className="px-3 py-3 font-medium">Conteo</th>
+                      <th className="px-3 py-3 font-medium w-28">{t('estimacionCosecha.table.status')}</th>
+                      <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.field')}</th>
+                      <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.block')}</th>
+                      <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.variety')}</th>
+                      <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.ha')}</th>
+                      <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.plantsPerHa')}</th>
+                      <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.spursPerPlant')}</th>
+                      <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.spursPerBranch')}</th>
+                      <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.primPerSpur')}</th>
+                      <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.fruitSet')}</th>
+                      <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.fruitsPerPlant')}</th>
+                      <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.kgPerPlant')}</th>
+                      <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.kgPerHa')}</th>
+                      <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.estimatedKg')}</th>
+                      <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.count')}</th>
                       <th className="px-3 py-3 w-20" />
                     </tr>
                   </thead>
@@ -1643,7 +1735,10 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                       return (
                       <tr key={row.id} className="border-b last:border-0 hover:bg-muted/20">
                         <td className="px-3 py-3">
-                          <HarvestRowBadge rowId={row.id} />
+                          <div className="flex flex-wrap items-center gap-1">
+                            <HarvestRowBadge rowId={row.id} />
+                            <OfflinePendingBadge recordId={row.id} />
+                          </div>
                         </td>
                         <td className="px-3 py-3 text-muted-foreground">{row.field_name ?? '—'}</td>
                         <td className="px-3 py-3 font-medium">{row.block_name}</td>
@@ -1659,11 +1754,11 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                         <td className="px-3 py-3 tabular-nums">{row.kg_per_ha != null ? formatKg(row.kg_per_ha) : '—'}</td>
                         <td className="px-3 py-3 font-medium tabular-nums">{formatKg(Number(row.estimated_kg))}</td>
                         <td className="px-3 py-3">
-                          <Badge variant="outline" className={COUNT_STYLE[countState]}>{countState}</Badge>
+                          <Badge variant="outline" className={COUNT_STYLE[countState]}>{tCountState(t, countState)}</Badge>
                         </td>
                         <td className="px-3 py-3">
                           <div className="flex gap-1">
-                            <Button variant="ghost" size="icon" onClick={() => openEditEstimation(row)} title="Editar estimación">
+                            <Button variant="ghost" size="icon" onClick={() => openEditEstimation(row)} title={t('estimacionCosecha.buttons.editEstimation')}>
                               <Pencil className="w-4 h-4" />
                             </Button>
                             {canDelete && (
@@ -1693,14 +1788,14 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {importMode === 'conteo' ? 'Importar conteo desde Excel' : 'Importar estimación desde Excel'}
+              {importMode === 'conteo' ? t('estimacionCosecha.dialogs.importCount') : t('estimacionCosecha.dialogs.importEstimation')}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <p className="text-xs text-muted-foreground">
               {importMode === 'conteo'
-                ? 'Conteo fenológico: se importan todas las muestras por árbol. Los promedios (Hilera, Arbol, Dardo, Ramillas, Dardo Coral) se calculan por cuartel y variedad en columnas aparte.'
-                : 'Solo estimación de cosecha: Excel con Kg/ha y Kg totales por cuartel (no uses aquí el Dashboard de conteo).'}
+                ? t('estimacionCosecha.dialogs.importCountHint')
+                : t('estimacionCosecha.dialogs.importEstimationHint')}
             </p>
             <input
               ref={fileInputRef}
@@ -1719,25 +1814,29 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
               onClick={() => fileInputRef.current?.click()}
             >
               <FileSpreadsheet className="w-4 h-4" />
-              Seleccionar archivo Excel
+              {t('estimacionCosecha.buttons.selectExcel')}
             </Button>
             {importPreview && (
               <div className="rounded-lg border bg-muted/30 p-3 text-sm space-y-1">
-                <p className="font-medium">Hoja: {importPreview.sheetName}</p>
+                <p className="font-medium">{t('estimacionCosecha.dialogs.sheet', { name: importPreview.sheetName })}</p>
                 <p className="text-muted-foreground">
-                  {importPreview.fields.length} campos · {importPreview.blocks.length} cuarteles · {importPreview.estimates.length} estimaciones
+                  {t('estimacionCosecha.dialogs.previewSummary', {
+                    fields: importPreview.fields.length,
+                    blocks: importPreview.blocks.length,
+                    estimates: importPreview.estimates.length,
+                  })}
                 </p>
                 {importMode === 'conteo' && importPreview.source_row_count != null && (
                   <p className="text-xs text-muted-foreground">
-                    {importPreview.estimates.length} muestras por árbol · promedio calculado al guardar por cuartel/variedad
+                    {t('estimacionCosecha.dialogs.treeSamples', { count: importPreview.estimates.length })}
                   </p>
                 )}
                 {importMode === 'conteo' && importPreview.estimates.every((e) => !e.hectares || e.hectares <= 0) && (
                   <p className="text-xs text-amber-600 dark:text-amber-400">
-                    Sin hectáreas en el Excel. Tras importar, complétalas en Cuarteles para calcular kg totales.
+                    {t('estimacionCosecha.dialogs.noHaInExcel')}
                   </p>
                 )}
-                <p className="text-xs text-muted-foreground">Temporada detectada: {importPreview.season_label}</p>
+                <p className="text-xs text-muted-foreground">{t('estimacionCosecha.dialogs.detectedSeason', { season: importPreview.season_label })}</p>
               </div>
             )}
             <div className="flex items-center gap-2">
@@ -1747,7 +1846,7 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                 onCheckedChange={(v) => setImportReplace(v === true)}
               />
               <Label htmlFor="import-replace" className="text-sm font-normal cursor-pointer">
-                Reemplazar todos mis datos actuales antes de importar
+                {t('estimacionCosecha.dialogs.replaceBeforeImport')}
               </Label>
             </div>
             <Button
@@ -1757,14 +1856,14 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
               onClick={handleClearAllData}
               disabled={saving}
             >
-              Vaciar todos mis datos (campos, cuarteles y estimaciones)
+              {t('estimacionCosecha.buttons.clearAllData')}
             </Button>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setImportDialogOpen(false)}>Cancelar</Button>
+            <Button variant="outline" onClick={() => setImportDialogOpen(false)}>{t('common.actions.cancel')}</Button>
             <Button onClick={handleConfirmImport} disabled={!importPreview || importing}>
               {importing && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-              Importar
+              {t('common.actions.import')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1774,22 +1873,22 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
       <Dialog open={fieldsDialogOpen} onOpenChange={setFieldsDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Mis campos</DialogTitle>
+            <DialogTitle>{t('estimacionCosecha.dialogs.myFields')}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <p className="text-xs text-muted-foreground">
-              Registra los fundos o campos de tu operación. Luego podrás asignar cuarteles a cada uno.
+              {t('estimacionCosecha.dialogs.fieldsHint')}
             </p>
             <div className="flex gap-2">
               <Input
                 value={fieldFormName}
                 onChange={(e) => setFieldFormName(e.target.value)}
-                placeholder="Nombre del campo"
+                placeholder={t('estimacionCosecha.dialogs.fieldNamePlaceholder')}
                 onKeyDown={(e) => e.key === 'Enter' && handleSaveField()}
               />
               <Button onClick={handleSaveField} disabled={saving} className="shrink-0 gap-1">
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                Agregar
+                {t('estimacionCosecha.buttons.addField')}
               </Button>
             </div>
             {fields.length > 0 || orphanFieldNames.length > 0 ? (
@@ -1805,13 +1904,13 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                 {orphanFieldNames.map((name) => (
                   <div key={`orphan-${name}`} className="flex items-center justify-between px-3 py-2 text-sm bg-muted/20">
                     <span className="font-medium">{name}</span>
-                    <Badge variant="secondary" className="text-[10px]">En cuarteles/estimaciones</Badge>
+                    <Badge variant="secondary" className="text-[10px]">{t('estimacionCosecha.badges.inBlocksEstimations')}</Badge>
                   </div>
                 ))}
               </div>
             ) : (
               <p className="text-sm text-muted-foreground text-center py-4 border border-dashed rounded-lg">
-                Aún no tienes campos registrados.
+                {t('estimacionCosecha.empty.noFields')}
               </p>
             )}
             {fields.length > 0 && (
@@ -1823,7 +1922,7 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                 disabled={saving}
               >
                 <Trash2 className="w-4 h-4 mr-2" />
-                Eliminar todos los campos
+                {t('estimacionCosecha.buttons.deleteAllFields')}
               </Button>
             )}
           </div>
@@ -1834,12 +1933,12 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
       <Dialog open={blocksDialogOpen} onOpenChange={setBlocksDialogOpen}>
         <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Mis cuarteles</DialogTitle>
+            <DialogTitle>{t('estimacionCosecha.dialogs.myBlocks')}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs text-muted-foreground">Campo *</label>
+                <label className="text-xs text-muted-foreground">{t('estimacionCosecha.filters.field')} *</label>
                 {hasFieldOptions ? (
                   <Select
                     value={blockForm.field_name || 'none'}
@@ -1848,9 +1947,9 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                       field_name: v === 'none' ? '' : v,
                     })}
                   >
-                    <SelectTrigger><SelectValue placeholder="Seleccionar campo" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder={t('estimacionCosecha.dialogs.selectField')} /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">Seleccionar…</SelectItem>
+                      <SelectItem value="none">{t('estimacionCosecha.dialogs.selectPlaceholder')}</SelectItem>
                       {fieldOptions.map((name) => (
                         <SelectItem key={name} value={name}>{name}</SelectItem>
                       ))}
@@ -1860,20 +1959,20 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                   <Input
                     value={blockForm.field_name}
                     onChange={(e) => setBlockForm({ ...blockForm, field_name: e.target.value })}
-                    placeholder="Ej. Fundo Norte"
+                    placeholder={t('estimacionCosecha.dialogs.fieldExample')}
                   />
                 )}
               </div>
               <div>
-                <label className="text-xs text-muted-foreground">Cuartel *</label>
+                <label className="text-xs text-muted-foreground">{t('estimacionCosecha.filters.block')} *</label>
                 <Input
                   value={blockForm.block_name}
                   onChange={(e) => setBlockForm({ ...blockForm, block_name: e.target.value })}
-                  placeholder="Ej. 1V"
+                  placeholder={t('estimacionCosecha.dialogs.blockExample')}
                 />
               </div>
               <div>
-                <label className="text-xs text-muted-foreground">Cultivo</label>
+                <label className="text-xs text-muted-foreground">{t('estimacionCosecha.filters.crop')}</label>
                 <Select
                   value={blockForm.crop}
                   onValueChange={(v) => setBlockForm({ ...blockForm, crop: v as HarvestCrop, variety: '' })}
@@ -1885,9 +1984,9 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                 </Select>
               </div>
               <div>
-                <label className="text-xs text-muted-foreground">Variedad</label>
+                <label className="text-xs text-muted-foreground">{t('estimacionCosecha.filters.variety')}</label>
                 <Select value={blockForm.variety} onValueChange={(v) => setBlockForm({ ...blockForm, variety: v })}>
-                  <SelectTrigger><SelectValue placeholder="Opcional" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={t('estimacionCosecha.dialogs.optional')} /></SelectTrigger>
                   <SelectContent>
                     {getVarietiesForCrop(blockForm.crop).map((v) => (
                       <SelectItem key={v.name} value={v.name}>{v.name}</SelectItem>
@@ -1896,22 +1995,22 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                 </Select>
               </div>
               <div>
-                <label className="text-xs text-muted-foreground">Hectáreas</label>
+                <label className="text-xs text-muted-foreground">{t('estimacionCosecha.dialogs.hectares')}</label>
                 <Input type="number" step="0.01" value={blockForm.hectares} onChange={(e) => setBlockForm({ ...blockForm, hectares: e.target.value })} />
               </div>
               <div>
-                <label className="text-xs text-muted-foreground">Plantas/Ha</label>
+                <label className="text-xs text-muted-foreground">{t('estimacionCosecha.table.plantsPerHa')}</label>
                 <Input type="number" value={blockForm.plants_per_ha} onChange={(e) => setBlockForm({ ...blockForm, plants_per_ha: e.target.value })} />
               </div>
             </div>
             {!hasFieldOptions && (
               <Button variant="link" className="h-auto p-0 text-xs" onClick={() => { setBlocksDialogOpen(false); setFieldsDialogOpen(true) }}>
-                Primero agrega un campo
+                {t('estimacionCosecha.buttons.addFieldFirst')}
               </Button>
             )}
             <Button onClick={handleSaveBlock} disabled={saving} className="w-full gap-2">
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-              Agregar cuartel
+              {t('estimacionCosecha.buttons.addBlock')}
             </Button>
 
             {blocks.length > 0 && (
@@ -1941,7 +2040,7 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                 disabled={saving}
               >
                 <Trash2 className="w-4 h-4 mr-2" />
-                Eliminar todos los cuarteles
+                {t('estimacionCosecha.buttons.deleteAllBlocks')}
               </Button>
             )}
           </div>
@@ -1954,8 +2053,8 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
           <DialogHeader>
             <DialogTitle>
               {dialogMode === 'estimacion'
-                ? (editing ? 'Editar estimación de cosecha' : 'Nueva estimación de cosecha')
-                : (editing ? 'Editar conteo' : 'Nuevo conteo fenológico')}
+                ? (editing ? t('estimacionCosecha.dialogs.editEstimation') : t('estimacionCosecha.dialogs.newEstimation'))
+                : (editing ? t('estimacionCosecha.dialogs.editCount') : t('estimacionCosecha.dialogs.newCount'))}
             </DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-2">
@@ -1963,15 +2062,15 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
               <>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div>
-                <label className="text-xs text-muted-foreground">Fecha *</label>
+                <label className="text-xs text-muted-foreground">{t('estimacionCosecha.dialogs.date')}</label>
                 <Input type="date" value={form.record_date} onChange={(e) => setForm({ ...form, record_date: e.target.value })} />
               </div>
               <div>
-                <label className="text-xs text-muted-foreground">Temporada</label>
+                <label className="text-xs text-muted-foreground">{t('estimacionCosecha.filters.season')}</label>
                 <Input value={form.season_label} onChange={(e) => setForm({ ...form, season_label: e.target.value })} />
               </div>
               <div>
-                <label className="text-xs text-muted-foreground">Campo *</label>
+                <label className="text-xs text-muted-foreground">{t('estimacionCosecha.filters.field')} *</label>
                 {hasFieldOptions ? (
                   <Select
                     value={form.field_name || 'none'}
@@ -1982,9 +2081,9 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                       block_name: '',
                     }))}
                   >
-                    <SelectTrigger><SelectValue placeholder="Seleccionar campo" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder={t('estimacionCosecha.dialogs.selectField')} /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">Seleccionar…</SelectItem>
+                      <SelectItem value="none">{t('estimacionCosecha.dialogs.selectPlaceholder')}</SelectItem>
                       {fieldOptions.map((name) => (
                         <SelectItem key={name} value={name}>{name}</SelectItem>
                       ))}
@@ -1994,19 +2093,19 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                   <Input
                     value={form.field_name}
                     onChange={(e) => setForm({ ...form, field_name: e.target.value })}
-                    placeholder="Ej. Fundo Norte"
+                    placeholder={t('estimacionCosecha.dialogs.fieldExample')}
                   />
                 )}
               </div>
               <div>
-                <label className="text-xs text-muted-foreground">Superficie (ha) *</label>
+                <label className="text-xs text-muted-foreground">{t('estimacionCosecha.dialogs.areaHa')}</label>
                 <Input type="number" step="0.01" min="0" value={form.hectares} onChange={(e) => setForm({ ...form, hectares: e.target.value })} />
               </div>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <div className="sm:col-span-2">
-                <label className="text-xs text-muted-foreground">Cuartel *</label>
+                <label className="text-xs text-muted-foreground">{t('estimacionCosecha.filters.block')} *</label>
                 {blocksForSelectedField.length > 0 ? (
                   <Select
                     value={form.block_id || 'manual'}
@@ -2019,9 +2118,9 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                       if (block) applyBlockToForm(block)
                     }}
                   >
-                    <SelectTrigger><SelectValue placeholder="Seleccionar cuartel" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder={t('estimacionCosecha.dialogs.selectBlock')} /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="manual">Escribir manualmente…</SelectItem>
+                      <SelectItem value="manual">{t('estimacionCosecha.dialogs.writeManual')}</SelectItem>
                       {blocksForSelectedField.map((b) => (
                         <SelectItem key={b.id} value={b.id}>{b.block_name}</SelectItem>
                       ))}
@@ -2031,30 +2130,30 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                   <Input
                     value={form.block_name}
                     onChange={(e) => setForm({ ...form, block_name: e.target.value, block_id: '' })}
-                    placeholder="Ej. 1V"
+                    placeholder={t('estimacionCosecha.dialogs.blockExample')}
                   />
                 )}
               </div>
               {(form.block_id === '' || blocksForSelectedField.length === 0) && (
                 <div>
-                  <label className="text-xs text-muted-foreground">Nombre cuartel</label>
+                  <label className="text-xs text-muted-foreground">{t('estimacionCosecha.dialogs.blockName')}</label>
                   <Input
                     value={form.block_name}
                     onChange={(e) => setForm({ ...form, block_name: e.target.value, block_id: '' })}
-                    placeholder="Ej. 1V"
+                    placeholder={t('estimacionCosecha.dialogs.blockExample')}
                   />
                 </div>
               )}
             </div>
             {!hasFieldOptions && (
               <Button variant="link" className="h-auto p-0 text-xs justify-start" onClick={() => { setDialogOpen(false); setFieldsDialogOpen(true) }}>
-                + Agregar campos a tu cuenta
+                {t('estimacionCosecha.buttons.addFieldsToAccount')}
               </Button>
             )}
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div>
-                <label className="text-xs text-muted-foreground">Especie *</label>
+                <label className="text-xs text-muted-foreground">{t('estimacionCosecha.dialogs.species')}</label>
                 <Select value={form.crop} onValueChange={(v) => handleCropChange(v as HarvestCrop)}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -2063,7 +2162,7 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                 </Select>
               </div>
               <div>
-                <label className="text-xs text-muted-foreground">Variedad *</label>
+                <label className="text-xs text-muted-foreground">{t('estimacionCosecha.filters.variety')} *</label>
                 <Select value={form.variety} onValueChange={handleVarietyChange}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -2075,12 +2174,12 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
               </div>
               {isCherry && (
                 <div>
-                  <label className="text-xs text-muted-foreground">Estado conteo</label>
+                  <label className="text-xs text-muted-foreground">{t('estimacionCosecha.dialogs.countState')}</label>
                   <Select value={form.count_state} onValueChange={(v) => setForm({ ...form, count_state: v as HarvestCountState })}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {HARVEST_COUNT_STATES.map((s) => (
-                        <SelectItem key={s} value={s}>{s}</SelectItem>
+                        <SelectItem key={s} value={s}>{tCountState(t, s)}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -2089,11 +2188,11 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
               {dialogMode === 'conteo' && (
                 <>
                   <div>
-                    <label className="text-xs text-muted-foreground">Hilera</label>
+                    <label className="text-xs text-muted-foreground">{t('estimacionCosecha.table.row')}</label>
                     <Input type="number" min="0" value={form.hilera} onChange={(e) => setForm({ ...form, hilera: e.target.value })} />
                   </div>
                   <div>
-                    <label className="text-xs text-muted-foreground">Árbol</label>
+                    <label className="text-xs text-muted-foreground">{t('estimacionCosecha.dialogs.tree')}</label>
                     <Input type="number" min="0" value={form.arbol} onChange={(e) => setForm({ ...form, arbol: e.target.value })} />
                   </div>
                 </>
@@ -2104,64 +2203,64 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
               <>
                 <div className="rounded-lg border p-3 space-y-3">
                   <p className="text-xs font-medium text-foreground">
-                    {dialogMode === 'estimacion' ? 'Parámetros de estimación' : 'Conteo fenológico'}
+                    {dialogMode === 'estimacion' ? t('estimacionCosecha.dialogs.estimationParams') : t('estimacionCosecha.dialogs.phenologyCount')}
                   </p>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     <div>
-                      <label className="text-xs text-muted-foreground">Plantas/Ha</label>
+                      <label className="text-xs text-muted-foreground">{t('estimacionCosecha.table.plantsPerHa')}</label>
                       <Input type="number" value={form.plants_per_ha} onChange={(e) => setForm({ ...form, plants_per_ha: e.target.value })} />
                     </div>
                     <div>
-                      <label className="text-xs text-muted-foreground">Dardos/planta</label>
+                      <label className="text-xs text-muted-foreground">{t('estimacionCosecha.dialogs.spursPerPlant')}</label>
                       <Input type="number" step="0.1" value={form.dardos_per_plant} onChange={(e) => setForm({ ...form, dardos_per_plant: e.target.value })} />
                     </div>
                     <div>
-                      <label className="text-xs text-muted-foreground">Dardos/ramilla</label>
+                      <label className="text-xs text-muted-foreground">{t('estimacionCosecha.dialogs.spursPerBranch')}</label>
                       <Input type="number" step="0.1" value={form.dardos_per_branch} onChange={(e) => setForm({ ...form, dardos_per_branch: e.target.value })} />
                     </div>
                     {dialogMode === 'conteo' && (
                       <div>
-                        <label className="text-xs text-muted-foreground">Dardo Coral</label>
+                        <label className="text-xs text-muted-foreground">{t('estimacionCosecha.dialogs.coralSpur')}</label>
                         <Input type="number" step="0.1" value={form.dardo_coral} onChange={(e) => setForm({ ...form, dardo_coral: e.target.value })} />
                       </div>
                     )}
                     <div>
-                      <label className="text-xs text-muted-foreground">% Cuaja</label>
+                      <label className="text-xs text-muted-foreground">{t('estimacionCosecha.dialogs.fruitSet')}</label>
                       <Input type="number" step="0.01" min="0" max="1" value={form.fruit_set_pct} onChange={(e) => setForm({ ...form, fruit_set_pct: e.target.value })} placeholder="0.20" />
                     </div>
                     <div>
-                      <label className="text-xs text-muted-foreground">Primordios/dardo</label>
+                      <label className="text-xs text-muted-foreground">{t('estimacionCosecha.dialogs.primPerSpur')}</label>
                       <Input type="number" step="0.01" value={form.primordia_per_dardo} onChange={(e) => setForm({ ...form, primordia_per_dardo: e.target.value })} />
                     </div>
                     <div>
-                      <label className="text-xs text-muted-foreground">Primordios/ramilla</label>
+                      <label className="text-xs text-muted-foreground">{t('estimacionCosecha.dialogs.primPerBranch')}</label>
                       <Input type="number" step="0.01" value={form.primordia_per_branch} onChange={(e) => setForm({ ...form, primordia_per_branch: e.target.value })} />
                     </div>
                     <div>
-                      <label className="text-xs text-muted-foreground">Peso fruto (kg)</label>
+                      <label className="text-xs text-muted-foreground">{t('estimacionCosecha.dialogs.fruitWeight')}</label>
                       <Input type="number" step="0.001" value={form.fruit_weight_kg} onChange={(e) => setForm({ ...form, fruit_weight_kg: e.target.value })} />
                     </div>
                   </div>
                 </div>
-                <ExcelCalcPanel form={form} />
+                <ExcelCalcPanel form={form} t={t} />
               </>
             ) : (
               computedLive && (
                 <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs">
                   <p className="text-muted-foreground mb-1">{HARVEST_FORMULA_HINT[form.crop]}</p>
-                  <p className="font-medium">Kg totales: {formatKg(computedLive.estimatedKg)}</p>
+                  <p className="font-medium">{t('estimacionCosecha.dialogs.totalKg', { kg: formatKg(computedLive.estimatedKg) })}</p>
                 </div>
               )
             )}
 
             {dialogMode === 'conteo' && (
               <div>
-                <label className="text-xs text-muted-foreground">Notas</label>
+                <label className="text-xs text-muted-foreground">{t('common.labels.notes')}</label>
                 <Textarea
                   rows={2}
                   value={form.notes}
                   onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                  placeholder="Observaciones del conteo…"
+                  placeholder={t('estimacionCosecha.dialogs.notesPlaceholder')}
                 />
               </div>
             )}
@@ -2170,13 +2269,13 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancelar</Button>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>{t('common.actions.cancel')}</Button>
             <Button
               onClick={handleSave}
               disabled={!canSaveDialog}
             >
               {saving && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-              Guardar
+              {t('common.actions.save')}
             </Button>
           </DialogFooter>
         </DialogContent>

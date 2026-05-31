@@ -59,7 +59,7 @@ export default async function TableDataPage({ params }: Props) {
               <div className="w-9 h-9 rounded-lg bg-[#4A6CF7]/10 border border-[#4A6CF7]/20 flex items-center justify-center overflow-hidden">
                 <Image 
                   src="/logo-upcrop.png" 
-                  alt="UpCrop Logo" 
+                  alt="Up Crop" 
                   width={24} 
                   height={24}
                   className="object-contain"

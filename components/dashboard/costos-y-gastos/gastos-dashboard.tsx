@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/select'
 import { usePagination } from '@/hooks/use-pagination'
 import { TablePaginationBar } from '@/components/ui/table-pagination-bar'
+import { useLocale } from '@/components/i18n/locale-provider'
 
 const PAGE_SIZE = 12
 
@@ -29,6 +30,7 @@ type StatusFilter = 'todos' | 'pendientes' | 'clasificados'
 type SortKey = 'monto' | 'pendientes' | 'nombre'
 
 export function GastosDashboard({ gastos, clienteId }: Props) {
+  const { t } = useLocale()
   const router = useRouter()
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('todos')
@@ -109,7 +111,12 @@ export function GastosDashboard({ gastos, clienteId }: Props) {
           <div className="flex items-center gap-2 shrink-0">
             <Building2 className="w-4 h-4 text-muted-foreground" />
             <h2 className="text-sm font-semibold text-foreground">
-              Contrapartes ({filtered.length}{filtered.length !== gastos.length ? ` de ${gastos.length}` : ''})
+              {t('costosGastos.dashboard.contrapartesTitle', {
+                filtered: filtered.length,
+                ofTotal: filtered.length !== gastos.length
+                  ? t('costosGastos.dashboard.ofTotal', { total: gastos.length })
+                  : '',
+              })}
             </h2>
           </div>
 
@@ -117,7 +124,7 @@ export function GastosDashboard({ gastos, clienteId }: Props) {
             <div className="relative flex-1 sm:max-w-xs">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
-                placeholder="Buscar por nombre o RUT…"
+                placeholder={t('costosGastos.dashboard.searchPlaceholder')}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="pl-9 h-9"
@@ -128,9 +135,9 @@ export function GastosDashboard({ gastos, clienteId }: Props) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="todos">Todos</SelectItem>
-                <SelectItem value="pendientes">Con pendientes</SelectItem>
-                <SelectItem value="clasificados">Al día</SelectItem>
+                <SelectItem value="todos">{t('costosGastos.dashboard.filter.todos')}</SelectItem>
+                <SelectItem value="pendientes">{t('costosGastos.dashboard.filter.pendientes')}</SelectItem>
+                <SelectItem value="clasificados">{t('costosGastos.dashboard.filter.alDia')}</SelectItem>
               </SelectContent>
             </Select>
             <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
@@ -139,9 +146,9 @@ export function GastosDashboard({ gastos, clienteId }: Props) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="pendientes">Más pendientes</SelectItem>
-                <SelectItem value="monto">Mayor monto</SelectItem>
-                <SelectItem value="nombre">Nombre A–Z</SelectItem>
+                <SelectItem value="pendientes">{t('costosGastos.dashboard.sort.pendientes')}</SelectItem>
+                <SelectItem value="monto">{t('costosGastos.dashboard.sort.monto')}</SelectItem>
+                <SelectItem value="nombre">{t('costosGastos.dashboard.sort.nombre')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -149,13 +156,13 @@ export function GastosDashboard({ gastos, clienteId }: Props) {
 
         {hasPendingDocs && statusFilter !== 'clasificados' && (
           <p className="text-xs text-muted-foreground">
-            Las tarjetas con badge amarillo tienen documentos por clasificar — haz clic para abrirlas.
+            {t('costosGastos.dashboard.pendingHint')}
           </p>
         )}
 
         {filtered.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
-            Ninguna contraparte coincide con los filtros aplicados.
+            {t('costosGastos.dashboard.noResults')}
           </div>
         ) : (
           <>
@@ -177,7 +184,7 @@ export function GastosDashboard({ gastos, clienteId }: Props) {
                 startIndex={startIndex}
                 endIndex={endIndex}
                 onPageChange={setPage}
-                itemLabel="contrapartes"
+                itemLabel={t('costosGastos.common.itemLabel.contrapartes')}
               />
             )}
           </>

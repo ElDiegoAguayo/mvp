@@ -19,9 +19,10 @@ import { countGroupKey, listCountGroupSummaries } from '@/lib/agronomy/count-gro
 import { buildEstimationFromCountSummary } from '@/lib/agronomy/build-estimation-from-count'
 import { currentSeasonLabel, formatKg } from '@/lib/agronomy/format'
 import { HARVEST_CROPS } from '@/lib/agronomy/harvest-yields'
-import { buildHarvestPlanRows, formatWindowRange, isCountSampleRow, WINDOW_SOURCE_LABELS, type HarvestPlanRow } from '@/lib/agronomy/harvest-plan-windows'
+import { buildHarvestPlanRows, formatWindowRange, isCountSampleRow, type HarvestPlanRow } from '@/lib/agronomy/harvest-plan-windows'
 import { HarvestPlanGantt, HarvestPlanTable } from '@/components/dashboard/harvest-plan/harvest-plan-gantt'
 import { HarvestPlanSummary, HarvestPlanWeekBuckets } from '@/components/dashboard/harvest-plan/harvest-plan-summary'
+import { useLocale } from '@/components/i18n/locale-provider'
 
 interface HarvestEstimate {
   id: string
@@ -64,6 +65,7 @@ interface HarvestPlanManagerProps {
 
 export function HarvestPlanManager({ embedded = false }: HarvestPlanManagerProps) {
   const supabase = useMemo(() => createClient(), [])
+  const { t } = useLocale()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [rows, setRows] = useState<HarvestEstimate[]>([])
@@ -90,13 +92,13 @@ export function HarvestPlanManager({ embedded = false }: HarvestPlanManagerProps
       supabase.from('harvest_blocks').select('field_name, block_name, crop, variety, hectares, plants_per_ha').eq('user_id', effectiveUserId),
     ])
 
-    if (estRes.error) toast.error('No se pudieron cargar las estimaciones')
+    if (estRes.error) toast.error(t('estimacionCosecha.toasts.planLoadFailed'))
     else setRows((estRes.data ?? []) as HarvestEstimate[])
 
     if (!blockRes.error) setBlocks((blockRes.data ?? []) as HarvestBlock[])
 
     setLoading(false)
-  }, [supabase])
+  }, [supabase, t])
 
   useEffect(() => { load() }, [load])
 
@@ -283,11 +285,11 @@ export function HarvestPlanManager({ embedded = false }: HarvestPlanManagerProps
   async function saveWindow() {
     if (!editRow?.id) return
     if (!editStart || !editEnd) {
-      toast.error('Indica fecha de inicio y fin')
+      toast.error(t('estimacionCosecha.toasts.windowDatesRequired'))
       return
     }
     if (editStart > editEnd) {
-      toast.error('La fecha de inicio debe ser anterior al fin')
+      toast.error(t('estimacionCosecha.toasts.startBeforeEnd'))
       return
     }
 
@@ -299,10 +301,10 @@ export function HarvestPlanManager({ embedded = false }: HarvestPlanManagerProps
 
     setSaving(false)
     if (error) {
-      toast.error('No se pudo guardar la ventana')
+      toast.error(t('estimacionCosecha.toasts.windowSaveFailed'))
       return
     }
-    toast.success('Ventana de cosecha actualizada')
+    toast.success(t('estimacionCosecha.toasts.windowUpdated'))
     setEditRow(null)
     await load()
   }
@@ -310,7 +312,7 @@ export function HarvestPlanManager({ embedded = false }: HarvestPlanManagerProps
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24 text-muted-foreground gap-2">
-        <Loader2 className="w-5 h-5 animate-spin" /> Cargando plan de cosecha…
+        <Loader2 className="w-5 h-5 animate-spin" /> {t('estimacionCosecha.plan.loading')}
       </div>
     )
   }
@@ -320,7 +322,7 @@ export function HarvestPlanManager({ embedded = false }: HarvestPlanManagerProps
       <div className="rounded-xl border bg-card p-4">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Temporada</label>
+            <label className="text-xs font-medium text-muted-foreground">{t('estimacionCosecha.filters.season')}</label>
             <Select value={filterSeason || seasons[0] || currentSeasonLabel()} onValueChange={setFilterSeason}>
               <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -331,11 +333,11 @@ export function HarvestPlanManager({ embedded = false }: HarvestPlanManagerProps
             </Select>
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Cultivo</label>
+            <label className="text-xs font-medium text-muted-foreground">{t('estimacionCosecha.filters.crop')}</label>
             <Select value={filterCrop} onValueChange={setFilterCrop}>
               <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Todos</SelectItem>
+                <SelectItem value={ALL}>{t('estimacionCosecha.plan.all')}</SelectItem>
                 {(cropsInUse.length > 0 ? cropsInUse : [...HARVEST_CROPS]).map((c) => (
                   <SelectItem key={c} value={c}>{c}</SelectItem>
                 ))}
@@ -343,31 +345,31 @@ export function HarvestPlanManager({ embedded = false }: HarvestPlanManagerProps
             </Select>
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Campo</label>
+            <label className="text-xs font-medium text-muted-foreground">{t('estimacionCosecha.filters.field')}</label>
             <Select value={filterField} onValueChange={setFilterField}>
               <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Todos</SelectItem>
+                <SelectItem value={ALL}>{t('estimacionCosecha.plan.all')}</SelectItem>
                 {fieldsInUse.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Cuartel</label>
+            <label className="text-xs font-medium text-muted-foreground">{t('estimacionCosecha.filters.block')}</label>
             <Select value={filterBlock} onValueChange={setFilterBlock}>
               <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Todos</SelectItem>
+                <SelectItem value={ALL}>{t('estimacionCosecha.plan.all')}</SelectItem>
                 {blocksInUse.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Variedad</label>
+            <label className="text-xs font-medium text-muted-foreground">{t('estimacionCosecha.filters.variety')}</label>
             <Select value={filterVariety} onValueChange={setFilterVariety}>
               <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Todas</SelectItem>
+                <SelectItem value={ALL}>{t('estimacionCosecha.plan.allVarieties')}</SelectItem>
                 {varietiesInUse.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
               </SelectContent>
             </Select>
@@ -378,18 +380,18 @@ export function HarvestPlanManager({ embedded = false }: HarvestPlanManagerProps
       {planRows.length === 0 ? (
         <div className="rounded-xl border border-dashed p-12 text-center text-muted-foreground">
           <CalendarRange className="w-10 h-10 mx-auto mb-3 opacity-40" />
-          <p className="font-medium text-foreground mb-1">Sin plan de cosecha para esta temporada</p>
+          <p className="font-medium text-foreground mb-1">{t('estimacionCosecha.plan.emptyTitle')}</p>
           <p className="text-sm mb-4 max-w-md mx-auto">
-            Necesitas estimaciones de kg por cuartel. Las fechas se calculan desde el inicio y término del conteo de cada cuartel.
+            {t('estimacionCosecha.plan.emptyDesc')}
           </p>
           {!embedded && (
             <Button asChild>
-              <Link href="/dashboard/estimacion-cosecha?tab=estimacion">Ir a Estimación de cosecha</Link>
+              <Link href="/dashboard/estimacion-cosecha?tab=estimacion">{t('estimacionCosecha.plan.goToEstimation')}</Link>
             </Button>
           )}
           {embedded && (
             <p className="text-xs text-muted-foreground">
-              Registra conteos o estimaciones en las pestañas anteriores.
+              {t('estimacionCosecha.plan.embeddedHint')}
             </p>
           )}
         </div>
@@ -416,10 +418,16 @@ export function HarvestPlanManager({ embedded = false }: HarvestPlanManagerProps
                 </div>
                 <p className="text-sm">{formatWindowRange(row.window_start, row.window_end)}</p>
                 <div className="flex items-center justify-between gap-2">
-                  <Badge variant="outline" className="text-xs">{WINDOW_SOURCE_LABELS[row.source]}</Badge>
+                  <Badge variant="outline" className="text-xs">
+                    {row.source === 'manual'
+                      ? t('estimacionCosecha.plan.sourceManual')
+                      : row.source === 'count'
+                        ? t('estimacionCosecha.plan.sourceCount')
+                        : t('estimacionCosecha.plan.sourceVariety')}
+                  </Badge>
                   {row.id && (
                     <Button variant="ghost" size="sm" className="h-8 gap-1" onClick={() => openEdit(row)}>
-                      <Pencil className="w-3.5 h-3.5" /> Fechas
+                      <Pencil className="w-3.5 h-3.5" /> {t('estimacionCosecha.plan.dates')}
                     </Button>
                   )}
                 </div>
@@ -431,10 +439,9 @@ export function HarvestPlanManager({ embedded = false }: HarvestPlanManagerProps
 
           <p className="text-xs text-muted-foreground flex items-center gap-1.5">
             <ExternalLink className="w-3.5 h-3.5" />
-            Las fechas manuales se guardan en la estimación. Sin fechas guardadas, se usan la primera y última fecha de
-            {' '}
-            <Link href="/dashboard/estimacion-cosecha?tab=conteo" className="text-primary hover:underline">conteo</Link>
-            {' '}del cuartel, o ventanas típicas por variedad si no hay conteos.
+            {t('estimacionCosecha.plan.footnotePrefix')}{' '}
+            <Link href="/dashboard/estimacion-cosecha?tab=conteo" className="text-primary hover:underline">{t('estimacionCosecha.plan.countLink')}</Link>
+            {' '}{t('estimacionCosecha.plan.footnoteSuffix')}
           </p>
         </>
       )}
@@ -442,7 +449,7 @@ export function HarvestPlanManager({ embedded = false }: HarvestPlanManagerProps
       <Dialog open={!!editRow} onOpenChange={(open) => !open && setEditRow(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Ventana de cosecha</DialogTitle>
+            <DialogTitle>{t('estimacionCosecha.plan.windowTitle')}</DialogTitle>
           </DialogHeader>
           {editRow && (
             <div className="space-y-4 py-2">
@@ -451,20 +458,20 @@ export function HarvestPlanManager({ embedded = false }: HarvestPlanManagerProps
               </p>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium">Inicio</label>
+                  <label className="text-xs font-medium">{t('estimacionCosecha.plan.start')}</label>
                   <Input type="date" value={editStart} onChange={(e) => setEditStart(e.target.value)} />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium">Fin</label>
+                  <label className="text-xs font-medium">{t('estimacionCosecha.plan.end')}</label>
                   <Input type="date" value={editEnd} onChange={(e) => setEditEnd(e.target.value)} />
                 </div>
               </div>
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditRow(null)}>Cancelar</Button>
+            <Button variant="outline" onClick={() => setEditRow(null)}>{t('common.actions.cancel')}</Button>
             <Button onClick={saveWindow} disabled={saving}>
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Guardar fechas'}
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : t('estimacionCosecha.plan.saveDates')}
             </Button>
           </DialogFooter>
         </DialogContent>

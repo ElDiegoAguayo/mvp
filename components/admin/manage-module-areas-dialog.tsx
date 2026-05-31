@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ArrowDown, ArrowUp, Layers, Loader2, Plus } from 'lucide-react'
 import { toast } from 'sonner'
+import { logAudit } from '@/lib/audit-log'
 import type { ModuleArea } from '@/lib/modules/areas'
 
 interface ManageModuleAreasDialogProps {
@@ -92,6 +93,11 @@ export function ManageModuleAreasDialog({
       return false
     }
     setAreas(nextAreas.map((a, i) => ({ ...a, display_order: i })))
+    void logAudit(supabase, {
+      action_type: 'UPDATE_MODULE_AREA',
+      description: `Reordenó áreas de módulos (${nextAreas.map((a) => a.name).join(' → ')})`,
+      metadata: { operation: 'reorder', areas: nextAreas.map((a) => a.name) },
+    })
     onAreasChanged?.()
     return true
   }
@@ -118,6 +124,14 @@ export function ManageModuleAreasDialog({
       return
     }
     setAreas((prev) => prev.map((a) => (a.id === area.id ? { ...a, name: trimmed } : a)))
+    void logAudit(supabase, {
+      action_type: 'UPDATE_MODULE_AREA',
+      target_type: 'module_area',
+      target_id: area.id,
+      target_label: trimmed,
+      description: `Renombró área de módulos: "${area.name}" → "${trimmed}"`,
+      metadata: { previous_name: area.name, new_name: trimmed },
+    })
     onAreasChanged?.()
   }
 
@@ -142,6 +156,14 @@ export function ManageModuleAreasDialog({
 
     setAreas((prev) => [...prev, data as ModuleArea])
     setNewName('')
+    void logAudit(supabase, {
+      action_type: 'UPDATE_MODULE_AREA',
+      target_type: 'module_area',
+      target_id: (data as ModuleArea).id,
+      target_label: name,
+      description: `Creó área de módulos "${name}"`,
+      metadata: { operation: 'create' },
+    })
     onAreasChanged?.()
     toast.success(`Área "${name}" creada`)
   }

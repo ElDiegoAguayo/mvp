@@ -4,6 +4,8 @@ import { useTransition } from 'react'
 import { Eye, Loader2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { stopImpersonationAction } from '@/app/admin/impersonation-actions'
+import { useLocale } from '@/components/i18n/locale-provider'
+import { toast } from 'sonner'
 
 interface SupportModeBannerProps {
   targetName: string
@@ -12,10 +14,16 @@ interface SupportModeBannerProps {
 
 export function SupportModeBanner({ targetName, targetEmail }: SupportModeBannerProps) {
   const [isPending, startTransition] = useTransition()
+  const { t } = useLocale()
 
   const handleExit = () => {
     startTransition(async () => {
-      await stopImpersonationAction()
+      const res = await stopImpersonationAction()
+      if (!res.ok) {
+        toast.error('No se pudo salir del modo soporte', { description: res.message })
+        return
+      }
+      window.location.assign(res.redirectTo)
     })
   }
 
@@ -28,11 +36,10 @@ export function SupportModeBanner({ targetName, targetEmail }: SupportModeBanner
           </div>
           <div className="min-w-0">
             <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
-              Modo soporte
+              {t('shell.supportMode.title')}
             </p>
             <p className="text-xs text-amber-800/90 dark:text-amber-200/90 truncate">
-              Viendo la plataforma como{' '}
-              <span className="font-medium">{targetName}</span>
+              {t('shell.supportMode.viewingAs', { name: targetName })}
               {targetEmail && (
                 <span className="text-amber-700/80 dark:text-amber-300/80"> · {targetEmail}</span>
               )}
@@ -52,7 +59,7 @@ export function SupportModeBanner({ targetName, targetEmail }: SupportModeBanner
           ) : (
             <X className="w-3.5 h-3.5" />
           )}
-          Salir del modo soporte
+          {t('shell.supportMode.exit')}
         </Button>
       </div>
     </div>

@@ -6,19 +6,21 @@ import Link from 'next/link'
 import { CheckCircle2, Circle, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { obtenerResumenCostosWorkflow } from '@/app/actions/costos-gastos'
+import { useLocale } from '@/components/i18n/locale-provider'
 
 interface Props {
   clienteId: string
 }
 
 const STEPS = [
-  { id: 'import', label: 'Importar SII', href: null as string | null },
-  { id: 'clasificar', label: 'Clasificar', href: '/dashboard/costos-y-gastos/clasificacion' },
-  { id: 'centros', label: 'Centro de Costos', href: '/dashboard/costos-y-gastos/centro-de-costos' },
+  { id: 'import', labelKey: 'costosGastos.workflow.steps.importarSii', href: null as string | null },
+  { id: 'clasificar', labelKey: 'costosGastos.workflow.steps.clasificar', href: '/dashboard/costos-y-gastos/clasificacion' },
+  { id: 'centros', labelKey: 'costosGastos.workflow.steps.centroDeCostos', href: '/dashboard/costos-y-gastos/centro-de-costos' },
 ] as const
 
 export function CostosWorkflowStepper({ clienteId }: Props) {
   const pathname = usePathname()
+  const { t } = useLocale()
   const [summary, setSummary] = useState({ totalRegistros: 0, pendientes: 0, clasificados: 0 })
 
   useEffect(() => {
@@ -40,15 +42,15 @@ export function CostosWorkflowStepper({ clienteId }: Props) {
     <div className="rounded-xl border border-border bg-card/50 p-4 space-y-3">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-          Flujo de trabajo
+          {t('costosGastos.workflow.title')}
         </p>
         {summary.totalRegistros > 0 && (
           <p className="text-xs text-muted-foreground">
-            <span className="font-semibold text-foreground">{summary.clasificados}</span>
-            {' de '}
-            <span className="font-semibold text-foreground">{summary.totalRegistros}</span>
-            {' documentos clasificados '}
-            <span className="text-primary font-semibold">({pct}%)</span>
+            {t('costosGastos.workflow.progress', {
+              classified: summary.clasificados,
+              total: summary.totalRegistros,
+              pct,
+            })}
           </p>
         )}
       </div>
@@ -78,11 +80,11 @@ export function CostosWorkflowStepper({ clienteId }: Props) {
                 'text-xs font-medium',
                 active ? 'text-foreground' : 'text-muted-foreground',
               )}>
-                {step.label}
+                {t(step.labelKey)}
               </span>
               {idx === 1 && summary.pendientes > 0 && (
                 <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 font-semibold">
-                  {summary.pendientes} pend.
+                  {t('costosGastos.workflow.pendingBadge', { count: summary.pendientes })}
                 </span>
               )}
             </>

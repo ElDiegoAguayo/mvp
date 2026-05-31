@@ -16,9 +16,27 @@ export const FALLBACK_MODULE_AREA: ModuleArea = {
   display_order: 9999,
 }
 
-export function resolveModuleArea(module: ModuleWithArea): ModuleArea {
+export function resolveModuleArea(
+  module: ModuleWithArea,
+  areasById?: Map<string, ModuleArea>,
+): ModuleArea {
   if (module.area?.name) return module.area
+  if (module.area_id && areasById?.has(module.area_id)) {
+    return areasById.get(module.area_id)!
+  }
   return FALLBACK_MODULE_AREA
+}
+
+/** Rellena `module.area` desde `area_id` cuando el join no vino en la query. */
+export function hydrateModuleArea<T extends ModuleWithArea>(
+  module: T,
+  areasById: Map<string, ModuleArea>,
+): T {
+  if (module.area?.name) return module
+  if (module.area_id && areasById.has(module.area_id)) {
+    return { ...module, area: areasById.get(module.area_id)! }
+  }
+  return module
 }
 
 export function compareModulesByAreaThenName<T extends ModuleWithArea & { name: string }>(
@@ -133,4 +151,4 @@ export const MODULE_AREA_SELECT =
   'id, name, display_order' as const
 
 export const MODULE_WITH_AREA_SELECT =
-  'id, slug, name, icon, color, text_color, icon_shape, description, area_id, area:module_areas(id, name, display_order)' as const
+  'id, slug, name, icon, color, text_color, icon_shape, icon_size, icon_style, menu_badge, description, is_active, is_core, embed_url, area_id, area:module_areas(id, name, display_order)' as const

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import Image from 'next/image'
 import {
   Mail,
@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { useLocale } from '@/components/i18n/locale-provider'
 
 export const LOGO_ISOTYPE = '/logo-upcrop-isotype.png'
 
@@ -28,6 +29,9 @@ export type LoginFormProps = {
   error: string | null
   lockoutMinutes: number | null
   isLoading: boolean
+  isSuccess?: boolean
+  welcomeName?: string | null
+  errorKey?: number
   onSubmit: (e: FormEvent) => void
 }
 
@@ -86,12 +90,13 @@ export function LoginForm({
   onSubmit,
 }: LoginFormProps) {
   const [showPassword, setShowPassword] = useState(false)
+  const { t } = useLocale()
 
   return (
     <div className="w-full max-w-[400px] space-y-5">
       <div className="space-y-1 text-center">
-        <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100">Bienvenidos.</h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400">Inicie sesión para acceder a su plataforma.</p>
+        <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100">{t('auth.welcome')}</h2>
+        <p className="text-sm text-slate-500 dark:text-slate-400">{t('auth.signInSubtitle')}</p>
       </div>
 
       {error && (
@@ -108,7 +113,7 @@ export function LoginForm({
       <form onSubmit={onSubmit} className="space-y-3.5">
         <div className="space-y-2">
           <Label htmlFor="email" className="text-slate-800 dark:text-slate-200 font-medium text-sm">
-            Email
+            {t('auth.email')}
           </Label>
           <div className="relative">
             <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-[18px] w-[18px] text-slate-400 dark:text-slate-500" />
@@ -125,7 +130,7 @@ export function LoginForm({
         </div>
         <div className="space-y-2">
           <Label htmlFor="password" className="text-slate-800 dark:text-slate-200 font-medium text-sm">
-            Contraseña
+            {t('auth.password')}
           </Label>
           <div className="relative">
             <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-[18px] w-[18px] text-slate-400 dark:text-slate-500" />
@@ -142,7 +147,7 @@ export function LoginForm({
               type="button"
               onClick={() => setShowPassword((v) => !v)}
               className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded-md text-slate-400 dark:text-slate-500 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800"
-              aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+              aria-label={showPassword ? t('auth.hidePassword') : t('auth.showPassword')}
             >
               {showPassword ? (
                 <EyeOff className="h-[18px] w-[18px]" />
@@ -165,16 +170,16 @@ export function LoginForm({
           {isLoading ? (
             <>
               <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-              Iniciando sesión...
+              {t('auth.signingInAlt')}
             </>
           ) : lockoutMinutes !== null ? (
             <>
               <ShieldAlert className="mr-2 h-5 w-5" />
-              Bloqueado por {lockoutMinutes} minutos
+              {t('auth.lockout', { minutes: lockoutMinutes })}
             </>
           ) : (
             <>
-              Ingresar
+              {t('auth.signInButton')}
               <ArrowRight className="ml-2 h-5 w-5" />
             </>
           )}
@@ -182,7 +187,7 @@ export function LoginForm({
       </form>
 
       <p className="text-xs leading-relaxed text-slate-400 dark:text-slate-500 text-center">
-        Acceso restringido. El registro se realiza únicamente por administración.
+        {t('auth.restricted')}
       </p>
     </div>
   )

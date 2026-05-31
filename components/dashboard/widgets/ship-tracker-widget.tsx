@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Search, Loader2, AlertCircle, Navigation } from 'lucide-react'
+import { useLocale } from '@/components/i18n/locale-provider'
 
 // Solución para que los íconos de Leaflet se vean correctamente en Next.js
 delete (L.Icon.Default.prototype as any)._getIconUrl
@@ -68,6 +69,7 @@ async function geocodeLocation(query: string): Promise<{ lat: number; lng: numbe
 }
 
 export function ShipTrackerWidget({ moduleId, moduleSlug }: { moduleId?: string, moduleSlug?: string }) {
+  const { t } = useLocale()
   const [searchTerm, setSearchTerm] = useState('')
   const [shippingLine, setShippingLine] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -98,7 +100,7 @@ export function ShipTrackerWidget({ moduleId, moduleSlug }: { moduleId?: string,
         data?.state ??
         data?.containerStatus ??
         data?.container?.status ??
-        'Sin estado',
+        t('shipTracker.defaultStatus'),
       ...(typeof lat === 'number' && !Number.isNaN(lat) ? { lat } : {}),
       ...(typeof lng === 'number' && !Number.isNaN(lng) ? { lng } : {}),
     }
@@ -124,10 +126,10 @@ export function ShipTrackerWidget({ moduleId, moduleSlug }: { moduleId?: string,
 
       if (!response.ok) {
         if (response.status === 404) {
-          throw new Error('No se encontro el contenedor o IMO solicitado.')
+          throw new Error(t('shipTracker.errors.notFound'))
         }
         if (!isJson) {
-          throw new Error('La API devolvio una respuesta no valida.')
+          throw new Error(t('shipTracker.errors.invalidResponse'))
         }
         const errorMessage = (() => {
           if (typeof payload === 'object' && payload !== null && 'error' in payload) {
@@ -140,20 +142,20 @@ export function ShipTrackerWidget({ moduleId, moduleSlug }: { moduleId?: string,
               try {
                 return JSON.stringify(errorValue)
               } catch {
-                return 'Error al buscar el contenedor en la red satelital'
+                return t('shipTracker.errors.searchFailed')
               }
             }
           }
           if (response.status === 500) {
-            return 'Error interno al consultar la API de rastreo.'
+            return t('shipTracker.errors.internal')
           }
-          return 'Error al buscar el contenedor en la red satelital'
+          return t('shipTracker.errors.searchFailed')
         })()
         throw new Error(errorMessage)
       }
 
       if (!isJson) {
-        throw new Error('La API devolvio una respuesta no valida.')
+        throw new Error(t('shipTracker.errors.invalidResponse'))
       }
 
       setShipData(normalizeShipData(payload))
@@ -183,7 +185,7 @@ export function ShipTrackerWidget({ moduleId, moduleSlug }: { moduleId?: string,
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error de conexión desconocido')
+      setError(err instanceof Error ? err.message : t('common.errors.connectionUnknown'))
       setShipData(null)
       setIsMapFlying(false)
     } finally {
@@ -197,12 +199,12 @@ export function ShipTrackerWidget({ moduleId, moduleSlug }: { moduleId?: string,
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg font-semibold flex items-center gap-2">
             <Navigation className="w-5 h-5 text-primary" />
-            Rastreo Satelital Global
+            {t('shipTracker.title')}
             <Badge variant="default" className="text-xs bg-blue-600 hover:bg-blue-700">JsonCargo API</Badge>
           </CardTitle>
         </div>
         <p className="text-sm text-muted-foreground mt-1">
-          Ingresa el número de contenedor o IMO para localizarlo en tiempo real.
+          {t('shipTracker.description')}
         </p>
       </CardHeader>
 
@@ -213,7 +215,7 @@ export function ShipTrackerWidget({ moduleId, moduleSlug }: { moduleId?: string,
             <Input
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Ej: MEDU9091004"
+              placeholder={t('shipTracker.searchPlaceholder')}
               className="flex-1 bg-background"
             />
             <Button type="submit" disabled={isLoading || !searchTerm.trim()} className="bg-primary text-primary-foreground">
@@ -222,14 +224,14 @@ export function ShipTrackerWidget({ moduleId, moduleSlug }: { moduleId?: string,
               ) : (
                 <Search className="w-4 h-4 mr-2" />
               )}
-              Localizar
+              {t('shipTracker.searchButton')}
             </Button>
           </div>
           {isContainerSearch && (
             <div className="grid gap-2 md:grid-cols-[220px_1fr]">
               <Select value={shippingLine} onValueChange={setShippingLine}>
                 <SelectTrigger className="w-full bg-background">
-                  <SelectValue placeholder="Naviera (opcional)" />
+                  <SelectValue placeholder={t('shipTracker.shippingLinePlaceholder')} />
                 </SelectTrigger>
                 <SelectContent>
                   {SHIPPING_LINE_OPTIONS.map((option) => (
@@ -242,7 +244,7 @@ export function ShipTrackerWidget({ moduleId, moduleSlug }: { moduleId?: string,
               <Input
                 value={shippingLine}
                 onChange={(e) => setShippingLine(e.target.value)}
-                placeholder="Escribe el nombre exacto de la naviera"
+                placeholder={t('shipTracker.shippingLineInputPlaceholder')}
                 className="bg-background"
               />
             </div>
@@ -262,12 +264,12 @@ export function ShipTrackerWidget({ moduleId, moduleSlug }: { moduleId?: string,
           <div className="rounded-lg border bg-muted/50 p-3 text-sm flex flex-col md:flex-row md:items-center gap-4">
             <div><span className="text-muted-foreground">ID:</span> <strong className="ml-1">{shipData.name}</strong></div>
             <div>
-              <span className="text-muted-foreground">Status:</span> 
+              <span className="text-muted-foreground">{t('common.labels.status')}:</span> 
               <span className="ml-1 text-emerald-500 font-medium">{shipData.status}</span>
             </div>
             {typeof shipData.lat === 'number' && typeof shipData.lng === 'number' && (
               <div>
-                <span className="text-muted-foreground">Coordenadas:</span> 
+                <span className="text-muted-foreground">{t('shipTracker.coordinatesLabel')}</span> 
                 <span className="ml-1 font-mono">{shipData.lat.toFixed(4)}, {shipData.lng.toFixed(4)}</span>
               </div>
             )}
@@ -311,14 +313,14 @@ export function ShipTrackerWidget({ moduleId, moduleSlug }: { moduleId?: string,
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/70 backdrop-blur-sm">
               <div className="flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm text-foreground shadow-sm">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Cargando posicion...
+                {t('shipTracker.loadingPosition')}
               </div>
             </div>
           )}
         </div>
         
         <div className="text-[10px] text-muted-foreground text-center">
-          Powered by JsonCargo Mariner Plan
+          {t('shipTracker.poweredBy')}
         </div>
       </CardContent>
     </Card>

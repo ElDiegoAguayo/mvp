@@ -30,6 +30,7 @@ import { DocumentGenerator } from '@/components/dashboard/document-generator'
 import { ModuleViewTracker } from '@/components/dashboard/module-view-tracker'
 import { InventoryOverview } from '@/components/dashboard/inventory-overview'
 import { FILTERABLE_COLUMN_TYPES, type ColumnType } from '@/lib/column-types'
+import { useLocale } from '@/components/i18n/locale-provider'
 
 // Dynamic import of ShipTrackerWidget with ssr: false to avoid "window is not defined" errors
 const ShipTrackerWidget = dynamic(
@@ -94,6 +95,7 @@ interface ModuleDataViewProps {
 }
 
 export function ModuleDataView({ moduleId, moduleName, moduleSlug }: ModuleDataViewProps) {
+  const { t } = useLocale()
   const supabase = useMemo(() => createClient(), [])
   const [charts, setCharts] = useState<DynamicChart[]>([])
   const [tables, setTables] = useState<DynamicTable[]>([])
@@ -428,9 +430,9 @@ export function ModuleDataView({ moduleId, moduleName, moduleSlug }: ModuleDataV
         <div className="w-16 h-16 rounded-2xl bg-secondary/50 flex items-center justify-center mb-4">
           <Filter className="w-8 h-8 text-muted-foreground" />
         </div>
-        <h3 className="text-lg font-semibold mb-2">Sin datos asignados</h3>
+        <h3 className="text-lg font-semibold mb-2">{t('moduleData.empty.title')}</h3>
         <p className="text-muted-foreground max-w-md">
-          No tienes gráficos o tablas asignadas para este módulo. Contacta al administrador para solicitar acceso.
+          {t('moduleData.empty.description')}
         </p>
       </div>
     )
@@ -438,17 +440,17 @@ export function ModuleDataView({ moduleId, moduleName, moduleSlug }: ModuleDataV
 
   return (
     <div className="space-y-6">
-      <ModuleViewTracker moduleId={moduleId} moduleSlug={moduleSlug} moduleName={moduleName} />
+      <ModuleViewTracker moduleId={moduleId} moduleSlug={moduleSlug ?? ''} moduleName={moduleName} />
       {/* Filters bar */}
       {availableFilters.length > 0 && (
         <div className="flex flex-col gap-3 p-4 bg-secondary/30 rounded-lg border lg:flex-row lg:items-end lg:justify-between">
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex items-center gap-2">
               <Filter className="w-5 h-5 text-muted-foreground" />
-              <span className="font-medium">Filtros</span>
+              <span className="font-medium">{t('common.filters.title')}</span>
               {activeFilterCount > 0 && (
                 <Badge variant="secondary" className="rounded-full">
-                  {activeFilterCount} activo{activeFilterCount > 1 ? 's' : ''}
+                  {t('moduleData.filters.activeCount', { count: activeFilterCount })}
                 </Badge>
               )}
             </div>
@@ -476,10 +478,10 @@ export function ModuleDataView({ moduleId, moduleName, moduleSlug }: ModuleDataV
                         onValueChange={(v) => setFilter(filter.column_id, v)}
                       >
                         <SelectTrigger className="h-9 text-sm w-full bg-background">
-                          <SelectValue placeholder="Todos" />
+                          <SelectValue placeholder={t('common.filters.all')} />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="all">Todos</SelectItem>
+                          <SelectItem value="all">{t('common.filters.all')}</SelectItem>
                           {options.map(option => (
                             <SelectItem key={option} value={option}>
                               {option}
@@ -493,7 +495,7 @@ export function ModuleDataView({ moduleId, moduleName, moduleSlug }: ModuleDataV
               })}
               {visibleFilters.length === 0 && (
                 <span className="text-xs text-muted-foreground italic">
-                  No hay filtros activos. Pulsa &quot;Gestionar filtros&quot; para mostrar.
+                  {t('moduleData.filters.noneVisible')}
                 </span>
               )}
             </div>
@@ -508,7 +510,7 @@ export function ModuleDataView({ moduleId, moduleName, moduleSlug }: ModuleDataV
                 className="h-9 gap-1.5 text-xs"
               >
                 <X className="w-3.5 h-3.5" />
-                Limpiar
+                {t('common.actions.clear')}
               </Button>
             )}
 
@@ -517,20 +519,23 @@ export function ModuleDataView({ moduleId, moduleName, moduleSlug }: ModuleDataV
               <SheetTrigger asChild>
                 <Button variant="outline" size="sm" className="h-9 gap-2">
                   <Filter className="w-4 h-4" />
-                  <span className="hidden sm:inline">Gestionar filtros</span>
+                  <span className="hidden sm:inline">{t('moduleData.filters.manage')}</span>
                 </Button>
               </SheetTrigger>
               <SheetContent>
                 <SheetHeader>
-                  <SheetTitle>Gestionar filtros</SheetTitle>
+                  <SheetTitle>{t('moduleData.filters.manage')}</SheetTitle>
                   <SheetDescription>
-                    Activa o desactiva los filtros que quieres mostrar en la barra del módulo
+                    {t('moduleData.filters.manageDescription')}
                   </SheetDescription>
                 </SheetHeader>
                 <div className="mt-6 space-y-3">
                   <div className="flex items-center justify-between">
                     <p className="text-xs text-muted-foreground">
-                      {visibleFilters.length} de {availableFilters.length} filtros visibles
+                      {t('moduleData.filters.visibleCount', {
+                        visible: visibleFilters.length,
+                        total: availableFilters.length,
+                      })}
                     </p>
                     {enabledFilterIds && (
                       <Button
@@ -539,7 +544,7 @@ export function ModuleDataView({ moduleId, moduleName, moduleSlug }: ModuleDataV
                         onClick={enableAllFilters}
                         className="h-7 text-xs"
                       >
-                        Mostrar todos
+                        {t('common.actions.showAll')}
                       </Button>
                     )}
                   </div>
@@ -557,7 +562,9 @@ export function ModuleDataView({ moduleId, moduleName, moduleSlug }: ModuleDataV
                           />
                           <span className="text-sm font-medium">{filter.column_name}</span>
                           <span className="ml-auto text-[10px] text-muted-foreground">
-                            {filterOptions[filter.column_id]?.length || 0} opciones
+                            {t('moduleData.filters.optionsCount', {
+                              count: filterOptions[filter.column_id]?.length || 0,
+                            })}
                           </span>
                         </label>
                       )
@@ -626,7 +633,7 @@ export function ModuleDataView({ moduleId, moduleName, moduleSlug }: ModuleDataV
       {visualCharts.length > 0 && (
         <>
           <div className="flex items-center justify-between mb-2">
-            <h2 className="text-lg font-semibold">Gráficos</h2>
+            <h2 className="text-lg font-semibold">{t('moduleData.charts.title')}</h2>
             <Button
               variant="outline"
               size="sm"
@@ -634,7 +641,7 @@ export function ModuleDataView({ moduleId, moduleName, moduleSlug }: ModuleDataV
               className="flex items-center gap-2"
             >
               <RefreshCw className="w-4 h-4" />
-              Actualizar gráficos
+              {t('moduleData.charts.refresh')}
             </Button>
           </div>
 
@@ -656,7 +663,7 @@ export function ModuleDataView({ moduleId, moduleName, moduleSlug }: ModuleDataV
                     <h3 className="text-lg font-semibold">{chart.name}</h3>
                     {chart.table && (
                       <p className="text-sm text-muted-foreground">
-                        Datos de: {chart.table.name}
+                        {t('moduleData.charts.dataFrom')} {chart.table.name}
                       </p>
                     )}
                   </div>
@@ -677,7 +684,7 @@ export function ModuleDataView({ moduleId, moduleName, moduleSlug }: ModuleDataV
       {hasTableView && (
         <div className="space-y-6">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Tablas de datos</h2>
+            <h2 className="text-lg font-semibold">{t('moduleData.tables.title')}</h2>
             <Button
               variant="outline"
               size="sm"
@@ -685,7 +692,7 @@ export function ModuleDataView({ moduleId, moduleName, moduleSlug }: ModuleDataV
               className="flex items-center gap-2"
             >
               <RefreshCw className="w-4 h-4" />
-              Actualizar tablas
+              {t('moduleData.tables.refresh')}
             </Button>
           </div>
           <div className="grid gap-6 min-w-0">

@@ -171,6 +171,7 @@ export function DynamicTablesManager() {
         .from('profiles')
         .select('id, full_name, email')
         .neq('role', 'admin')
+        .eq('is_tech_inspector', false)
         .order('full_name'),
     ])
 

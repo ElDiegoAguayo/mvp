@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 export type AuditActionType =
   | 'CREATE_USER'
+  | 'CREATE_SUBUSER'
   | 'UPDATE_USER'
   | 'BLOCK_USER'
   | 'UNBLOCK_USER'
@@ -9,14 +10,18 @@ export type AuditActionType =
   | 'CREATE_MODULE'
   | 'UPDATE_MODULE'
   | 'DELETE_MODULE'
+  | 'UPDATE_MODULE_ORDER'
+  | 'UPDATE_MODULE_AREA'
   | 'CREATE_DYNAMIC_TABLE'
   | 'UPDATE_DYNAMIC_TABLE'
   | 'DELETE_DYNAMIC_TABLE'
   | 'UPDATE_TABLE_COLUMNS'
+  | 'UPDATE_CLIENT_DATA'
   | 'CREATE_CHART'
   | 'UPDATE_CHART'
   | 'DELETE_CHART'
   | 'IMPORT_EXCEL'
+  | 'DELETE_IMPORT'
   | 'UPDATE_PASSWORD'
   | 'UPDATE_DATA_ACCESS'
   | 'RESTORE'
@@ -26,6 +31,7 @@ export type AuditActionType =
   | 'LOGIN_BLOCKED_BY_RATE_LIMIT'
   | 'LOGIN_BLOCKED_IP'
   | 'LOGIN_BLOCKED_MAINTENANCE'
+  | 'LOGOUT'
   | 'UPDATE_MAINTENANCE_MODE'
   | 'FILE_UPLOAD'
   | 'FILE_DOWNLOAD'
@@ -39,6 +45,15 @@ export type AuditActionType =
   | 'IMPERSONATION_END'
   | 'MODULE_VIEW'
   | 'DOCUMENT_GENERATE'
+  | 'UPDATE_DASHBOARD_LAYOUT'
+  | 'UPDATE_PLATFORM_DASHBOARD'
+  | 'BLOCK_IP'
+  | 'UNBLOCK_IP'
+  | 'CREATE_BACKUP'
+  | 'RESTORE_BACKUP'
+  | 'CREATE_ADMIN_NOTIFICATION'
+  | 'UPDATE_ADMIN_NOTIFICATION'
+  | 'DELETE_ADMIN_NOTIFICATION'
 
 export type AuditActorKind = 'admin' | 'principal' | 'sub' | 'system' | 'anonymous'
 export type AuditRiskLevel = 'low' | 'medium' | 'high' | 'critical'
@@ -123,7 +138,25 @@ export async function logAudit(
       metadata: entry.metadata ?? { timestamp: new Date().toISOString() },
     }
 
-    const { error: auditError } = await supabase.from('audit_logs').insert(payload)
+    let { error: auditError } = await supabase.from('audit_logs').insert(payload)
+
+    // Schema cache missing actor_kind/actor_role (migration 017/058 not applied yet)
+    if (
+      auditError?.code === 'PGRST204' &&
+      auditError.message.includes('actor_kind')
+    ) {
+      const { actor_kind: kind, actor_role: role, metadata, ...rest } = payload
+      const fallbackMeta = {
+        ...(typeof metadata === 'object' && metadata !== null ? metadata : {}),
+        ...(kind ? { actor_kind: kind } : {}),
+        ...(role ? { actor_role: role } : {}),
+      }
+      ;({ error: auditError } = await supabase.from('audit_logs').insert({
+        ...rest,
+        metadata: fallbackMeta,
+      }))
+    }
+
     if (auditError) {
       console.error('[audit] insert failed:', auditError.message, auditError.code)
     }
@@ -134,6 +167,7 @@ export async function logAudit(
 
 export const ACTION_LABEL: Record<AuditActionType, string> = {
   CREATE_USER: 'Creación de usuario',
+  CREATE_SUBUSER: 'Creación de subusuario',
   UPDATE_USER: 'Actualización de usuario',
   BLOCK_USER: 'Bloqueo de usuario',
   UNBLOCK_USER: 'Desbloqueo de usuario',
@@ -141,14 +175,18 @@ export const ACTION_LABEL: Record<AuditActionType, string> = {
   CREATE_MODULE: 'Creación de módulo',
   UPDATE_MODULE: 'Actualización de módulo',
   DELETE_MODULE: 'Eliminación de módulo',
+  UPDATE_MODULE_ORDER: 'Orden de módulos',
+  UPDATE_MODULE_AREA: 'Áreas de módulos',
   CREATE_DYNAMIC_TABLE: 'Creación de tabla dinámica',
   UPDATE_DYNAMIC_TABLE: 'Actualización de tabla dinámica',
   DELETE_DYNAMIC_TABLE: 'Eliminación de tabla dinámica',
   UPDATE_TABLE_COLUMNS: 'Actualización de columnas',
+  UPDATE_CLIENT_DATA: 'Edición de datos',
   CREATE_CHART: 'Creación de gráfico',
   UPDATE_CHART: 'Actualización de gráfico',
   DELETE_CHART: 'Eliminación de gráfico',
   IMPORT_EXCEL: 'Importación desde Excel',
+  DELETE_IMPORT: 'Eliminación de importación',
   UPDATE_PASSWORD: 'Actualización de contraseña',
   UPDATE_DATA_ACCESS: 'Actualización de acceso a datos',
   RESTORE: 'Restauración',
@@ -157,6 +195,9 @@ export const ACTION_LABEL: Record<AuditActionType, string> = {
   LOGIN_FAILED: 'Inicio de sesión fallido',
   LOGIN_BLOCKED_BY_RATE_LIMIT: 'Login bloqueado (rate limit)',
   LOGIN_BLOCKED_IP: 'Login bloqueado (IP)',
+  LOGIN_BLOCKED_MAINTENANCE: 'Login bloqueado (mantenimiento)',
+  LOGOUT: 'Cierre de sesión',
+  UPDATE_MAINTENANCE_MODE: 'Modo mantenimiento',
   FILE_UPLOAD: 'Subida de archivo',
   FILE_DOWNLOAD: 'Descarga de archivo',
   FILE_DELETE: 'Eliminación de archivo',
@@ -169,24 +210,38 @@ export const ACTION_LABEL: Record<AuditActionType, string> = {
   IMPERSONATION_END: 'Modo soporte (fin)',
   MODULE_VIEW: 'Visita a módulo',
   DOCUMENT_GENERATE: 'Documento generado',
+  UPDATE_DASHBOARD_LAYOUT: 'Layout de Inicio (cliente)',
+  UPDATE_PLATFORM_DASHBOARD: 'Plantilla Inicio Up Crop',
+  BLOCK_IP: 'IP bloqueada',
+  UNBLOCK_IP: 'IP desbloqueada',
+  CREATE_BACKUP: 'Backup creado',
+  RESTORE_BACKUP: 'Backup restaurado',
+  CREATE_ADMIN_NOTIFICATION: 'Notificación creada',
+  UPDATE_ADMIN_NOTIFICATION: 'Notificación actualizada',
+  DELETE_ADMIN_NOTIFICATION: 'Notificación eliminada',
 }
 
 const RISK_CRITICAL = new Set<AuditActionType>([
   'DELETE_MODULE', 'BLOCK_USER', 'UPDATE_PERMISSION', 'LOGIN_BLOCKED_IP',
+  'RESTORE_BACKUP', 'BLOCK_IP',
 ])
 const RISK_HIGH = new Set<AuditActionType>([
   'DELETE_CHART', 'DELETE_DYNAMIC_TABLE', 'FILE_DELETE', 'FOLDER_DELETE',
-  'LOGIN_BLOCKED_BY_RATE_LIMIT', 'IMPERSONATION_START',
+  'LOGIN_BLOCKED_BY_RATE_LIMIT', 'IMPERSONATION_START', 'DELETE_IMPORT',
+  'DELETE_ADMIN_NOTIFICATION',
 ])
 const RISK_MEDIUM = new Set<AuditActionType>([
-  'CREATE_USER', 'UPDATE_USER', 'CREATE_MODULE', 'UPDATE_MODULE', 'UPDATE_PERMISSION',
+  'CREATE_USER', 'CREATE_SUBUSER', 'UPDATE_USER', 'CREATE_MODULE', 'UPDATE_MODULE', 'UPDATE_PERMISSION',
   'UPDATE_DATA_ACCESS', 'UPDATE_PASSWORD', 'UPDATE_TABLE_COLUMNS', 'UPDATE_CHART',
   'CREATE_CHART', 'CREATE_DYNAMIC_TABLE', 'UPDATE_DYNAMIC_TABLE', 'IMPORT_EXCEL',
   'FILE_UPLOAD', 'FILE_MOVE', 'FILE_SHARE', 'BULK_FILE_MOVE', 'FOLDER_CREATE',
-  'LOGIN_FAILED', 'SYSTEM',
+  'LOGIN_FAILED', 'LOGIN_BLOCKED_MAINTENANCE', 'SYSTEM', 'UPDATE_DASHBOARD_LAYOUT',
+  'UPDATE_PLATFORM_DASHBOARD', 'UPDATE_MODULE_ORDER', 'UPDATE_MODULE_AREA',
+  'UPDATE_CLIENT_DATA', 'CREATE_BACKUP', 'UPDATE_MAINTENANCE_MODE',
+  'CREATE_ADMIN_NOTIFICATION', 'UPDATE_ADMIN_NOTIFICATION', 'UNBLOCK_IP',
 ])
 const RISK_LOW = new Set<AuditActionType>([
-  'LOGIN_SUCCESS', 'FILE_DOWNLOAD', 'RESTORE', 'UNBLOCK_USER', 'IMPERSONATION_END',
+  'LOGIN_SUCCESS', 'LOGOUT', 'FILE_DOWNLOAD', 'RESTORE', 'UNBLOCK_USER', 'IMPERSONATION_END',
   'MODULE_VIEW', 'DOCUMENT_GENERATE',
 ])
 
@@ -208,12 +263,17 @@ export const RISK_LEVEL_ACTIONS: Record<AuditRiskLevel, AuditActionType[]> = {
 export const CATEGORY_ACTIONS: Record<AuditCategory, AuditActionType[]> = {
   admin: [
     'CREATE_MODULE', 'UPDATE_MODULE', 'DELETE_MODULE', 'UPDATE_PERMISSION',
-    'CREATE_USER', 'UPDATE_USER', 'BLOCK_USER', 'UNBLOCK_USER', 'UPDATE_PASSWORD',
+    'CREATE_USER', 'CREATE_SUBUSER', 'UPDATE_USER', 'BLOCK_USER', 'UNBLOCK_USER', 'UPDATE_PASSWORD',
     'UPDATE_DATA_ACCESS', 'RESTORE', 'SYSTEM',
     'IMPERSONATION_START', 'IMPERSONATION_END',
+    'UPDATE_DASHBOARD_LAYOUT', 'UPDATE_PLATFORM_DASHBOARD',
+    'UPDATE_MODULE_ORDER', 'UPDATE_MODULE_AREA',
+    'BLOCK_IP', 'UNBLOCK_IP', 'CREATE_BACKUP', 'RESTORE_BACKUP',
+    'UPDATE_MAINTENANCE_MODE',
+    'CREATE_ADMIN_NOTIFICATION', 'UPDATE_ADMIN_NOTIFICATION', 'DELETE_ADMIN_NOTIFICATION',
   ],
   users: [
-    'CREATE_USER', 'UPDATE_USER', 'BLOCK_USER', 'UNBLOCK_USER', 'UPDATE_PERMISSION',
+    'CREATE_USER', 'CREATE_SUBUSER', 'UPDATE_USER', 'BLOCK_USER', 'UNBLOCK_USER', 'UPDATE_PERMISSION',
     'UPDATE_PASSWORD', 'UPDATE_DATA_ACCESS',
   ],
   files: [
@@ -222,12 +282,14 @@ export const CATEGORY_ACTIONS: Record<AuditCategory, AuditActionType[]> = {
   ],
   auth: [
     'LOGIN_SUCCESS', 'LOGIN_FAILED', 'LOGIN_BLOCKED_BY_RATE_LIMIT', 'LOGIN_BLOCKED_IP',
+    'LOGIN_BLOCKED_MAINTENANCE', 'LOGOUT',
   ],
   data: [
     'CREATE_DYNAMIC_TABLE', 'UPDATE_DYNAMIC_TABLE', 'DELETE_DYNAMIC_TABLE', 'UPDATE_TABLE_COLUMNS',
-    'CREATE_CHART', 'UPDATE_CHART', 'DELETE_CHART', 'IMPORT_EXCEL', 'DOCUMENT_GENERATE',
+    'CREATE_CHART', 'UPDATE_CHART', 'DELETE_CHART', 'IMPORT_EXCEL', 'DELETE_IMPORT',
+    'DOCUMENT_GENERATE', 'UPDATE_CLIENT_DATA',
   ],
-  system: ['SYSTEM', 'RESTORE', 'MODULE_VIEW'],
+  system: ['SYSTEM', 'RESTORE', 'MODULE_VIEW', 'CREATE_BACKUP', 'RESTORE_BACKUP'],
 }
 
 export function getActionCategory(action: string): AuditCategory {
@@ -276,10 +338,13 @@ export function getActorKindBadgeClass(kind: AuditActorKind): string {
 export function getActionBadgeClass(action: AuditActionType | string): string {
   switch (action) {
     case 'CREATE_USER':
+    case 'CREATE_SUBUSER':
     case 'CREATE_MODULE':
     case 'FOLDER_CREATE':
     case 'FILE_UPLOAD':
     case 'LOGIN_SUCCESS':
+    case 'LOGOUT':
+    case 'UNBLOCK_IP':
       return 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
     case 'FILE_DOWNLOAD':
       return 'bg-sky-500/15 text-sky-600 dark:text-sky-400 border border-sky-500/30'
@@ -292,6 +357,11 @@ export function getActionBadgeClass(action: AuditActionType | string): string {
     case 'UPDATE_PERMISSION':
     case 'UPDATE_MODULE':
     case 'UPDATE_USER':
+    case 'UPDATE_DASHBOARD_LAYOUT':
+    case 'UPDATE_PLATFORM_DASHBOARD':
+    case 'UPDATE_MODULE_ORDER':
+    case 'UPDATE_MODULE_AREA':
+    case 'UPDATE_CLIENT_DATA':
     case 'FILE_MOVE':
     case 'BULK_FILE_MOVE':
       return 'bg-primary/15 text-primary border border-primary/30'
@@ -300,11 +370,16 @@ export function getActionBadgeClass(action: AuditActionType | string): string {
       return 'bg-primary/15 text-primary border border-primary/30'
     case 'DELETE_MODULE':
     case 'BLOCK_USER':
+    case 'BLOCK_IP':
     case 'FILE_DELETE':
     case 'FOLDER_DELETE':
+    case 'DELETE_IMPORT':
     case 'LOGIN_BLOCKED_IP':
     case 'LOGIN_BLOCKED_BY_RATE_LIMIT':
+    case 'LOGIN_BLOCKED_MAINTENANCE':
       return 'bg-destructive/15 text-destructive border border-destructive/30'
+    case 'RESTORE_BACKUP':
+      return 'bg-orange-500/15 text-orange-600 dark:text-orange-400 border border-orange-500/30'
     case 'LOGIN_FAILED':
       return 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
     case 'IMPERSONATION_START':

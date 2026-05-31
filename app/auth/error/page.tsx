@@ -1,6 +1,8 @@
 import Link from 'next/link'
+import Image from 'next/image'
 import { Button } from '@/components/ui/button'
-import { Scale, AlertTriangle } from 'lucide-react'
+import { AlertTriangle } from 'lucide-react'
+import { BRAND_NAME } from '@/lib/brand'
 
 export default function AuthErrorPage() {
   return (
@@ -32,8 +34,10 @@ export default function AuthErrorPage() {
 
         <div className="mt-8 pt-8 border-t border-border">
           <div className="flex items-center justify-center gap-2 text-muted-foreground">
-            <Scale className="w-5 h-5 text-primary" />
-            <span className="text-sm">Bufete Legal & Asociados</span>
+            <Image src="/logo-upcrop.png" alt={BRAND_NAME} width={20} height={20} className="rounded" />
+            <span className="text-sm font-medium text-foreground">
+              Up <span className="text-primary">Crop</span>
+            </span>
           </div>
         </div>
       </div>

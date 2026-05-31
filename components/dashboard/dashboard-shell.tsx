@@ -4,18 +4,21 @@ import { useState, useEffect, useMemo } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LogoutButton } from '@/components/auth/logout-button'
-import { getModuleIcon, getIconShape, resolveIconStyle, resolveTextStyle, resolveIconContainerStyle } from '@/lib/module-icons'
+import { SidebarUserFooter } from '@/components/dashboard/sidebar-user-footer'
+import { getModuleIcon, getIconShape, getIconSize, resolveIconStyle, resolveTextStyle, resolveIconContainerStyle } from '@/lib/module-icons'
 import { GlobalAIAssistant } from '@/components/dashboard/global-ai-assistant'
+import { AdminPanelNavLink, AdminSectionLabel } from '@/components/dashboard/admin-panel-nav-link'
+import { OfflineProvider } from '@/components/dashboard/offline-provider'
+import { OfflineBanner } from '@/components/dashboard/offline-banner'
+import { LanguageSwitcher } from '@/components/i18n/language-switcher'
+import { useLocale } from '@/components/i18n/locale-provider'
 import { isModuleRouteActive, resolveModuleHref } from '@/lib/dashboard/module-routes'
 import { groupModulesByArea, type ModuleArea } from '@/lib/modules/areas'
 import { cn } from '@/lib/utils'
 import {
-  Shield,
   Menu,
   X,
   LayoutDashboard,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react'
@@ -36,6 +39,9 @@ interface ShellModule {
   color?: string | null
   text_color?: string | null
   icon_shape?: string | null
+  icon_size?: string | null
+  icon_style?: string | null
+  menu_badge?: string | null
   description: string | null
   area_id?: string | null
   area?: ModuleArea | null
@@ -59,27 +65,29 @@ export function DashboardShell({
   supportBanner,
 }: DashboardShellProps) {
   const pathname = usePathname()
+  const { t, tArea, tModule } = useLocale()
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [userMenuOpen, setUserMenuOpen] = useState(false)
-  const [userMenuOpenMobile, setUserMenuOpenMobile] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
   const isAdmin = adminRole || user.role === 'admin'
+  const adminActive = pathname.startsWith('/admin')
   const moduleGroups = useMemo(() => groupModulesByArea(modules), [modules])
 
   const renderModuleLink = (m: ShellModule, onNavigate?: () => void, compact = collapsed) => {
     const Icon = getModuleIcon(m.icon)
     const shapeCfg = getIconShape(m.icon_shape)
-    const iconContainer = resolveIconContainerStyle(m.color, shapeCfg.className)
-    const iconStyle = resolveIconStyle(m.color)
+    const sizeCfg = getIconSize(m.icon_size)
+    const iconContainer = resolveIconContainerStyle(m.color, shapeCfg.className, m.icon_style)
+    const iconStyle = resolveIconStyle(m.color, m.icon_style)
     const textStyle = resolveTextStyle(m.text_color ?? null, m.color)
     const href = resolveModuleHref(m.slug, m.name)
     const active = isModuleRouteActive(pathname, m.slug, m.name)
+    const moduleLabel = tModule(m.slug, m.name)
     return (
       <Link
         key={m.id}
         href={href}
         onClick={onNavigate}
-        title={compact ? m.name : undefined}
+        title={compact ? moduleLabel : m.description ?? moduleLabel}
         className={cn(
           'flex items-center rounded-lg text-sm transition-colors',
           compact ? 'justify-center w-10 h-10 mx-auto' : 'gap-3 px-3 py-2',
@@ -87,25 +95,36 @@ export function DashboardShell({
         )}
       >
         <div
-          className={cn('w-7 h-7 flex items-center justify-center shrink-0', iconContainer.className)}
+          className={cn(
+            'flex shrink-0 items-center justify-center',
+            sizeCfg.container,
+            iconContainer.className,
+          )}
           style={iconContainer.style}
         >
           <Icon
-            className={cn('w-4 h-4 shrink-0', iconStyle.className)}
+            className={cn('shrink-0', sizeCfg.icon, iconStyle.className)}
             style={iconStyle.style}
           />
         </div>
         {!compact && (
-          <span
-            className={cn(
-              'truncate font-medium',
-              textStyle.className,
-              !textStyle.style && !active && 'text-muted-foreground',
-            )}
-            style={textStyle.style}
-          >
-            {m.name}
-          </span>
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <span
+              className={cn(
+                'truncate font-medium',
+                textStyle.className,
+                !textStyle.style && !active && 'text-muted-foreground',
+              )}
+              style={textStyle.style}
+            >
+              {moduleLabel}
+            </span>
+            {m.menu_badge ? (
+              <span className="shrink-0 rounded-full border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary">
+                {m.menu_badge}
+              </span>
+            ) : null}
+          </div>
         )}
       </Link>
     )
@@ -121,12 +140,8 @@ export function DashboardShell({
     localStorage.setItem('sidebar-collapsed', String(collapsed))
   }, [collapsed])
 
-  // Close user menu when sidebar collapses
-  useEffect(() => {
-    if (collapsed) setUserMenuOpen(false)
-  }, [collapsed])
-
   return (
+    <OfflineProvider userId={user.id}>
     <div className="h-screen bg-background bg-grid flex">
       {/* Desktop sidebar - collapsible */}
       <aside
@@ -136,27 +151,30 @@ export function DashboardShell({
       >
         <div
           className={`h-16 flex items-center border-b border-border shrink-0 ${
-            collapsed ? 'justify-center px-2' : 'px-4 gap-3'
+            collapsed ? 'flex-col justify-center gap-1.5 py-2 px-1' : 'px-4 gap-2'
           }`}
         >
-          <Image
-            src="/logo-upcrop.png"
-            alt="Up Crop"
-            width={32}
-            height={32}
-            className="rounded-lg shrink-0"
-          />
-          {!collapsed && (
-            <span className="text-xl font-bold text-foreground truncate">
-              Up <span className="text-primary">Crop</span>
-            </span>
-          )}
+          <div className={cn('flex items-center min-w-0', collapsed ? 'justify-center' : 'gap-3 flex-1')}>
+            <Image
+              src="/logo-upcrop.png"
+              alt="Up Crop"
+              width={32}
+              height={32}
+              className="rounded-lg shrink-0"
+            />
+            {!collapsed && (
+              <span className="text-xl font-bold text-foreground truncate">
+                Up <span className="text-primary">Crop</span>
+              </span>
+            )}
+          </div>
+          <LanguageSwitcher compact={collapsed} className={collapsed ? 'scale-[0.85]' : 'shrink-0'} />
         </div>
 
         {/* Collapse toggle button */}
         <button
           onClick={() => setCollapsed((v) => !v)}
-          aria-label={collapsed ? 'Expandir menú' : 'Colapsar menú'}
+          aria-label={collapsed ? t('shell.expandMenu') : t('shell.collapseMenu')}
           className="absolute top-5 -right-3 z-10 w-6 h-6 rounded-full bg-card border border-border flex items-center justify-center hover:bg-secondary transition-colors shadow-sm"
         >
           {collapsed ? (
@@ -169,7 +187,7 @@ export function DashboardShell({
         <nav className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-1">
           <Link
             href="/dashboard"
-            title={collapsed ? 'Inicio' : undefined}
+            title={collapsed ? t('shell.home') : undefined}
             className={`flex items-center rounded-lg text-sm transition-colors ${
               collapsed ? 'justify-center w-10 h-10 mx-auto' : 'gap-3 px-3 py-2'
             } ${
@@ -179,7 +197,7 @@ export function DashboardShell({
             }`}
           >
             <LayoutDashboard className="w-4 h-4 shrink-0" />
-            {!collapsed && <span className="truncate">Inicio</span>}
+            {!collapsed && <span className="truncate">{t('shell.home')}</span>}
           </Link>
 
           {!collapsed && modules.length > 0 && <div className="pt-3" />}
@@ -188,7 +206,7 @@ export function DashboardShell({
           {modules.length === 0 ? (
             !collapsed && (
               <p className="text-xs text-muted-foreground px-3 py-2">
-                Sin módulos asignados.
+                {t('shell.noModules')}
               </p>
             )
           ) : collapsed ? (
@@ -198,7 +216,7 @@ export function DashboardShell({
               <div key={group.area.id} className="mb-1">
                 <div className="pt-3 pb-1 px-3">
                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                    {group.area.name}
+                    {tArea(group.area.name)}
                   </p>
                 </div>
                 {group.modules.map((m) => renderModuleLink(m))}
@@ -208,75 +226,15 @@ export function DashboardShell({
 
           {isAdmin && (
             <>
-              {!collapsed ? (
-                <div className="pt-3 pb-1 px-3">
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                    Administración
-                  </p>
-                </div>
-              ) : (
-                <div className="pt-2" />
-              )}
-              <Link
-                href="/admin"
-                title={collapsed ? 'Panel Admin' : undefined}
-                className={`flex items-center rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors ${
-                  collapsed ? 'justify-center w-10 h-10 mx-auto' : 'gap-3 px-3 py-2'
-                }`}
-              >
-                <Shield className="w-4 h-4 shrink-0" />
-                {!collapsed && <span className="truncate">Panel Admin</span>}
-              </Link>
+              <AdminSectionLabel collapsed={collapsed} />
+              <AdminPanelNavLink collapsed={collapsed} active={adminActive} />
             </>
           )}
         </nav>
 
         {/* User info fixed at bottom - collapsible */}
         <div className={`border-t border-border shrink-0 ${collapsed ? 'p-2' : 'p-3'}`}>
-          {collapsed ? (
-            <Link
-              href="/dashboard"
-              title={user.full_name}
-              className="w-10 h-10 mx-auto rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center hover:bg-primary/20 transition-colors"
-            >
-              <span className="text-xs font-semibold text-primary">
-                {user.full_name.charAt(0).toUpperCase()}
-              </span>
-            </Link>
-          ) : (
-            <>
-              <button
-                onClick={() => setUserMenuOpen((v) => !v)}
-                aria-expanded={userMenuOpen}
-                className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-secondary transition-colors"
-              >
-                <div className="w-8 h-8 rounded-full border border-primary/20 flex items-center justify-center shrink-0 overflow-hidden">
-                  {user.avatar_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={user.avatar_url} alt={user.full_name} className="w-full h-full object-cover" />
-                  ) : (
-                    <span className="text-xs font-semibold text-primary bg-primary/10 w-full h-full flex items-center justify-center">
-                      {user.full_name.charAt(0).toUpperCase()}
-                    </span>
-                  )}
-                </div>
-                <div className="min-w-0 flex-1 text-left">
-                  <p className="text-sm font-medium text-foreground truncate">{user.full_name}</p>
-                  <p className="text-xs text-muted-foreground truncate">{user.email}</p>
-                </div>
-                <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform shrink-0 ${userMenuOpen ? 'rotate-180' : ''}`} />
-              </button>
-              <div
-                className={`grid transition-all duration-200 ${
-                  userMenuOpen ? 'grid-rows-[1fr] opacity-100 mt-2' : 'grid-rows-[0fr] opacity-0'
-                }`}
-              >
-                <div className="overflow-hidden">
-                  <LogoutButton />
-                </div>
-              </div>
-            </>
-          )}
+          <SidebarUserFooter user={user} collapsed={collapsed} />
         </div>
       </aside>
 
@@ -289,17 +247,20 @@ export function DashboardShell({
           />
           <div className="fixed inset-y-0 left-0 z-50 w-64 lg:hidden">
             <aside className="w-full h-full bg-card border-r border-border flex flex-col overflow-hidden">
-              <div className="h-16 px-4 flex items-center gap-3 border-b border-border shrink-0">
-                <Image
-                  src="/logo-upcrop.png"
-                  alt="Up Crop"
-                  width={32}
-                  height={32}
-                  className="rounded-lg"
-                />
-                <span className="text-xl font-bold text-foreground">
-                  Up <span className="text-primary">Crop</span>
-                </span>
+              <div className="h-16 px-4 flex items-center justify-between gap-2 border-b border-border shrink-0">
+                <div className="flex items-center gap-3 min-w-0">
+                  <Image
+                    src="/logo-upcrop.png"
+                    alt="Up Crop"
+                    width={32}
+                    height={32}
+                    className="rounded-lg shrink-0"
+                  />
+                  <span className="text-xl font-bold text-foreground truncate">
+                    Up <span className="text-primary">Crop</span>
+                  </span>
+                </div>
+                <LanguageSwitcher compact />
               </div>
               <nav className="flex-1 overflow-y-auto p-3 space-y-1">
                 <Link
@@ -312,17 +273,17 @@ export function DashboardShell({
                   }`}
                 >
                   <LayoutDashboard className="w-4 h-4" />
-                  Inicio
+                  {t('shell.home')}
                 </Link>
 
                 {modules.length === 0 ? (
-                  <p className="text-xs text-muted-foreground px-3 py-2">Sin módulos asignados.</p>
+                  <p className="text-xs text-muted-foreground px-3 py-2">{t('shell.noModules')}</p>
                 ) : (
                   moduleGroups.map((group) => (
                     <div key={group.area.id}>
                       <div className="pt-3 pb-1 px-3">
                         <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                          {group.area.name}
+                          {tArea(group.area.name)}
                         </p>
                       </div>
                       {group.modules.map((m) => renderModuleLink(m, () => setMobileOpen(false), false))}
@@ -332,54 +293,14 @@ export function DashboardShell({
 
                 {isAdmin && (
                   <>
-                    <div className="pt-3 pb-1 px-3">
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                        Administración
-                      </p>
-                    </div>
-                    <Link
-                      href="/admin"
-                      onClick={() => setMobileOpen(false)}
-                      className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-                    >
-                      <Shield className="w-4 h-4" />
-                      Panel Admin
-                    </Link>
+                    <AdminSectionLabel />
+                    <AdminPanelNavLink active={adminActive} onClick={() => setMobileOpen(false)} />
                   </>
                 )}
               </nav>
 
               <div className="border-t border-border p-3 shrink-0">
-                <button
-                  onClick={() => setUserMenuOpenMobile((v) => !v)}
-                  aria-expanded={userMenuOpenMobile}
-                  className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-secondary transition-colors"
-                >
-                  <div className="w-8 h-8 rounded-full border border-primary/20 flex items-center justify-center shrink-0 overflow-hidden">
-                    {user.avatar_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={user.avatar_url} alt={user.full_name} className="w-full h-full object-cover" />
-                    ) : (
-                      <span className="text-xs font-semibold text-primary bg-primary/10 w-full h-full flex items-center justify-center">
-                        {user.full_name.charAt(0).toUpperCase()}
-                      </span>
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1 text-left">
-                    <p className="text-sm font-medium text-foreground truncate">{user.full_name}</p>
-                    <p className="text-xs text-muted-foreground truncate">{user.email}</p>
-                  </div>
-                  <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform shrink-0 ${userMenuOpenMobile ? 'rotate-180' : ''}`} />
-                </button>
-                <div
-                  className={`grid transition-all duration-200 ${
-                    userMenuOpenMobile ? 'grid-rows-[1fr] opacity-100 mt-2' : 'grid-rows-[0fr] opacity-0'
-                  }`}
-                >
-                  <div className="overflow-hidden">
-                    <LogoutButton />
-                  </div>
-                </div>
+                <SidebarUserFooter user={user} onNavigate={() => setMobileOpen(false)} />
               </div>
             </aside>
           </div>
@@ -389,13 +310,14 @@ export function DashboardShell({
       {/* Main content area */}
       <div className="flex-1 flex flex-col min-w-0 h-screen">
         {supportBanner}
+        <OfflineBanner userId={user.id} />
         {/* Mobile top bar */}
         <header className="lg:hidden border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-30 shrink-0">
           <div className="h-16 px-4 flex items-center justify-between">
             <button
               onClick={() => setMobileOpen(true)}
               className="p-2 rounded-lg hover:bg-secondary text-foreground"
-              aria-label="Abrir menú"
+              aria-label={t('shell.openMenu')}
             >
               <Menu className="w-5 h-5" />
             </button>
@@ -411,7 +333,7 @@ export function DashboardShell({
                 Up <span className="text-primary">Crop</span>
               </span>
             </div>
-            <div className="w-9" />
+            <LanguageSwitcher compact />
           </div>
         </header>
 
@@ -428,7 +350,7 @@ export function DashboardShell({
         <button
           className="fixed top-4 right-4 z-50 lg:hidden p-2 rounded-lg bg-card border border-border text-foreground"
           onClick={() => setMobileOpen(false)}
-          aria-label="Cerrar menú"
+          aria-label={t('shell.closeMenu')}
         >
           <X className="w-5 h-5" />
         </button>
@@ -436,5 +358,6 @@ export function DashboardShell({
 
       <GlobalAIAssistant />
     </div>
+    </OfflineProvider>
   )
 }

@@ -3,6 +3,12 @@
 import { createClient as createServerClient } from '@/lib/supabase/server'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
+import type { LocalizedText } from '@/lib/i18n/localized-text'
+import {
+  insertAdminNotification,
+  listAdminNotifications,
+  updateAdminNotification,
+} from '@/lib/admin/admin-notifications-db'
 import { logAudit } from '@/lib/audit-log'
 import {
   isSameIp,
@@ -17,6 +23,12 @@ import {
   resolveStoragePlanId,
   resolveStorageQuotaBytes,
 } from '@/lib/vault-storage'
+import { isServicePlanId, type ServicePlanId } from '@/lib/subscription-plans'
+import { syncInspectorModulesOnly } from '@/lib/admin/sync-inspector-modules'
+import {
+  applyPrincipalClientFilters,
+  isPrincipalClientProfile,
+} from '@/lib/profiles/principal-clients'
 
 async function getAdminKnownIps(adminClient: Awaited<ReturnType<typeof getAdminClient>>, email: string): Promise<string[]> {
   const { data } = await adminClient
@@ -284,6 +296,15 @@ export async function createSubuserAction(
   const password = String(formData.get('password') ?? '')
   const fullName = String(formData.get('full_name') ?? '').trim()
   const parentUserId = String(formData.get('parent_user_id') ?? '').trim()
+  const isTechInspector = formData.get('is_tech_inspector') === 'true'
+
+  if (isTechInspector) {
+    return {
+      ok: false,
+      message:
+        'Los inspectores se crean con el botón "Crear inspector de campo". No son subusuarios de un cliente.',
+    }
+  }
 
   if (!email || !password || !fullName || !parentUserId) {
     return { ok: false, message: 'Todos los campos son obligatorios.' }
@@ -345,17 +366,18 @@ export async function createSubuserAction(
     return { ok: false, message: msg }
   }
 
-  const { error: profileError } = await adminClient
-    .from('profiles')
-    .update({
-      full_name: fullName,
-      email,
-      role: 'user',
-      is_active: true,
-      parent_user_id: parentUserId,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', created.user.id)
+  const profileBase = {
+    full_name: fullName,
+    email,
+    role: 'user' as const,
+    is_active: true,
+    parent_user_id: parentUserId,
+    updated_at: new Date().toISOString(),
+  }
+
+  let profileError = (
+    await adminClient.from('profiles').update(profileBase).eq('id', created.user.id)
+  ).error
 
   if (profileError) {
     return {
@@ -364,8 +386,10 @@ export async function createSubuserAction(
     }
   }
 
+  const techInspectorMigrationMissing = false
+
   try {
-    const [moduleAccessRes, tableAccessRes, chartAccessRes] = await Promise.all([
+    const [moduleAccessRes, tableAccessRes, chartAccessRes, parentProfileRes] = await Promise.all([
       adminClient
         .from('user_module_access')
         .select('module_id, enabled, display_order')
@@ -378,6 +402,11 @@ export async function createSubuserAction(
         .from('user_chart_access')
         .select('chart_id, can_view')
         .eq('user_id', parentUserId),
+      adminClient
+        .from('profiles')
+        .select('full_name, email')
+        .eq('id', parentUserId)
+        .maybeSingle(),
     ])
 
     const moduleInserts = (moduleAccessRes.data ?? []).map((row) => ({
@@ -418,15 +447,23 @@ export async function createSubuserAction(
     console.error('[v0] Subuser access clone error:', err)
   }
 
+  const parentLabel =
+    parentProfileRes.data?.full_name ||
+    parentProfileRes.data?.email ||
+    parentUserId
+
   await logAudit(
     adminClient,
     {
-      action_type: 'CREATE_USER',
+      action_type: 'CREATE_SUBUSER',
       target_type: 'subuser',
       target_id: created.user.id,
       target_label: email,
-      description: `Creó subusuario ${email} (${fullName}) para el cliente ${parentUserId}.`,
-      metadata: { parent_user_id: parentUserId },
+      description: `Creó subusuario ${fullName} (${email}) para el cliente ${parentLabel}.`,
+      metadata: {
+        parent_user_id: parentUserId,
+        parent_label: parentLabel,
+      },
     },
     {
       actor_id: caller.id,
@@ -436,7 +473,301 @@ export async function createSubuserAction(
   revalidatePath('/admin')
   return {
     ok: true,
-    message: `Subusuario creado para ${fullName} (${email}).`,
+    message: techInspectorMigrationMissing
+      ? `Subusuario creado para ${fullName} (${email}), pero falta aplicar la migración 054 en Supabase para activar el rol de inspector.`
+      : `Subusuario creado para ${fullName} (${email}).`,
+  }
+}
+
+export type SetTechInspectorState = {
+  ok: boolean
+  message: string
+}
+
+export type CreateFieldInspectorState = {
+  ok: boolean
+  message: string
+}
+
+export async function createFieldInspectorAction(
+  _prev: CreateFieldInspectorState | undefined,
+  formData: FormData,
+): Promise<CreateFieldInspectorState> {
+  const email = String(formData.get('email') ?? '').trim().toLowerCase()
+  const password = String(formData.get('password') ?? '')
+  const fullName = String(formData.get('full_name') ?? '').trim()
+
+  if (!email || !password || !fullName) {
+    return { ok: false, message: 'Todos los campos son obligatorios.' }
+  }
+  if (password.length < 8) {
+    return { ok: false, message: 'La contraseña debe tener al menos 8 caracteres.' }
+  }
+
+  const supabase = await createServerClient()
+  const {
+    data: { user: caller },
+  } = await supabase.auth.getUser()
+  if (!caller) return { ok: false, message: 'Sesión expirada.' }
+
+  const { data: callerProfile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', caller.id)
+    .single()
+  if (callerProfile?.role !== 'admin') {
+    return { ok: false, message: 'Solo administradores pueden crear inspectores.' }
+  }
+
+  const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!supabaseUrl || !serviceKey) {
+    return { ok: false, message: 'Configuración del servidor incompleta.' }
+  }
+
+  const adminClient = createSupabaseClient(supabaseUrl, serviceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+
+  const { data: created, error: createError } = await adminClient.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: { full_name: fullName },
+  })
+
+  if (createError || !created.user) {
+    const msg = createError?.message ?? 'No se pudo crear el inspector.'
+    if (msg.toLowerCase().includes('already registered') || msg.toLowerCase().includes('exists')) {
+      return { ok: false, message: 'Ya existe un usuario con ese email.' }
+    }
+    return { ok: false, message: msg }
+  }
+
+  const { error: profileError } = await adminClient
+    .from('profiles')
+    .update({
+      full_name: fullName,
+      email,
+      role: 'user',
+      is_active: true,
+      parent_user_id: null,
+      is_tech_inspector: true,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', created.user.id)
+
+  if (profileError) {
+    return {
+      ok: false,
+      message: `Cuenta creada, pero falló el perfil de inspector: ${profileError.message}`,
+    }
+  }
+
+  await syncInspectorModulesOnly(adminClient, created.user.id)
+
+  await logAudit(
+    adminClient,
+    {
+      action_type: 'CREATE_USER',
+      target_type: 'user',
+      target_id: created.user.id,
+      target_label: email,
+      description: `Creó inspector de campo ${fullName} (${email}).`,
+      metadata: { is_tech_inspector: true },
+    },
+    { actor_id: caller.id },
+  )
+
+  revalidatePath('/admin')
+  return {
+    ok: true,
+    message: `Inspector ${fullName} creado. Asigna los clientes donde puede trabajar.`,
+  }
+}
+
+export async function getInspectorClientAssignmentsAction(
+  inspectorId: string,
+): Promise<{ ok: true; clientIds: string[] } | { ok: false; message: string }> {
+  const supabase = await createServerClient()
+  const {
+    data: { user: caller },
+  } = await supabase.auth.getUser()
+  if (!caller) return { ok: false, message: 'Sesión expirada.' }
+
+  const { data: callerProfile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', caller.id)
+    .single()
+  if (callerProfile?.role !== 'admin') {
+    return { ok: false, message: 'No autorizado.' }
+  }
+
+  const { data, error } = await supabase
+    .from('tech_assistance_inspector_clients')
+    .select('client_user_id')
+    .eq('inspector_id', inspectorId)
+
+  if (error) return { ok: false, message: error.message }
+  return { ok: true, clientIds: (data ?? []).map(r => r.client_user_id as string) }
+}
+
+export async function setInspectorClientAssignmentsAction(
+  inspectorId: string,
+  clientIds: string[],
+): Promise<SetTechInspectorState> {
+  const supabase = await createServerClient()
+  const {
+    data: { user: caller },
+  } = await supabase.auth.getUser()
+  if (!caller) return { ok: false, message: 'Sesión expirada.' }
+
+  const { data: callerProfile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', caller.id)
+    .single()
+  if (callerProfile?.role !== 'admin') {
+    return { ok: false, message: 'No autorizado.' }
+  }
+
+  const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!supabaseUrl || !serviceKey) {
+    return { ok: false, message: 'Configuración del servidor incompleta.' }
+  }
+
+  const adminClient = createSupabaseClient(supabaseUrl, serviceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+
+  const { data: inspector } = await adminClient
+    .from('profiles')
+    .select('id, full_name, email, is_tech_inspector')
+    .eq('id', inspectorId)
+    .single()
+
+  if (!inspector?.is_tech_inspector) {
+    return { ok: false, message: 'El usuario no es inspector de campo.' }
+  }
+
+  const uniqueIds = [...new Set(clientIds.filter(Boolean))]
+
+  if (uniqueIds.length > 0) {
+    const { data: validClients } = await applyPrincipalClientFilters(
+      adminClient.from('profiles').select('id').in('id', uniqueIds),
+    )
+
+    const validSet = new Set((validClients ?? []).map(c => c.id as string))
+    const invalid = uniqueIds.filter(id => !validSet.has(id))
+    if (invalid.length) {
+      return { ok: false, message: 'Hay clientes no válidos en la selección.' }
+    }
+  }
+
+  await adminClient
+    .from('tech_assistance_inspector_clients')
+    .delete()
+    .eq('inspector_id', inspectorId)
+
+  if (uniqueIds.length > 0) {
+    await adminClient.from('tech_assistance_inspector_clients').insert(
+      uniqueIds.map(clientId => ({
+        inspector_id: inspectorId,
+        client_user_id: clientId,
+      })),
+    )
+  }
+
+  revalidatePath('/admin')
+  revalidatePath('/dashboard/asistencia-tecnica')
+  return {
+    ok: true,
+    message:
+      uniqueIds.length > 0
+        ? `Clientes asignados al inspector ${inspector.full_name || inspector.email}.`
+        : 'Sin clientes asignados: el inspector verá todos los clientes con Asistencia técnica.',
+  }
+}
+
+export async function setTechInspectorAction(
+  userId: string,
+  enabled: boolean,
+): Promise<SetTechInspectorState> {
+  const supabase = await createServerClient()
+  const {
+    data: { user: caller },
+  } = await supabase.auth.getUser()
+
+  if (!caller) {
+    return { ok: false, message: 'Sesión expirada.' }
+  }
+
+  const { data: callerProfile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', caller.id)
+    .single()
+
+  if (callerProfile?.role !== 'admin') {
+    return { ok: false, message: 'Solo administradores pueden cambiar este rol.' }
+  }
+
+  const { data: target } = await supabase
+    .from('profiles')
+    .select('id, parent_user_id, full_name, email, is_tech_inspector')
+    .eq('id', userId)
+    .single()
+
+  if (!target) {
+    return { ok: false, message: 'Usuario no encontrado.' }
+  }
+
+  const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!supabaseUrl || !serviceKey) {
+    return { ok: false, message: 'Configuración del servidor incompleta.' }
+  }
+
+  const adminClient = createSupabaseClient(supabaseUrl, serviceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+
+  const patch: Record<string, unknown> = {
+    is_tech_inspector: enabled,
+    updated_at: new Date().toISOString(),
+  }
+
+  if (enabled) {
+    patch.parent_user_id = null
+    if (target.parent_user_id) {
+      await adminClient.from('tech_assistance_inspector_clients').upsert(
+        {
+          inspector_id: userId,
+          client_user_id: target.parent_user_id,
+        },
+        { onConflict: 'inspector_id,client_user_id' },
+      )
+    }
+  }
+
+  const { error } = await adminClient.from('profiles').update(patch).eq('id', userId)
+
+  if (error) {
+    return { ok: false, message: error.message }
+  }
+
+  if (enabled) {
+    await syncInspectorModulesOnly(adminClient, userId)
+  }
+
+  revalidatePath('/admin')
+  return {
+    ok: true,
+    message: enabled
+      ? 'Usuario marcado como inspector de campo.'
+      : 'Rol de inspector de campo removido.',
   }
 }
 
@@ -794,6 +1125,8 @@ export interface AdminNotificationRow {
   id: string
   title: string
   message: string
+  title_i18n?: LocalizedText | null
+  message_i18n?: LocalizedText | null
   severity: 'info' | 'warning' | 'critical' | 'success'
   active_from: string
   active_until: string
@@ -812,14 +1145,16 @@ export async function createAdminNotificationAction(
   const { data: callerProfile } = await supabase.from('profiles').select('role').eq('id', caller.id).single()
   if (callerProfile?.role !== 'admin') return { ok: false, message: 'Solo administradores pueden crear notificaciones.' }
 
-  const title       = String(formData.get('title') ?? '').trim()
-  const message     = String(formData.get('message') ?? '').trim()
+  const titleEs     = String(formData.get('title_es') ?? formData.get('title') ?? '').trim()
+  const titleEn     = String(formData.get('title_en') ?? '').trim()
+  const messageEs   = String(formData.get('message_es') ?? formData.get('message') ?? '').trim()
+  const messageEn   = String(formData.get('message_en') ?? '').trim()
   const severity    = String(formData.get('severity') ?? 'info')
   const activeFrom  = String(formData.get('active_from') ?? '')
   const activeUntil = String(formData.get('active_until') ?? '')
 
-  if (!title || !message || !activeFrom || !activeUntil) {
-    return { ok: false, message: 'Todos los campos son obligatorios.' }
+  if (!titleEs || !titleEn || !messageEs || !messageEn || !activeFrom || !activeUntil) {
+    return { ok: false, message: 'Completa título y mensaje en español e inglés, y las fechas.' }
   }
   if (!['info', 'warning', 'critical', 'success'].includes(severity)) {
     return { ok: false, message: 'Severidad inválida.' }
@@ -834,9 +1169,11 @@ export async function createAdminNotificationAction(
   }
 
   const adminClient = await getAdminClient()
-  const { error } = await adminClient.from('admin_notifications').insert({
-    title,
-    message,
+  const { error } = await insertAdminNotification(adminClient, {
+    title: titleEs,
+    message: messageEs,
+    title_i18n: { es: titleEs, en: titleEn },
+    message_i18n: { es: messageEs, en: messageEn },
     severity,
     active_from: new Date(activeFrom).toISOString(),
     active_until: new Date(activeUntil).toISOString(),
@@ -845,6 +1182,15 @@ export async function createAdminNotificationAction(
   })
 
   if (error) return { ok: false, message: error.message }
+
+  await logAudit(supabase, {
+    action_type: 'CREATE_ADMIN_NOTIFICATION',
+    target_type: 'admin_notification',
+    target_label: titleEs,
+    description: `Creó notificación "${titleEs}" (${severity}, destino: ${targetRole})`,
+    metadata: { severity, target_role: targetRole, active_from: activeFrom, active_until: activeUntil },
+  }, { actor_id: caller.id })
+
   revalidatePath('/admin')
   return { ok: true, message: 'Notificación creada correctamente.' }
 }
@@ -861,9 +1207,24 @@ export async function deleteAdminNotificationAction(
   if (callerProfile?.role !== 'admin') return { ok: false, message: 'Solo administradores pueden eliminar notificaciones.' }
 
   const adminClient = await getAdminClient()
+  const { data: existing } = await adminClient
+    .from('admin_notifications')
+    .select('title')
+    .eq('id', id)
+    .maybeSingle()
+
   const { error } = await adminClient.from('admin_notifications').delete().eq('id', id)
 
   if (error) return { ok: false, message: error.message }
+
+  await logAudit(supabase, {
+    action_type: 'DELETE_ADMIN_NOTIFICATION',
+    target_type: 'admin_notification',
+    target_id: id,
+    target_label: existing?.title ?? id,
+    description: `Eliminó notificación "${existing?.title ?? id}"`,
+  }, { actor_id: caller.id })
+
   revalidatePath('/admin')
   return { ok: true, message: 'Notificación eliminada.' }
 }
@@ -872,10 +1233,7 @@ export async function deleteAdminNotificationAction(
 export async function listAdminNotificationsAction(): Promise<AdminNotificationRow[]> {
   try {
     const adminClient = await getAdminClient()
-    const { data, error } = await adminClient
-      .from('admin_notifications')
-      .select('id, title, message, severity, active_from, active_until, created_at, target_role')
-      .order('created_at', { ascending: false })
+    const { data, error } = await listAdminNotifications(adminClient)
     if (error || !data) return []
     return data as AdminNotificationRow[]
   } catch {
@@ -895,15 +1253,17 @@ export async function updateAdminNotificationAction(
   const { data: callerProfile } = await supabase.from('profiles').select('role').eq('id', caller.id).single()
   if (callerProfile?.role !== 'admin') return { ok: false, message: 'Solo administradores pueden editar notificaciones.' }
 
-  const title       = String(formData.get('title') ?? '').trim()
-  const message     = String(formData.get('message') ?? '').trim()
+  const titleEs     = String(formData.get('title_es') ?? formData.get('title') ?? '').trim()
+  const titleEn     = String(formData.get('title_en') ?? '').trim()
+  const messageEs   = String(formData.get('message_es') ?? formData.get('message') ?? '').trim()
+  const messageEn   = String(formData.get('message_en') ?? '').trim()
   const severity    = String(formData.get('severity') ?? 'info')
   const activeFrom  = String(formData.get('active_from') ?? '')
   const activeUntil = String(formData.get('active_until') ?? '')
   const targetRole  = String(formData.get('target_role') ?? 'admin')
 
-  if (!title || !message || !activeFrom || !activeUntil) {
-    return { ok: false, message: 'Todos los campos son obligatorios.' }
+  if (!titleEs || !titleEn || !messageEs || !messageEn || !activeFrom || !activeUntil) {
+    return { ok: false, message: 'Completa título y mensaje en español e inglés, y las fechas.' }
   }
   if (!['info', 'warning', 'critical', 'success'].includes(severity)) {
     return { ok: false, message: 'Severidad inválida.' }
@@ -916,16 +1276,28 @@ export async function updateAdminNotificationAction(
   }
 
   const adminClient = await getAdminClient()
-  const { error } = await adminClient.from('admin_notifications').update({
-    title,
-    message,
+  const { error } = await updateAdminNotification(adminClient, id, {
+    title: titleEs,
+    message: messageEs,
+    title_i18n: { es: titleEs, en: titleEn },
+    message_i18n: { es: messageEs, en: messageEn },
     severity,
-    active_from:  new Date(activeFrom).toISOString(),
+    active_from: new Date(activeFrom).toISOString(),
     active_until: new Date(activeUntil).toISOString(),
-    target_role:  targetRole,
-  }).eq('id', id)
+    target_role: targetRole,
+  })
 
   if (error) return { ok: false, message: error.message }
+
+  await logAudit(supabase, {
+    action_type: 'UPDATE_ADMIN_NOTIFICATION',
+    target_type: 'admin_notification',
+    target_id: id,
+    target_label: titleEs,
+    description: `Actualizó notificación "${titleEs}" (${severity}, destino: ${targetRole})`,
+    metadata: { severity, target_role: targetRole },
+  }, { actor_id: caller.id })
+
   revalidatePath('/admin')
   return { ok: true, message: 'Notificación actualizada.' }
 }
@@ -980,7 +1352,7 @@ export async function blockIpAction(ip: string, reason?: string): Promise<{ ok: 
   if (error) return { ok: false, message: error.message }
 
   await logAudit(supabase, {
-    action_type: 'SYSTEM',
+    action_type: 'BLOCK_IP',
     target_type: 'ip',
     target_id:   ip,
     target_label: ip,
@@ -1005,7 +1377,7 @@ export async function unblockIpAction(ip: string): Promise<{ ok: boolean; messag
   if (error) return { ok: false, message: error.message }
 
   await logAudit(supabase, {
-    action_type: 'SYSTEM',
+    action_type: 'UNBLOCK_IP',
     target_type: 'ip',
     target_id:   ip,
     target_label: ip,
@@ -1167,6 +1539,22 @@ export async function createBackupAction(label?: string): Promise<BackupState> {
   if (uploadError) return { ok: false, message: `Error al guardar backup: ${uploadError.message}` }
 
   const totalRows = Object.values(snapshot.row_counts).reduce((a, b) => (a ?? 0) + (b ?? 0), 0) ?? 0
+
+  await logAudit(supabase, {
+    action_type: 'CREATE_BACKUP',
+    target_type: 'backup',
+    target_label: fileName,
+    description: `Creó backup ${fileName} (${totalRows.toLocaleString('es-CL')} filas)`,
+    metadata: {
+      file_name: fileName,
+      label: snapshot.label,
+      row_counts: snapshot.row_counts,
+      total_rows: totalRows,
+    },
+  }, {
+    actor_id: caller.id,
+  })
+
   revalidatePath('/admin')
   return { ok: true, message: `Backup creado: ${fileName} (${totalRows.toLocaleString('es-CL')} filas)` }
 }
@@ -1297,10 +1685,12 @@ export async function restoreBackupAction(fileName: string): Promise<BackupState
   await logAudit(
     supabase,
     {
-      action_type: 'SYSTEM',
+      action_type: 'RESTORE_BACKUP',
       description: `Restauración de backup: ${fileName} (${restoredRows} filas restauradas)${errors.length ? ` — ${errors.length} errores` : ''}`,
       target_type: 'backup',
+      target_id: fileName,
       target_label: fileName,
+      metadata: { restored_rows: restoredRows, errors: errors.slice(0, 10) },
     },
     {
       actor_id: caller.id,
@@ -1333,6 +1723,7 @@ export interface VaultClientSummary {
   storage_quota_gb: number
   storage_quota_bytes: number | null
   storage_plan_id: string
+  service_plan_id: ServicePlanId | null
   quota_bytes: number
 }
 
@@ -1439,12 +1830,11 @@ export async function getVaultClientsSummaryAction(): Promise<VaultClientSummary
   const { adminClient } = ctx
 
   const [clientsRes, docsRes, phenologyRes, foldersRes, linksRes, userProfilesRes] = await Promise.all([
-    adminClient
-      .from('profiles')
-      .select('id, full_name, email, storage_quota_gb, storage_quota_bytes')
-      .eq('role', 'user')
-      .is('parent_user_id', null)
-      .order('full_name', { ascending: true }),
+    applyPrincipalClientFilters(
+      adminClient
+        .from('profiles')
+        .select('id, full_name, email, storage_quota_gb, storage_quota_bytes, service_plan_id'),
+    ).order('full_name', { ascending: true }),
     adminClient.from('documentos').select('user_id, size'),
     adminClient.from('phenology_observation_images').select('user_id, file_size'),
     adminClient.from('carpetas').select('user_id'),
@@ -1516,6 +1906,9 @@ export async function getVaultClientsSummaryAction(): Promise<VaultClientSummary
         storage_quota_bytes: storageQuotaBytes,
         storage_quota_gb: storageQuotaGb,
       }),
+      service_plan_id: isServicePlanId(c.service_plan_id as string | null)
+        ? (c.service_plan_id as ServicePlanId)
+        : null,
       quota_bytes: quotaBytes,
     }
   })
@@ -1537,14 +1930,14 @@ export async function updateClientStorageQuotaAction(
 
   const { data: client, error: clientError } = await adminClient
     .from('profiles')
-    .select('id, full_name, email, role, parent_user_id, storage_quota_gb, storage_quota_bytes')
+    .select('id, full_name, email, role, parent_user_id, storage_quota_gb, storage_quota_bytes, is_tech_inspector')
     .eq('id', userId)
     .maybeSingle()
 
   if (clientError || !client) {
     return { ok: false, message: 'Cliente no encontrado.' }
   }
-  if (client.role !== 'user' || client.parent_user_id) {
+  if (!isPrincipalClientProfile(client)) {
     return { ok: false, message: 'Solo se puede asignar cuota a clientes principales.' }
   }
 
@@ -1597,6 +1990,72 @@ export async function updateClientStorageQuotaAction(
 
   revalidatePath('/admin')
   return { ok: true, message: `Plan de almacenamiento actualizado a ${plan.label}.` }
+}
+
+export async function updateClientServicePlanAction(
+  userId: string,
+  planId: ServicePlanId | null,
+): Promise<VaultActionState> {
+  const ctx = await requireAdminVaultCaller()
+  if (!ctx) return { ok: false, message: 'No autorizado.' }
+
+  if (planId !== null && !isServicePlanId(planId)) {
+    return { ok: false, message: 'Plan de servicio no válido.' }
+  }
+
+  const { adminClient, supabase, caller, profile } = ctx
+
+  const { data: client, error: clientError } = await adminClient
+    .from('profiles')
+    .select('id, full_name, email, role, parent_user_id, service_plan_id, is_tech_inspector')
+    .eq('id', userId)
+    .maybeSingle()
+
+  if (clientError || !client) {
+    return { ok: false, message: 'Cliente no encontrado.' }
+  }
+  if (!isPrincipalClientProfile(client)) {
+    return { ok: false, message: 'Solo se puede asignar plan a clientes principales.' }
+  }
+
+  const { error } = await adminClient
+    .from('profiles')
+    .update({ service_plan_id: planId })
+    .eq('id', userId)
+
+  if (error) {
+    if (error.message.includes('service_plan_id')) {
+      return {
+        ok: false,
+        message: 'Falta la migración de planes. Ejecuta 052_profiles_service_plan.sql en Supabase.',
+      }
+    }
+    return { ok: false, message: error.message || 'No se pudo actualizar el plan.' }
+  }
+
+  const planLabel = planId ?? 'Sin plan'
+
+  await logAudit(
+    supabase,
+    {
+      action_type: 'UPDATE_PERMISSION',
+      target_type: 'user',
+      target_id: userId,
+      target_label: client.full_name || client.email || userId,
+      description: `Asignó plan de servicio "${planLabel}" a ${client.full_name || client.email || userId}.`,
+      metadata: {
+        service_plan_id: planId,
+        previous_service_plan_id: client.service_plan_id,
+        admin_id: caller.id,
+        admin_email: profile.email,
+      },
+    },
+    { actor_id: caller.id },
+  )
+
+  revalidatePath('/admin')
+  revalidatePath('/dashboard/perfil')
+  return { ok: true, message: `Plan de servicio actualizado.` }
 }
 
 export async function getVaultClientExplorerAction(userId: string): Promise<VaultExplorerData | null> {
@@ -1916,7 +2375,7 @@ export async function getAuditLogsAction(params: {
       if (params.actorKind === 'admin') {
         profileQuery = profileQuery.eq('role', 'admin')
       } else if (params.actorKind === 'principal') {
-        profileQuery = profileQuery.eq('role', 'user').is('parent_user_id', null)
+        profileQuery = applyPrincipalClientFilters(profileQuery)
       } else if (params.actorKind === 'sub') {
         profileQuery = profileQuery.eq('role', 'user').not('parent_user_id', 'is', null)
       }

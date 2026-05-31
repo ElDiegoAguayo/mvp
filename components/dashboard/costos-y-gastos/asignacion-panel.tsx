@@ -34,6 +34,7 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { useLocale } from '@/components/i18n/locale-provider'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -67,6 +68,17 @@ function truncateVal(val: unknown): string {
   return s.length > 60 ? s.slice(0, 57) + '…' : s
 }
 
+function renderBoldSegments(text: string) {
+  const parts = text.split('**')
+  return parts.map((part, i) =>
+    i % 2 === 1 ? (
+      <strong key={i} className="tabular-nums">{part}</strong>
+    ) : (
+      part
+    ),
+  )
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // RowPickerDialog — table of real data from a dynamic_table
 // ─────────────────────────────────────────────────────────────────────────────
@@ -80,6 +92,7 @@ interface RowPickerProps {
 }
 
 function RowPickerDialog({ config, clienteId, alreadySelected, onConfirm, onClose }: RowPickerProps) {
+  const { t } = useLocale()
   const [query, setQuery]     = useState('')
   const [page, setPage]       = useState(0)
   const [filas, setFilas]     = useState<FilaTabla[]>([])
@@ -141,7 +154,7 @@ function RowPickerDialog({ config, clienteId, alreadySelected, onConfirm, onClos
             {config.label}
           </DialogTitle>
           <p className="text-xs text-muted-foreground mt-1">
-            Selecciona uno o más registros para asignarles este gasto.
+            {t('costosGastos.asignacion.picker.description')}
           </p>
         </DialogHeader>
 
@@ -155,7 +168,7 @@ function RowPickerDialog({ config, clienteId, alreadySelected, onConfirm, onClos
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={`Buscar en ${config.label.toLowerCase()}…`}
+              placeholder={t('costosGastos.asignacion.picker.searchPlaceholder', { label: config.label.toLowerCase() })}
               className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/50 min-w-0"
             />
             {query && (
@@ -170,10 +183,10 @@ function RowPickerDialog({ config, clienteId, alreadySelected, onConfirm, onClos
         {staged.length > 0 && (
           <div className="px-5 py-2 bg-primary/5 border-b border-primary/20 flex items-center justify-between gap-2 shrink-0">
             <span className="text-xs text-primary font-medium">
-              {staged.length} {staged.length === 1 ? 'registro seleccionado' : 'registros seleccionados'}
+              {t('costosGastos.asignacion.picker.selectedCount', { count: staged.length })}
             </span>
             <button onClick={() => setStaged([])} className="text-xs text-muted-foreground hover:text-destructive transition-colors">
-              Limpiar
+              {t('costosGastos.common.limpiar')}
             </button>
           </div>
         )}
@@ -188,7 +201,9 @@ function RowPickerDialog({ config, clienteId, alreadySelected, onConfirm, onClos
             <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
               <TableIcon className="w-8 h-8 text-muted-foreground/30" />
               <p className="text-sm text-muted-foreground">
-                {query ? `Sin resultados para "${query}"` : 'Esta tabla no tiene registros.'}
+                {query
+                  ? t('costosGastos.asignacion.picker.noResults', { query })
+                  : t('costosGastos.asignacion.picker.emptyTable')}
               </p>
             </div>
           ) : (
@@ -254,7 +269,7 @@ function RowPickerDialog({ config, clienteId, alreadySelected, onConfirm, onClos
                       <td className="px-3 py-2.5 text-right">
                         {checked && (
                           <Badge className="text-[10px] bg-primary/10 text-primary border border-primary/20 px-1.5 py-0 h-4">
-                            Sel.
+                            {t('costosGastos.asignacion.picker.selectedBadge')}
                           </Badge>
                         )}
                       </td>
@@ -270,7 +285,11 @@ function RowPickerDialog({ config, clienteId, alreadySelected, onConfirm, onClos
         {total > PAGE_SIZE && (
           <div className="px-5 py-2.5 border-t border-border flex items-center justify-between gap-3 text-xs text-muted-foreground shrink-0">
             <span>
-              {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} de {total}
+              {t('costosGastos.common.paginationRange', {
+                start: page * PAGE_SIZE + 1,
+                end: Math.min((page + 1) * PAGE_SIZE, total),
+                total,
+              })}
             </span>
             <div className="flex items-center gap-1">
               <button onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} className="p-1 rounded hover:bg-secondary disabled:opacity-30">
@@ -285,7 +304,7 @@ function RowPickerDialog({ config, clienteId, alreadySelected, onConfirm, onClos
         )}
 
         <DialogFooter className="px-5 py-3 border-t border-border bg-card shrink-0">
-          <Button variant="outline" size="sm" onClick={onClose} className="text-xs h-8">Cancelar</Button>
+          <Button variant="outline" size="sm" onClick={onClose} className="text-xs h-8">{t('common.actions.cancel')}</Button>
           <Button
             size="sm"
             onClick={() => onConfirm(staged, config)}
@@ -293,7 +312,7 @@ function RowPickerDialog({ config, clienteId, alreadySelected, onConfirm, onClos
             className="gap-1.5 text-xs h-8"
           >
             <Save className="w-3.5 h-3.5" />
-            Guardar asignación {staged.length > 0 ? `(${staged.length})` : ''}
+            {t('costosGastos.asignacion.picker.saveAssignment', { count: staged.length })}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -320,6 +339,7 @@ export function AsignacionPanel({
   numeroDocumento,
   onSaved,
 }: AsignacionPanelProps) {
+  const { t } = useLocale()
   const [configs, setConfigs]             = useState<CentroCostoConfig[]>([])
   const [loadingConfigs, setLoadingConfigs] = useState(true)
   const [activeConfig, setActiveConfig]   = useState<CentroCostoConfig | null>(null)
@@ -414,18 +434,20 @@ export function AsignacionPanel({
         setExistingLabel(lbl)
         onSaved?.(lbl)
       } else {
-        toast.error(`Error al guardar: ${res.message}`)
+        toast.error(t('costosGastos.asignacion.errorSave', { message: res.message }))
       }
     } catch (err) {
-      toast.error(`Error inesperado: ${err instanceof Error ? err.message : String(err)}`)
+      toast.error(t('costosGastos.asignacion.errorUnexpected', {
+        message: err instanceof Error ? err.message : String(err),
+      }))
     } finally {
       setSaving(false)
     }
   }
 
   const handleSave = async () => {
-    if (!activeConfig) { toast.error('Selecciona un módulo primero.'); return }
-    if (n === 0) { toast.error('Selecciona al menos un registro.'); return }
+    if (!activeConfig) { toast.error(t('costosGastos.asignacion.selectModuleFirst')); return }
+    if (n === 0) { toast.error(t('costosGastos.asignacion.selectRecordRequired')); return }
     await handleSaveRows(selected, activeConfig)
   }
 
@@ -439,17 +461,20 @@ export function AsignacionPanel({
         <div className="flex items-center gap-2">
           <Split className="w-3.5 h-3.5 text-primary shrink-0" />
           <span className="text-[11px] font-semibold text-foreground uppercase tracking-wide">
-            Asignar a Centro de Costo
+            {t('costosGastos.asignacion.title')}
           </span>
           {loadingExisting && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
           {hasExisting && !loadingExisting && (
             <Badge className="text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 gap-1 px-1.5 py-0">
-              <CheckCircle2 className="w-2.5 h-2.5" /> Asignada
+              <CheckCircle2 className="w-2.5 h-2.5" /> {t('costosGastos.asignacion.statusAssigned')}
             </Badge>
           )}
         </div>
         <span className="text-[11px] text-muted-foreground font-mono">
-          Doc. #{numeroDocumento || '—'} · {formatCLP(montoBruto)}
+          {t('costosGastos.asignacion.docHeader', {
+            numero: numeroDocumento || '—',
+            monto: formatCLP(montoBruto),
+          })}
         </span>
       </div>
 
@@ -466,7 +491,7 @@ export function AsignacionPanel({
             onClick={() => setEditing(true)}
             className="text-[11px] font-medium text-muted-foreground hover:text-primary shrink-0 underline underline-offset-2"
           >
-            Cambiar
+            {t('common.actions.change')}
           </button>
         </div>
       )}
@@ -476,15 +501,15 @@ export function AsignacionPanel({
       <div className="space-y-3">
       {/* Step 1: choose module */}
       <div className="space-y-1.5">
-        <p className="text-[11px] font-medium text-muted-foreground">1. Selecciona el módulo</p>
+        <p className="text-[11px] font-medium text-muted-foreground">{t('costosGastos.asignacion.step1')}</p>
         {loadingConfigs ? (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Cargando módulos…
+            <Loader2 className="w-3.5 h-3.5 animate-spin" /> {t('costosGastos.asignacion.loadingModules')}
           </div>
         ) : configs.length === 0 ? (
           <div className="flex items-center gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-400">
             <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-            El administrador aún no ha habilitado módulos de costos para tu cuenta.
+            {t('costosGastos.asignacion.noModulesEnabled')}
           </div>
         ) : (
           <div className="flex items-center gap-2 flex-wrap">
@@ -509,7 +534,7 @@ export function AsignacionPanel({
       {/* Step 2: pick records */}
       {activeConfig && (
         <div className="space-y-1.5">
-          <p className="text-[11px] font-medium text-muted-foreground">2. Elige los registros</p>
+          <p className="text-[11px] font-medium text-muted-foreground">{t('costosGastos.asignacion.step2')}</p>
           <button
             onClick={() => setPickerOpen(true)}
             className="w-full flex items-center justify-between gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm text-muted-foreground hover:border-primary/50 hover:text-foreground transition-colors"
@@ -517,8 +542,8 @@ export function AsignacionPanel({
             <span className="flex items-center gap-2">
               <TableIcon className="w-4 h-4 text-primary" />
               {n === 0
-                ? `Ver registros de ${activeConfig.label}…`
-                : `${n} registro${n !== 1 ? 's' : ''} seleccionado${n !== 1 ? 's' : ''} de ${activeConfig.label}`
+                ? t('costosGastos.asignacion.viewRecords', { label: activeConfig.label })
+                : t('costosGastos.asignacion.recordsSelected', { n, label: activeConfig.label })
               }
             </span>
             <ChevronRight className="w-3.5 h-3.5 shrink-0" />
@@ -549,10 +574,13 @@ export function AsignacionPanel({
         <div className="flex items-start gap-2 rounded-md bg-primary/5 border border-primary/20 px-3 py-2.5">
           <Info className="w-3.5 h-3.5 text-primary mt-0.5 shrink-0" />
           <p className="text-xs text-foreground leading-relaxed">
-            El monto de <strong className="tabular-nums">{formatCLP(montoBruto)}</strong> se dividirá
-            en <strong>{n}</strong> parte{n !== 1 ? 's' : ''} de{' '}
-            <strong className="tabular-nums">{formatCLP(perParte)}</strong> cada una
-            ({pct}% por registro de {activeConfig.label}).
+            {renderBoldSegments(t('costosGastos.asignacion.divisionPreview', {
+              monto: formatCLP(montoBruto),
+              n,
+              perParte: formatCLP(perParte),
+              pct,
+              label: activeConfig.label,
+            }))}
           </p>
         </div>
       )}
@@ -564,7 +592,7 @@ export function AsignacionPanel({
             onClick={() => { setEditing(false); setSelected([]) }}
             className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2"
           >
-            Cancelar
+            {t('common.actions.cancel')}
           </button>
         )}
         <div className="ml-auto">
@@ -575,8 +603,10 @@ export function AsignacionPanel({
             className="gap-1.5 text-xs h-8"
           >
             {saving
-              ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Guardando…</>
-              : <><Save className="w-3.5 h-3.5" /> Guardar {n > 0 ? `${n} asignación${n !== 1 ? 'es' : ''}` : 'asignación'}</>
+              ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {t('costosGastos.common.guardando')}</>
+              : <><Save className="w-3.5 h-3.5" /> {n > 0
+                ? t('costosGastos.asignacion.saveButton', { n })
+                : t('costosGastos.asignacion.saveButtonDefault')}</>
             }
           </Button>
         </div>

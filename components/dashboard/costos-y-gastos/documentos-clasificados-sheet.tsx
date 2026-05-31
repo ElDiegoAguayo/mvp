@@ -46,6 +46,7 @@ import { toast } from 'sonner'
 import { AsignacionPanel } from './asignacion-panel'
 import { usePagination } from '@/hooks/use-pagination'
 import { TablePaginationBar } from '@/components/ui/table-pagination-bar'
+import { useLocale } from '@/components/i18n/locale-provider'
 
 const PAGE_SIZE = 10
 
@@ -82,10 +83,11 @@ function fmtVal(val: unknown): string {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function CentrosBadges({ centros }: { centros: CentroAsignado[] }) {
+  const { t } = useLocale()
   const [expanded, setExpanded] = useState(false)
 
   if (centros.length === 0) {
-    return <span className="text-[11px] text-muted-foreground/50 italic">Sin asignación</span>
+    return <span className="text-[11px] text-muted-foreground/50 italic">{t('costosGastos.clasificados.sinAsignacion')}</span>
   }
 
   // Collect extra_cols configured by admin (same columns as the picker shows)
@@ -127,7 +129,7 @@ function CentrosBadges({ centros }: { centros: CentroAsignado[] }) {
         className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-primary transition-colors"
       >
         {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-        {expanded ? 'Ocultar tabla' : 'Ver tabla completa'}
+        {expanded ? t('costosGastos.clasificados.ocultarTabla') : t('costosGastos.clasificados.verTablaCompleta')}
       </button>
 
       {/* Expanded: same columns as picker (código + nombre + cols_extra) */}
@@ -136,15 +138,15 @@ function CentrosBadges({ centros }: { centros: CentroAsignado[] }) {
           <table className="w-full text-[11px]">
             <thead className="bg-secondary/40 border-b border-border">
               <tr>
-                <th className="text-left font-semibold text-muted-foreground px-2 py-1.5 whitespace-nowrap">Módulo</th>
-                <th className="text-left font-semibold text-muted-foreground px-2 py-1.5 whitespace-nowrap">Código</th>
-                <th className="text-left font-semibold text-muted-foreground px-2 py-1.5 whitespace-nowrap">Nombre</th>
+                <th className="text-left font-semibold text-muted-foreground px-2 py-1.5 whitespace-nowrap">{t('costosGastos.common.modulo')}</th>
+                <th className="text-left font-semibold text-muted-foreground px-2 py-1.5 whitespace-nowrap">{t('costosGastos.common.codigo')}</th>
+                <th className="text-left font-semibold text-muted-foreground px-2 py-1.5 whitespace-nowrap">{t('costosGastos.common.nombre')}</th>
                 {pickerCols.map((k) => (
                   <th key={k} className="text-left font-semibold text-muted-foreground px-2 py-1.5 whitespace-nowrap">
                     {colLabel(k)}
                   </th>
                 ))}
-                <th className="text-right font-semibold text-primary px-2 py-1.5 whitespace-nowrap">Monto Asignado</th>
+                <th className="text-right font-semibold text-primary px-2 py-1.5 whitespace-nowrap">{t('costosGastos.common.montoAsignado')}</th>
               </tr>
             </thead>
             <tbody>
@@ -186,6 +188,7 @@ interface InlineEditorProps {
 }
 
 function InlineEditor({ doc, taxonomy, clienteId, onSaved, onCancel }: InlineEditorProps) {
+  const { t } = useLocale()
   // Pre-fill from existing classification
   const initialState: RowState = {}
   taxonomy.niveles.forEach((n, i) => {
@@ -227,13 +230,15 @@ function InlineEditor({ doc, taxonomy, clienteId, onSaved, onCancel }: InlineEdi
         estado_clasificacion: 'completado',
       }])
       if (res.ok) {
-        toast.success('Documento actualizado.')
+        toast.success(t('costosGastos.clasificados.edit.updatedSuccess'))
         onSaved()
       } else {
         toast.error(res.message)
       }
     } catch (err) {
-      toast.error(`Error: ${err instanceof Error ? err.message : String(err)}`)
+      toast.error(t('costosGastos.common.errorWithMessage', {
+        message: err instanceof Error ? err.message : String(err),
+      }))
     } finally {
       setSaving(false)
     }
@@ -245,7 +250,7 @@ function InlineEditor({ doc, taxonomy, clienteId, onSaved, onCancel }: InlineEdi
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-xs font-medium text-foreground">
           <Pencil className="w-3.5 h-3.5 text-primary shrink-0" />
-          Editando: <span className="font-mono text-primary">Doc. {doc.numero_documento}</span>
+          {t('costosGastos.clasificados.edit.editingLabel', { numero: doc.numero_documento })}
           <span className="text-muted-foreground font-normal">{doc.tipo_documento} · {doc.fecha_emision ?? '—'} · {formatCLP(doc.monto_bruto)}</span>
         </div>
         <button onClick={onCancel} className="text-muted-foreground hover:text-foreground">
@@ -255,7 +260,7 @@ function InlineEditor({ doc, taxonomy, clienteId, onSaved, onCancel }: InlineEdi
 
       {/* Taxonomy dropdowns */}
       <div>
-        <p className="text-[11px] font-medium text-muted-foreground mb-2">Clasificación</p>
+        <p className="text-[11px] font-medium text-muted-foreground mb-2">{t('costosGastos.clasificados.edit.clasificacion')}</p>
         <div className="flex items-center gap-2 flex-wrap">
           {taxonomy.niveles.map((nivel, i) => {
             const opts = taxonomy.opciones[nivel.numero] ?? []
@@ -267,14 +272,14 @@ function InlineEditor({ doc, taxonomy, clienteId, onSaved, onCancel }: InlineEdi
                 <span className="text-[10px] text-muted-foreground font-medium">{nivel.label}</span>
                 <Select value={value} onValueChange={(v) => handleChange(nivel.numero, v)} disabled={isDisabled}>
                   <SelectTrigger className="h-8 text-xs w-[160px]">
-                    <SelectValue placeholder={isDisabled ? '—' : `${nivel.label}…`} />
+                    <SelectValue placeholder={isDisabled ? '—' : t('costosGastos.clasificacion.selectPlaceholder', { label: nivel.label })} />
                   </SelectTrigger>
                   <SelectContent>
                     {opts.map((opt) => (
                       <SelectItem key={opt} value={opt} className="text-xs">{opt}</SelectItem>
                     ))}
                     {opts.length === 0 && (
-                      <div className="px-2 py-1.5 text-xs text-muted-foreground italic">Sin opciones</div>
+                      <div className="px-2 py-1.5 text-xs text-muted-foreground italic">{t('costosGastos.clasificacion.noOptions')}</div>
                     )}
                   </SelectContent>
                 </Select>
@@ -292,10 +297,10 @@ function InlineEditor({ doc, taxonomy, clienteId, onSaved, onCancel }: InlineEdi
         >
           {asignPanelOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
           <Split className="w-3 h-3" />
-          Centro de Costo
+          {t('costosGastos.common.centroDeCosto')}
           {doc.centros_asignados.length > 0 && (
             <span className="text-[10px] text-emerald-500 font-normal ml-1">
-              ({doc.centros_asignados.length} asignado{doc.centros_asignados.length !== 1 ? 's' : ''})
+              {t('costosGastos.clasificados.edit.asignadosCount', { count: doc.centros_asignados.length })}
             </span>
           )}
         </button>
@@ -313,12 +318,12 @@ function InlineEditor({ doc, taxonomy, clienteId, onSaved, onCancel }: InlineEdi
       {/* Actions */}
       <div className="flex items-center gap-2 justify-end pt-1 border-t border-border/40">
         <Button variant="outline" size="sm" onClick={onCancel} className="text-xs h-8 gap-1.5">
-          <X className="w-3.5 h-3.5" /> Cancelar
+          <X className="w-3.5 h-3.5" /> {t('common.actions.cancel')}
         </Button>
         <Button size="sm" onClick={handleSave} disabled={saving} className="text-xs h-8 gap-1.5">
           {saving
-            ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Guardando…</>
-            : <><Save className="w-3.5 h-3.5" /> Guardar cambios</>
+            ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {t('costosGastos.common.guardando')}</>
+            : <><Save className="w-3.5 h-3.5" /> {t('costosGastos.common.guardarCambios')}</>
           }
         </Button>
       </div>
@@ -345,6 +350,7 @@ export function DocumentosClasificadosSheet({
   clienteId,
   onReclasificar,
 }: Props) {
+  const { t } = useLocale()
   const [docs, setDocs]           = useState<DocumentoClasificado[]>([])
   const [loading, setLoading]     = useState(false)
   const [selected, setSelected]   = useState<Set<string>>(new Set())
@@ -360,11 +366,11 @@ export function DocumentosClasificadosSheet({
     obtenerDocumentosClasificados(clienteId, contraparte.rut_contraparte)
       .then((res) => {
         if (res.ok) setDocs(res.data)
-        else toast.error(res.message ?? 'Error al cargar documentos.')
+        else toast.error(res.message ?? t('costosGastos.clasificados.errorLoadDocs'))
       })
-      .catch(() => toast.error('Error al cargar documentos.'))
+      .catch(() => toast.error(t('costosGastos.clasificados.errorLoadDocs')))
       .finally(() => setLoading(false))
-  }, [contraparte, clienteId])
+  }, [contraparte, clienteId, t])
 
   useEffect(() => {
     if (open) {
@@ -438,19 +444,19 @@ export function DocumentosClasificadosSheet({
     }
   }
 
-  if (!contraparte) return null
+  const COLS = useMemo(() => [
+    { key: 'numero_documento' as const, label: t('costosGastos.common.numeroDocumento') },
+    { key: 'tipo_documento'   as const, label: t('costosGastos.common.tipo') },
+    { key: 'fecha_emision'    as const, label: t('costosGastos.common.fechaEmision') },
+    { key: 'monto_neto'       as const, label: t('costosGastos.common.neto'),   align: 'right' as const, money: true },
+    { key: 'monto_iva'        as const, label: t('costosGastos.common.iva'),    align: 'right' as const, money: true },
+    { key: 'monto_bruto'      as const, label: t('costosGastos.common.bruto'),  align: 'right' as const, money: true },
+    { key: 'categoria_madre'  as const, label: t('costosGastos.clasificacion.taxonomy.cuentaMadre') },
+    { key: 'sub_cuenta'       as const, label: t('costosGastos.clasificacion.taxonomy.subCuenta') },
+    { key: 'detalle_gasto'    as const, label: t('costosGastos.clasificacion.taxonomy.detalle') },
+  ], [t])
 
-  const COLS = [
-    { key: 'numero_documento' as const, label: 'N° Documento' },
-    { key: 'tipo_documento'   as const, label: 'Tipo' },
-    { key: 'fecha_emision'    as const, label: 'Fecha Emisión' },
-    { key: 'monto_neto'       as const, label: 'Neto',   align: 'right' as const, money: true },
-    { key: 'monto_iva'        as const, label: 'IVA',    align: 'right' as const, money: true },
-    { key: 'monto_bruto'      as const, label: 'Bruto',  align: 'right' as const, money: true },
-    { key: 'categoria_madre'  as const, label: 'Cuenta Madre' },
-    { key: 'sub_cuenta'       as const, label: 'Sub-Cuenta' },
-    { key: 'detalle_gasto'    as const, label: 'Detalle' },
-  ]
+  if (!contraparte) return null
 
   // Total cols: checkbox + # + COLS + (centros?) + edit
   const totalCols = 2 + COLS.length + (hasCentros ? 1 : 0) + 1
@@ -472,7 +478,7 @@ export function DocumentosClasificadosSheet({
                 </SheetTitle>
               </div>
               <SheetDescription className="font-mono text-xs">
-                RUT {contraparte.rut_contraparte}
+                {t('costosGastos.common.rutPrefix', { rut: contraparte.rut_contraparte })}
               </SheetDescription>
             </div>
 
@@ -480,7 +486,7 @@ export function DocumentosClasificadosSheet({
             {!loading && docs.length > 0 && (
               <div className="flex items-center gap-2 shrink-0 flex-wrap">
                 <Badge className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[11px]">
-                  {docs.length} clasificado{docs.length !== 1 ? 's' : ''}
+                  {t('costosGastos.clasificados.badge.clasificados', { count: docs.length })}
                 </Badge>
 
                 {someSelected && (
@@ -495,7 +501,7 @@ export function DocumentosClasificadosSheet({
                       ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                       : <Pencil className="w-3.5 h-3.5" />
                     }
-                    Editar seleccionados ({selected.size})
+                    {t('costosGastos.clasificados.actions.editSelected', { count: selected.size })}
                   </Button>
                 )}
 
@@ -510,7 +516,7 @@ export function DocumentosClasificadosSheet({
                     ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     : <RotateCcw className="w-3.5 h-3.5" />
                   }
-                  Reclasificar todo
+                  {t('costosGastos.clasificados.actions.reclasificarTodo')}
                 </Button>
               </div>
             )}
@@ -520,9 +526,9 @@ export function DocumentosClasificadosSheet({
           {!loading && docs.length > 0 && (
             <div className="grid grid-cols-3 gap-3 mt-3">
               {[
-                { label: 'Total Neto',  value: totalNeto },
-                { label: 'Total IVA',   value: totalIva },
-                { label: 'Total Bruto', value: totalBruto, bold: true },
+                { label: t('costosGastos.common.totalNeto'),  value: totalNeto },
+                { label: t('costosGastos.common.totalIva'),   value: totalIva },
+                { label: t('costosGastos.common.totalBruto'), value: totalBruto, bold: true },
               ].map(({ label, value, bold }) => (
                 <div key={label} className="rounded-lg bg-secondary/40 border border-border px-3 py-2">
                   <p className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium mb-0.5">{label}</p>
@@ -537,7 +543,7 @@ export function DocumentosClasificadosSheet({
           {someSelected && (
             <div className="flex items-center gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400 mt-2">
               <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-              &quot;Editar seleccionados&quot; reabre esos documentos para reclasificarlos desde el panel de clasificación.
+              {t('costosGastos.clasificados.editSelectedHint')}
             </div>
           )}
         </SheetHeader>
@@ -551,9 +557,9 @@ export function DocumentosClasificadosSheet({
           ) : docs.length === 0 ? (
             <div className="flex flex-col items-center gap-3 py-20 text-center px-6">
               <Tag className="w-10 h-10 text-muted-foreground/30" />
-              <p className="text-sm font-medium text-foreground">Sin documentos clasificados</p>
+              <p className="text-sm font-medium text-foreground">{t('costosGastos.clasificados.empty.title')}</p>
               <p className="text-xs text-muted-foreground">
-                Aún no hay documentos completamente clasificados para este proveedor.
+                {t('costosGastos.clasificados.empty.description')}
               </p>
             </div>
           ) : (
@@ -570,7 +576,7 @@ export function DocumentosClasificadosSheet({
                         checked={pageAllSelected}
                         onChange={toggleAll}
                         className="rounded border-border accent-primary"
-                        title="Seleccionar página actual"
+                        title={t('costosGastos.clasificados.selectPageTitle')}
                       />
                     </th>
                     <th className="text-left font-semibold text-muted-foreground px-3 py-2.5 whitespace-nowrap border-r border-border/40">#</th>
@@ -586,7 +592,7 @@ export function DocumentosClasificadosSheet({
                     ))}
                     {hasCentros && (
                       <th className="text-left font-semibold text-muted-foreground px-3 py-2.5 whitespace-nowrap border-l border-primary/20 bg-primary/5">
-                        Centro de Costo
+                        {t('costosGastos.common.centroDeCosto')}
                       </th>
                     )}
                     <th className="w-20 px-3 py-2.5" />
@@ -645,7 +651,7 @@ export function DocumentosClasificadosSheet({
                         <td className="px-3 py-2 text-right">
                           <button
                             onClick={() => setEditingDocId(isEditing ? null : doc.id)}
-                            title={isEditing ? 'Cerrar editor' : 'Editar este documento'}
+                            title={isEditing ? t('costosGastos.clasificados.edit.closeEditor') : t('costosGastos.clasificados.edit.editDocument')}
                             className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded border transition-colors ${
                               isEditing
                                 ? 'border-primary/40 bg-primary/10 text-primary'
@@ -653,7 +659,7 @@ export function DocumentosClasificadosSheet({
                             }`}
                           >
                             <Pencil className="w-3 h-3" />
-                            {isEditing ? 'Cerrar' : 'Editar'}
+                            {isEditing ? t('common.actions.close') : t('common.actions.edit')}
                           </button>
                         </td>
                       </tr>,
@@ -679,7 +685,7 @@ export function DocumentosClasificadosSheet({
                 <tfoot className="sticky bottom-0 bg-background border-t-2 border-border">
                   <tr>
                     <td colSpan={2} className="px-3 py-2.5 text-[11px] font-bold text-foreground border-r border-border/40">
-                      TOTAL
+                      {t('costosGastos.common.total')}
                     </td>
                     {COLS.map((col) => {
                       if (col.money) {
@@ -715,7 +721,7 @@ export function DocumentosClasificadosSheet({
                   startIndex={startIndex}
                   endIndex={endIndex}
                   onPageChange={setPage}
-                  itemLabel="documentos"
+                  itemLabel={t('costosGastos.common.itemLabel.documentos')}
                 />
               )}
             </div>

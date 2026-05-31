@@ -73,7 +73,9 @@ export default function SharePage() {
     <div className="min-h-screen bg-background flex flex-col items-center justify-start pt-12 px-4">
       {/* Brand bar */}
       <div className="mb-8 flex items-center gap-2">
-        <span className="text-2xl font-bold tracking-tight text-primary">UpCrop</span>
+        <span className="text-2xl font-bold tracking-tight text-foreground">
+          Up <span className="text-primary">Crop</span>
+        </span>
         <span className="text-muted-foreground text-sm">/ Bóveda Documental</span>
       </div>
 

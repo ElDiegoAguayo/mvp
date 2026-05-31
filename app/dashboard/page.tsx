@@ -2,6 +2,9 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { DashboardLayout } from '@/components/dashboard/dashboard-layout'
 import { getDashboardLayoutAsync } from '@/lib/dashboard/get-layout-server'
+import { getEffectiveUserId } from '@/lib/supabase/effective-user-server'
+import { DashboardHomeHeader } from '@/components/dashboard/dashboard-home-header'
+import { isTechInspectorProfile } from '@/lib/tech-assistance/roles'
 export const dynamic = 'force-dynamic'
 
 export default async function DashboardPage() {
@@ -12,34 +15,35 @@ export default async function DashboardPage() {
 
   if (!user) redirect('/auth/login')
 
+  const { userId: actingUserId } = await getEffectiveUserId(supabase)
+  const effectiveUserId = actingUserId ?? user.id
+
+  const { data: actingProfile } = await supabase
+    .from('profiles')
+    .select('is_tech_inspector, parent_user_id')
+    .eq('id', effectiveUserId)
+    .single()
+
+  if (isTechInspectorProfile(actingProfile)) {
+    redirect('/dashboard/asistencia-tecnica')
+  }
+
   const { data: profile } = await supabase
     .from('profiles')
     .select('full_name, email, role')
-    .eq('id', user.id)
+    .eq('id', effectiveUserId)
     .single()
 
   const fullName =
     profile?.full_name ||
-    (user.user_metadata?.full_name as string | undefined) ||
-    user.email?.split('@')[0] ||
+    profile?.email?.split('@')[0] ||
     'Usuario'
 
-  // The server-side getDashboardLayoutAsync already filters widgets based on the user's access to the "inicio" module.
-  const { widgets } = await getDashboardLayoutAsync(supabase, user.id)
+  const { widgets } = await getDashboardLayoutAsync(supabase, effectiveUserId)
 
   return (
     <>
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-foreground mb-2 text-balance">
-          Bienvenido a Up <span className="text-primary">Crop</span>,{' '}
-          <span className="text-primary">{fullName}</span>
-        </h1>
-        <p className="text-muted-foreground">
-          Monitorea tus operaciones agrícolas y recibe alertas en tiempo real.
-        </p>
-      </div>
-
-      {/* Dynamic Layout Renderer — "Inicio" access is already enforced server-side via module permissions */}
+      <DashboardHomeHeader fullName={fullName} />
       <DashboardLayout widgets={widgets} />
     </>
   )

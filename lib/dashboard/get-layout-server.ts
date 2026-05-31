@@ -3,12 +3,14 @@
  * Used in Server Components to fetch layout and permissions
  */
 
-import { WidgetConfig, DEFAULT_DASHBOARD_LAYOUT } from '@/lib/dashboard/widget-config'
+import { WidgetConfig } from '@/lib/dashboard/widget-config'
 import {
   createPermissions,
   UserPermissions,
   filterWidgetsByPermissions,
 } from '@/lib/dashboard/layout-permissions'
+import { mergeLayoutWithCatalog, parseStoredLayout, resolvePlatformOrSystemDefault } from '@/lib/dashboard/widget-catalog'
+import { fetchDashboardLayoutOwnerId } from '@/lib/dashboard/layout-owner'
 
 /**
  * Server-side function for fetching dashboard layout
@@ -54,21 +56,27 @@ export async function getDashboardLayoutAsync(
 
     const permissions = createPermissions(enabledModuleIds, coreModuleIds)
 
-    // Try to fetch custom layout (future feature)
+    const layoutOwnerId = await fetchDashboardLayoutOwnerId(supabase, userId)
+
     const { data: layoutData } = await supabase
       .from('dashboard_layouts')
-      .select('*')
-      .eq('user_id', userId)
-      .single()
+      .select('configuration')
+      .eq('user_id', layoutOwnerId)
+      .maybeSingle()
 
-    let layoutWidgets = DEFAULT_DASHBOARD_LAYOUT
-    if (layoutData) {
-      try {
-        const parsedLayout = JSON.parse(layoutData.configuration as string) as WidgetConfig[]
-        layoutWidgets = parsedLayout
-      } catch {
-        console.warn('Failed to parse custom layout, using defaults')
-      }
+    const { data: platformRow } = await supabase
+      .from('platform_dashboard_default')
+      .select('configuration')
+      .eq('id', 1)
+      .maybeSingle()
+
+    const platformLayout = parseStoredLayout(platformRow?.configuration)
+
+    let layoutWidgets: WidgetConfig[]
+    if (layoutData?.configuration) {
+      layoutWidgets = mergeLayoutWithCatalog(parseStoredLayout(layoutData.configuration))
+    } else {
+      layoutWidgets = resolvePlatformOrSystemDefault(platformLayout)
     }
 
     // Strip any moduleId from home widgets so they are always shown regardless of module permissions.
@@ -83,7 +91,7 @@ export async function getDashboardLayoutAsync(
     console.error('Error fetching dashboard layout:', error)
     // Return default layout with empty permissions
     return {
-      widgets: DEFAULT_DASHBOARD_LAYOUT.filter((w) => w.visible),
+      widgets: resolvePlatformOrSystemDefault(null).filter((w) => w.visible),
       permissions: createPermissions([], []),
     }
   }

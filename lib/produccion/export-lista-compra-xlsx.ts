@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs'
+import { BRAND_NAME } from '@/lib/brand'
 import {
   UPCROP_HEADER_FILL,
   UPCROP_SUMMARY_FILL,
@@ -54,7 +55,7 @@ export async function exportListaCompraExcel(items: ListaCompraItem[]): Promise<
   if (items.length === 0) return
 
   const workbook = new ExcelJS.Workbook()
-  workbook.creator = 'UpCrop'
+  workbook.creator = BRAND_NAME
   workbook.created = new Date()
 
   const sheet = workbook.addWorksheet('Lista de compra', {

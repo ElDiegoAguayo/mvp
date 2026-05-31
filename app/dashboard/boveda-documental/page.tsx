@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { DocumentVault } from '@/components/dashboard/document-vault'
 import { ModuleViewTracker } from '@/components/dashboard/module-view-tracker'
-import { FolderLock } from 'lucide-react'
+import { VaultPageHeader } from '@/components/dashboard/vault-page-header'
 
 export const dynamic = 'force-dynamic'
 
@@ -45,19 +45,7 @@ export default async function BovedaPage() {
           moduleName={bovedaModule.name}
         />
       )}
-      <div className="mb-8">
-        <div className="flex items-center gap-3 mb-2">
-          <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
-            <FolderLock className="w-6 h-6 text-primary" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">Mis documentos</h1>
-            <p className="text-sm text-muted-foreground">
-              Gestiona y almacena tus documentos de forma segura.
-            </p>
-          </div>
-        </div>
-      </div>
+      <VaultPageHeader />
 
       <DocumentVault />
     </>

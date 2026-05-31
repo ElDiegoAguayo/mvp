@@ -1603,6 +1603,239 @@
   bottom: 16%;
 }
 
+/* Hero video — 16:9 (1920×1080), object-fit cover en panel ~1400×1080 */
+.login-v16-hero-panel {
+  position: relative;
+  background: #0f172a;
+}
+
+.login-v16-hero-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.login-v16-reveal > * {
+  animation: login-v16-fade-up 1.15s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.login-v16-reveal > *:nth-child(1) {
+  animation-delay: 0.15s;
+}
+.login-v16-reveal > *:nth-child(2) {
+  animation-delay: 0.42s;
+}
+
+.login-v16-success-out {
+  animation: login-v16-success-out 0.45s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.login-v16-success-panel {
+  animation: login-v16-fade-up 0.75s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: 0.1s;
+}
+
+.login-v16-success-icon-wrap {
+  animation: login-v16-success-pop 0.65s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation-delay: 0.08s;
+}
+
+.login-v16-success-ring {
+  animation: login-v16-success-ring 0.85s ease-out both;
+  animation-delay: 0.12s;
+}
+
+.login-v16-success-active .login-v16-split {
+  animation: login-v16-success-page 0.8s ease-out both;
+}
+
+.login-v16-success-active .login-v16-hero-panel {
+  animation: login-v16-success-hero 0.85s ease-out both;
+}
+
+@keyframes login-v16-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes login-v16-success-out {
+  to {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.98);
+  }
+}
+
+@keyframes login-v16-success-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.45);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes login-v16-success-ring {
+  from {
+    opacity: 0.7;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.55);
+  }
+}
+
+@keyframes login-v16-success-page {
+  from {
+    background-color: transparent;
+  }
+  to {
+    background-color: rgba(64, 99, 202, 0.04);
+  }
+}
+
+.dark .login-v16-success-active .login-v16-split {
+  animation-name: login-v16-success-page-dark;
+}
+
+@keyframes login-v16-success-page-dark {
+  from {
+    background-color: transparent;
+  }
+  to {
+    background-color: rgba(64, 99, 202, 0.08);
+  }
+}
+
+@keyframes login-v16-success-hero {
+  to {
+    filter: brightness(1.08);
+  }
+}
+
+.login-v16-shake {
+  animation: login-v16-shake 0.72s cubic-bezier(0.25, 0.8, 0.35, 1) both;
+}
+
+@keyframes login-v16-shake {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  15% {
+    transform: translate3d(-4px, 0, 0);
+  }
+  30% {
+    transform: translate3d(3px, 0, 0);
+  }
+  45% {
+    transform: translate3d(-2px, 0, 0);
+  }
+  60% {
+    transform: translate3d(1.5px, 0, 0);
+  }
+  75% {
+    transform: translate3d(-0.75px, 0, 0);
+  }
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-v16-reveal > * {
+    animation: none;
+  }
+
+  .login-v16-shake {
+    animation: none;
+  }
+
+  .login-v16-success-out,
+  .login-v16-success-panel,
+  .login-v16-success-icon-wrap,
+  .login-v16-success-ring,
+  .login-v16-success-active .login-v16-split,
+  .login-v16-success-active .login-v16-hero-panel,
+  .logout-overlay,
+  .logout-overlay-panel,
+  .logout-overlay-icon-wrap,
+  .logout-overlay-ring {
+    animation: none;
+  }
+}
+
+/* Logout overlay (dashboard) */
+.logout-overlay {
+  animation: logout-overlay-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.logout-overlay-continuing {
+  opacity: 1;
+}
+
+.logout-overlay-panel-continuing {
+  opacity: 1;
+  transform: none;
+}
+
+.logout-overlay-exit {
+  animation: logout-overlay-out 0.42s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.logout-overlay-panel {
+  animation: login-v16-fade-up 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: 0.06s;
+}
+
+.logout-overlay-panel-exit {
+  animation: logout-panel-out 0.38s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.logout-overlay-icon-wrap {
+  animation: login-v16-success-pop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation-delay: 0.1s;
+}
+
+.logout-overlay-ring {
+  animation: login-v16-success-ring 0.8s ease-out both;
+  animation-delay: 0.14s;
+}
+
+@keyframes logout-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes logout-overlay-out {
+  to {
+    opacity: 0;
+    backdrop-filter: blur(0);
+  }
+}
+
+@keyframes logout-panel-out {
+  to {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+}
+
 @media (max-height: 780px) {
   .login-fusion-brand,
   .login-v30-pills {
@@ -1708,4 +1941,175 @@
 
 .vault-excel-preview tr:nth-child(even) td {
   background: var(--muted);
+}
+
+/* Reflejo sincronizado — misma animación, gradiente distinto por plan */
+@keyframes plan-card-shimmer {
+  0% {
+    transform: translateX(-130%) translateY(-130%) rotate(28deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.42;
+  }
+  72% {
+    transform: translateX(130%) translateY(130%) rotate(28deg);
+    opacity: 0.42;
+  }
+  88% {
+    opacity: 0;
+  }
+  100% {
+    transform: translateX(-130%) translateY(-130%) rotate(28deg);
+    opacity: 0;
+  }
+}
+
+@keyframes plan-card-edge {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Plan Business — brillos y destellos */
+@keyframes plan-premium-sparkle {
+  0%,
+  100% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes plan-premium-star {
+  0%,
+  100% {
+    opacity: 0.15;
+    transform: scale(0.7) rotate(0deg);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1) rotate(18deg);
+  }
+}
+
+@keyframes plan-premium-glow {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.75;
+  }
+}
+
+.plan-premium-shimmer {
+  background: linear-gradient(
+    105deg,
+    transparent 38%,
+    rgba(252, 211, 77, 0.55) 46%,
+    rgba(253, 230, 138, 0.75) 50%,
+    rgba(252, 211, 77, 0.55) 54%,
+    transparent 62%
+  );
+  animation: plan-card-shimmer 5s ease-in-out infinite;
+  animation-delay: 0s;
+}
+
+.plan-premium-sparkle {
+  border-radius: 9999px;
+  background: radial-gradient(circle, #fef3c7 0%, #fbbf24 45%, transparent 70%);
+  box-shadow: 0 0 6px 1px rgba(251, 191, 36, 0.65);
+  animation: plan-premium-sparkle 2.8s ease-in-out infinite;
+}
+
+.plan-premium-star {
+  font-size: 10px;
+  line-height: 1;
+  text-shadow: 0 0 8px rgba(251, 191, 36, 0.8);
+  animation: plan-premium-star 3.2s ease-in-out infinite;
+}
+
+.plan-premium-glow {
+  animation: plan-premium-glow 5s ease-in-out infinite;
+  animation-delay: 0s;
+}
+
+.plan-premium-edge {
+  animation: plan-card-edge 5s ease-in-out infinite;
+  animation-delay: 0s;
+}
+
+/* Plan Enterprise — reflejo plateado (misma intensidad y timing que Business) */
+@keyframes plan-silver-sparkle {
+  0%,
+  100% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1);
+  }
+}
+
+@keyframes plan-silver-glow {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.75;
+  }
+}
+
+.plan-silver-shimmer {
+  background: linear-gradient(
+    105deg,
+    transparent 38%,
+    rgba(255, 255, 255, 0.75) 46%,
+    rgba(244, 244, 245, 0.9) 50%,
+    rgba(255, 255, 255, 0.75) 54%,
+    transparent 62%
+  );
+  animation: plan-card-shimmer 5s ease-in-out infinite;
+  animation-delay: 0s;
+}
+
+.plan-silver-sparkle {
+  border-radius: 9999px;
+  background: radial-gradient(circle, #ffffff 0%, #d4d4d8 50%, transparent 72%);
+  box-shadow: 0 0 4px rgba(255, 255, 255, 0.5);
+  animation: plan-silver-sparkle 3.8s ease-in-out infinite;
+}
+
+.plan-silver-glow {
+  animation: plan-silver-glow 5s ease-in-out infinite;
+  animation-delay: 0s;
+}
+
+.plan-silver-edge {
+  animation: plan-card-edge 5s ease-in-out infinite;
+  animation-delay: 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plan-premium-shimmer,
+  .plan-premium-sparkle,
+  .plan-premium-star,
+  .plan-premium-glow,
+  .plan-premium-edge,
+  .plan-silver-shimmer,
+  .plan-silver-sparkle,
+  .plan-silver-glow,
+  .plan-silver-edge {
+    animation: none;
+  }
 }

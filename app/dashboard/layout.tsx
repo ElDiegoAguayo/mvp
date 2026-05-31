@@ -23,7 +23,7 @@ export default async function DashboardLayout({
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('id, full_name, email, role, is_active, avatar_url')
+    .select('id, full_name, email, role, is_active, avatar_url, is_tech_inspector')
     .eq('id', user.id)
     .single()
 
@@ -38,12 +38,16 @@ export default async function DashboardLayout({
   const isSupportMode = !!viewAs.viewAsUserId
 
   const moduleAccessUserId = viewAs.viewAsUserId ?? user.id
+  const isFieldInspector = !isSupportMode && profile?.is_tech_inspector === true
 
   const { data: viewerProfile } = await supabase
     .from('profiles')
-    .select('parent_user_id')
+    .select('parent_user_id, is_tech_inspector')
     .eq('id', moduleAccessUserId)
     .maybeSingle()
+
+  const restrictToTechAssistance =
+    isFieldInspector || (isSupportMode && viewerProfile?.is_tech_inspector === true)
 
   const { data: userAccessData } = await supabase
     .from('user_module_access')
@@ -76,7 +80,7 @@ export default async function DashboardLayout({
 
     const { data: d1, error: e1 } = await supabase
       .from('modules')
-      .select('id, slug, name, icon, color, text_color, icon_shape, description, area_id, area:module_areas(id, name, display_order)')
+      .select('id, slug, name, icon, color, text_color, icon_shape, icon_size, icon_style, menu_badge, description, area_id, area:module_areas(id, name, display_order)')
       .eq('is_active', true)
       .in('id', enabledModuleIds)
       .order('created_at', { ascending: true })
@@ -86,7 +90,7 @@ export default async function DashboardLayout({
     } else {
       const { data: d2, error: e2 } = await supabase
         .from('modules')
-        .select('id, slug, name, icon, color, text_color, icon_shape, description, area_id')
+        .select('id, slug, name, icon, color, text_color, icon_shape, icon_size, icon_style, menu_badge, description, area_id')
         .eq('is_active', true)
         .in('id', enabledModuleIds)
         .order('created_at', { ascending: true })
@@ -106,6 +110,12 @@ export default async function DashboardLayout({
     allowedModules = (modulesData ?? [])
       .filter((m: { slug?: string }) => m.slug !== 'inicio')
       .sort((a: any, b: any) => compareModulesByAreaThenName(a, b, moduleOrderMap))
+  }
+
+  if (restrictToTechAssistance) {
+    allowedModules = allowedModules.filter(
+      (m: { slug?: string }) => m.slug === 'asistencia-tecnica',
+    )
   }
 
   // In support mode, show target client identity in the shell sidebar

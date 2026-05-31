@@ -1,11 +1,13 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { ArrowLeft, Users, ScrollText, Link2, Briefcase, Megaphone, DatabaseBackup, FolderOpen, LayoutDashboard, BarChart3 } from 'lucide-react'
+import { ArrowLeft, Users, ScrollText, Link2, Briefcase, Megaphone, DatabaseBackup, FolderOpen, LayoutDashboard, BarChart3, LayoutGrid } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { UserPermissionsTable } from '@/components/admin/user-permissions-table'
 import { ModuleLinksManager } from '@/components/admin/module-links-manager'
 import { RegisterClientButton } from '@/components/admin/register-client-button'
+import { RegisterFieldInspectorButton } from '@/components/admin/register-field-inspector-button'
+import { ServicePlansManagerButton } from '@/components/admin/service-plans-manager-dialog'
 import { ClientDataManager } from '@/components/admin/client-data-manager'
 import { AdminAnalytics } from '@/components/admin/admin-analytics'
 import { AdminNotificationsManager } from '@/components/admin/admin-notifications-manager'
@@ -14,6 +16,7 @@ import { VaultAdminManager } from '@/components/admin/vault-admin-manager'
 import { AdminTabs } from '@/components/admin/admin-tabs'
 import { AdminOverview, AdminOverviewSkeleton } from '@/components/admin/admin-overview'
 import { MaintenanceModePanel } from '@/components/admin/maintenance-mode-panel'
+import { DashboardLayoutManager } from '@/components/admin/dashboard-layout-manager'
 import { TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Suspense } from 'react'
 
@@ -73,13 +76,15 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
               <div className="w-9 h-9 rounded-lg bg-[#4A6CF7]/10 border border-[#4A6CF7]/20 flex items-center justify-center overflow-hidden">
                 <Image 
                   src="/logo-upcrop.png" 
-                  alt="UpCrop Logo" 
+                  alt="Up Crop" 
                   width={24} 
                   height={24}
                   className="object-contain"
                 />
               </div>
-              <span className="text-xl font-bold text-[#4A6CF7]">UpCrop</span>
+              <span className="text-xl font-bold text-foreground">
+                Up <span className="text-[#4A6CF7]">Crop</span>
+              </span>
               <span className="text-muted-foreground">/</span>
               <span className="text-foreground font-medium">Admin</span>
             </div>
@@ -107,7 +112,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         <Suspense fallback={<div className="h-12 rounded-xl bg-secondary animate-pulse" />}>
           <AdminTabs defaultTab={activeTab}>
-            <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 bg-secondary h-auto gap-1 p-1">
+            <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 xl:grid-cols-8 bg-secondary h-auto gap-1 p-1">
             <TabsTrigger value="resumen" className="gap-2 text-xs sm:text-sm">
               <LayoutDashboard className="w-4 h-4 shrink-0" />
               Resumen
@@ -132,6 +137,10 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
             <TabsTrigger value="backups" className="gap-2 text-xs sm:text-sm">
               <DatabaseBackup className="w-4 h-4 shrink-0" />
               Backups
+            </TabsTrigger>
+            <TabsTrigger value="inicio" className="gap-2 text-xs sm:text-sm">
+              <LayoutGrid className="w-4 h-4 shrink-0" />
+              Inicio
             </TabsTrigger>
             <TabsTrigger value="enlaces" className="gap-2 text-xs sm:text-sm">
               <Link2 className="w-4 h-4 shrink-0" />
@@ -174,7 +183,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
                   <div className="w-10 h-10 rounded-lg bg-[#4A6CF7]/10 border border-[#4A6CF7]/20 flex items-center justify-center overflow-hidden">
                     <Image 
                       src="/logo-upcrop.png" 
-                      alt="UpCrop Logo" 
+                      alt="Up Crop" 
                       width={24} 
                       height={24}
                       className="object-contain"
@@ -188,7 +197,11 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
                   Administra los permisos de acceso a módulos para cada usuario. La lista se actualiza en tiempo real.
                 </p>
               </div>
-              <RegisterClientButton />
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <ServicePlansManagerButton />
+                <RegisterFieldInspectorButton />
+                <RegisterClientButton />
+              </div>
             </div>
 
             {/* Users Table */}
@@ -213,6 +226,11 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
           {/* Tab: Backups */}
           <TabsContent value="backups" className="space-y-6">
             <BackupManager />
+          </TabsContent>
+
+          {/* Tab: Inicio (widgets dashboard) */}
+          <TabsContent value="inicio" className="space-y-6">
+            <DashboardLayoutManager />
           </TabsContent>
 
           {/* Tab: Enlaces */}

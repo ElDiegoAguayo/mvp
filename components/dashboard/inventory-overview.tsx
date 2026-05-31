@@ -13,6 +13,7 @@ import {
   AlertTriangle, CheckCircle2, TrendingDown,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useLocale } from '@/components/i18n/locale-provider'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -38,10 +39,10 @@ interface StockRow {
 
 const PAGE_SIZE = 10
 
-const MOVEMENT_META = {
-  entrada: { label: 'Entrada', icon: ArrowDownCircle, color: 'text-emerald-500' },
-  salida:  { label: 'Salida',  icon: ArrowUpCircle,   color: 'text-rose-500'    },
-  ajuste:  { label: 'Ajuste',  icon: RefreshCw,       color: 'text-amber-500'   },
+const MOVEMENT_ICONS = {
+  entrada: { icon: ArrowDownCircle, color: 'text-emerald-500' },
+  salida:  { icon: ArrowUpCircle,   color: 'text-rose-500'    },
+  ajuste:  { icon: RefreshCw,       color: 'text-amber-500'   },
 } as const
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
@@ -66,11 +67,12 @@ function StockBar({ stock, minQuantity }: { stock: number; minQuantity: number |
 }
 
 function StatusBadge({ stock, minQuantity }: { stock: number; minQuantity: number | null }) {
+  const { t } = useLocale()
   if (minQuantity === null) {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-secondary text-muted-foreground border border-border">
         <CheckCircle2 className="w-3 h-3" />
-        Sin minimo
+        {t('inventory.status.noMinimum')}
       </span>
     )
   }
@@ -78,7 +80,7 @@ function StatusBadge({ stock, minQuantity }: { stock: number; minQuantity: numbe
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">
         <AlertTriangle className="w-3 h-3" />
-        Sin stock
+        {t('inventory.status.noStock')}
       </span>
     )
   }
@@ -86,7 +88,7 @@ function StatusBadge({ stock, minQuantity }: { stock: number; minQuantity: numbe
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">
         <TrendingDown className="w-3 h-3" />
-        Bajo minimo
+        {t('inventory.status.belowMinimum')}
       </span>
     )
   }
@@ -94,19 +96,20 @@ function StatusBadge({ stock, minQuantity }: { stock: number; minQuantity: numbe
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
         <AlertTriangle className="w-3 h-3" />
-        Proximo
+        {t('inventory.status.approaching')}
       </span>
     )
   }
   return (
     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
       <CheckCircle2 className="w-3 h-3" />
-      OK
+      {t('inventory.status.ok')}
     </span>
   )
 }
 
 function PaginationBar({ page, total, onChange }: { page: number; total: number; onChange: (p: number) => void }) {
+  const { t } = useLocale()
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const from = total === 0 ? 0 : page * PAGE_SIZE + 1
   const to   = Math.min((page + 1) * PAGE_SIZE, total)
@@ -118,9 +121,8 @@ function PaginationBar({ page, total, onChange }: { page: number; total: number;
     <div className="flex items-center justify-between px-5 py-3 border-t border-border bg-secondary/20">
       <p className="text-xs text-muted-foreground">
         {total === 0
-          ? 'Sin resultados'
-          : <>Filas <span className="font-semibold text-foreground">{from}–{to}</span> de <span className="font-semibold text-foreground">{total}</span></>
-        }
+          ? t('common.empty.noResults')
+          : t('common.pagination.rowsOf', { from, to, total })}
       </p>
       {totalPages > 1 && (
         <div className="flex items-center gap-1">
@@ -158,6 +160,8 @@ function PaginationBar({ page, total, onChange }: { page: number; total: number;
 // ─── Main component ─────────────────────────────────────────────────────────────
 
 export function InventoryOverview() {
+  const { t, locale } = useLocale()
+  const dateLocale = locale === 'en' ? 'en-US' : 'es-CL'
   const supabase = useMemo(() => createClient(), [])
 
   const [warehouses, setWarehouses] = useState<InventoryWarehouse[]>([])
@@ -213,8 +217,8 @@ export function InventoryOverview() {
       const existing   = stockMap.get(key) ?? {
         warehouseId: mv.warehouse_id,
         materialId:  mv.material_id,
-        warehouseName: warehouseMap.get(mv.warehouse_id) ?? 'Bodega',
-        materialName:  material?.name ?? 'Material',
+        warehouseName: warehouseMap.get(mv.warehouse_id) ?? t('inventory.fallback.warehouse'),
+        materialName:  material?.name ?? t('inventory.fallback.material'),
         unit:          mv.unit || material?.unit || '—',
         stock:         0,
         lastMovementDate: null,
@@ -234,7 +238,7 @@ export function InventoryOverview() {
     return Array.from(stockMap.values()).sort(
       (a, b) => a.warehouseName.localeCompare(b.warehouseName) || a.materialName.localeCompare(b.materialName)
     )
-  }, [warehouses, materials, movements, minLevels])
+  }, [warehouses, materials, movements, minLevels, t])
 
   // ─── KPIs ───────────────────────────────────────────────────────────────────
   const kpis = useMemo(() => {
@@ -265,7 +269,7 @@ export function InventoryOverview() {
     return (
       <div className="bg-card border border-border rounded-2xl p-10 flex flex-col items-center justify-center gap-3">
         <Loader2 className="w-7 h-7 animate-spin text-primary" />
-        <p className="text-sm text-muted-foreground">Cargando inventario...</p>
+        <p className="text-sm text-muted-foreground">{t('inventory.loading')}</p>
       </div>
     )
   }
@@ -281,23 +285,23 @@ export function InventoryOverview() {
             <Warehouse className="w-5 h-5 text-primary" />
           </div>
           <div>
-            <h2 className="text-lg font-bold text-foreground">Stock por Bodega</h2>
-            <p className="text-xs text-muted-foreground">Stock actual calculado desde los movimientos registrados</p>
+            <h2 className="text-lg font-bold text-foreground">{t('inventory.title')}</h2>
+            <p className="text-xs text-muted-foreground">{t('inventory.subtitle')}</p>
           </div>
         </div>
         <Button variant="outline" size="sm" onClick={loadInventory} className="gap-1.5 h-8">
           <RefreshCw className="w-3.5 h-3.5" />
-          Actualizar
+          {t('common.actions.refresh')}
         </Button>
       </div>
 
       {/* ── KPI cards ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: 'Total registros', value: kpis.total, color: 'text-foreground', bg: 'bg-secondary/60', icon: Package },
-          { label: 'Estado OK',       value: kpis.ok,       color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-500/10', icon: CheckCircle2 },
-          { label: 'Bajo minimo',     value: kpis.critical, color: 'text-rose-600 dark:text-rose-400',       bg: 'bg-rose-500/10',    icon: AlertTriangle },
-          { label: 'Sin stock',       value: kpis.noStock,  color: 'text-amber-600 dark:text-amber-400',     bg: 'bg-amber-500/10',   icon: TrendingDown },
+          { label: t('inventory.kpi.total'), value: kpis.total, color: 'text-foreground', bg: 'bg-secondary/60', icon: Package },
+          { label: t('inventory.kpi.ok'), value: kpis.ok, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-500/10', icon: CheckCircle2 },
+          { label: t('inventory.kpi.critical'), value: kpis.critical, color: 'text-rose-600 dark:text-rose-400', bg: 'bg-rose-500/10', icon: AlertTriangle },
+          { label: t('inventory.kpi.noStock'), value: kpis.noStock, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-500/10', icon: TrendingDown },
         ].map(({ label, value, color, bg, icon: Icon }) => (
           <div key={label} className={cn('rounded-xl border border-border p-4 flex items-center gap-3', bg)}>
             <Icon className={cn('w-5 h-5 shrink-0', color)} />
@@ -319,16 +323,16 @@ export function InventoryOverview() {
             <Input
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
-              placeholder="Buscar material o bodega..."
+              placeholder={t('inventory.searchPlaceholder')}
               className="pl-8 h-8 text-sm bg-background border-border"
             />
           </div>
           <Select value={warehouseFilter} onValueChange={setWarehouseFilter}>
             <SelectTrigger className="h-8 text-sm w-full sm:w-44 bg-background border-border">
-              <SelectValue placeholder="Todas las bodegas" />
+              <SelectValue placeholder={t('inventory.filters.allWarehouses')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todas las bodegas</SelectItem>
+              <SelectItem value="all">{t('inventory.filters.allWarehouses')}</SelectItem>
               {warehouses.map(w => (
                 <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
               ))}
@@ -336,18 +340,18 @@ export function InventoryOverview() {
           </Select>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="h-8 text-sm w-full sm:w-40 bg-background border-border">
-              <SelectValue placeholder="Todos los estados" />
+              <SelectValue placeholder={t('inventory.filters.allStatuses')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todos los estados</SelectItem>
-              <SelectItem value="ok">Solo OK</SelectItem>
-              <SelectItem value="critical">Bajo minimo</SelectItem>
-              <SelectItem value="nostock">Sin stock</SelectItem>
+              <SelectItem value="all">{t('inventory.filters.allStatuses')}</SelectItem>
+              <SelectItem value="ok">{t('inventory.filters.okOnly')}</SelectItem>
+              <SelectItem value="critical">{t('inventory.filters.critical')}</SelectItem>
+              <SelectItem value="nostock">{t('inventory.filters.noStock')}</SelectItem>
             </SelectContent>
           </Select>
           <div className="flex items-center gap-1.5 ml-auto shrink-0">
             <span className="text-xs text-muted-foreground">
-              {filteredRows.length} {filteredRows.length === 1 ? 'resultado' : 'resultados'}
+              {t('inventory.resultCount', { count: filteredRows.length })}
             </span>
           </div>
         </div>
@@ -356,10 +360,10 @@ export function InventoryOverview() {
         {filteredRows.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
             <Package className="w-10 h-10 text-muted-foreground opacity-30" />
-            <p className="text-sm text-muted-foreground">No hay stock disponible para los filtros seleccionados.</p>
+            <p className="text-sm text-muted-foreground">{t('inventory.empty.filtered')}</p>
             {(searchTerm || warehouseFilter !== 'all' || statusFilter !== 'all') && (
               <Button variant="ghost" size="sm" onClick={() => { setSearchTerm(''); setWarehouseFilter('all'); setStatusFilter('all') }}>
-                Limpiar filtros
+                {t('common.actions.clearFilters')}
               </Button>
             )}
           </div>
@@ -369,19 +373,22 @@ export function InventoryOverview() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-secondary/40">
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Bodega</th>
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Material</th>
-                    <th className="text-right px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Stock</th>
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Unidad</th>
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Estado</th>
-                    <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Ultimo movimiento</th>
+                    <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">{t('inventory.columns.warehouse')}</th>
+                    <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">{t('inventory.columns.material')}</th>
+                    <th className="text-right px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">{t('inventory.columns.stock')}</th>
+                    <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">{t('inventory.columns.unit')}</th>
+                    <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">{t('common.labels.status')}</th>
+                    <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">{t('inventory.columns.lastMovement')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {pageRows.map((row, idx) => {
                     const isCritical = row.minQuantity !== null && row.stock < row.minQuantity
-                    const meta = row.lastMovementType ? MOVEMENT_META[row.lastMovementType] : null
+                    const meta = row.lastMovementType ? MOVEMENT_ICONS[row.lastMovementType] : null
                     const MovIcon = meta?.icon
+                    const movementLabel = row.lastMovementType
+                      ? t(`inventory.movement.${row.lastMovementType}`)
+                      : null
 
                     return (
                       <tr
@@ -414,12 +421,12 @@ export function InventoryOverview() {
                               'font-bold tabular-nums text-base',
                               isCritical ? 'text-rose-600 dark:text-rose-400' : 'text-foreground'
                             )}>
-                              {row.stock.toLocaleString('es-CL')}
+                              {row.stock.toLocaleString(dateLocale)}
                             </span>
                             {row.minQuantity !== null && (
                               <>
                                 <span className="text-[10px] text-muted-foreground">
-                                  min: {row.minQuantity.toLocaleString('es-CL')}
+                                  {t('inventory.stockMinimumPrefix')} {row.minQuantity.toLocaleString(dateLocale)}
                                 </span>
                                 <StockBar stock={row.stock} minQuantity={row.minQuantity} />
                               </>
@@ -444,9 +451,9 @@ export function InventoryOverview() {
                               <MovIcon className={cn('w-3.5 h-3.5 shrink-0', meta.color)} />
                               <div>
                                 <p className="text-xs font-medium text-foreground">
-                                  {new Date(row.lastMovementDate).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                  {new Date(row.lastMovementDate).toLocaleDateString(dateLocale, { day: '2-digit', month: 'short', year: 'numeric' })}
                                 </p>
-                                <p className={cn('text-[10px] font-medium', meta.color)}>{meta.label}</p>
+                                <p className={cn('text-[10px] font-medium', meta.color)}>{movementLabel}</p>
                               </div>
                             </div>
                           ) : (

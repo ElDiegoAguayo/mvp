@@ -20,6 +20,7 @@ import {
   FileText,
   TrendingUp,
 } from 'lucide-react'
+import { useLocale } from '@/components/i18n/locale-provider'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -60,13 +61,15 @@ function fmtVal(val: unknown): string {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function KpiBar({ total, numModulos, numEntidades }: { total: number; numModulos: number; numEntidades: number }) {
+  const { t } = useLocale()
+  const items = [
+    { icon: DollarSign, label: t('costosGastos.analisis.kpi.totalGastosAsignados'), value: clp(total), accent: 'text-primary', bg: 'bg-primary/10 border-primary/20' },
+    { icon: TableIcon,  label: t('costosGastos.analisis.kpi.modulosConCosto'),     value: String(numModulos),   accent: 'text-violet-500', bg: 'bg-violet-500/10 border-violet-500/20' },
+    { icon: BarChart3,  label: t('costosGastos.analisis.kpi.registrosAsignados'),   value: String(numEntidades), accent: 'text-amber-500',  bg: 'bg-amber-500/10 border-amber-500/20' },
+  ]
   return (
     <div className="grid grid-cols-3 gap-3">
-      {[
-        { icon: DollarSign, label: 'Total Gastos Asignados', value: clp(total), accent: 'text-primary', bg: 'bg-primary/10 border-primary/20' },
-        { icon: TableIcon,  label: 'Módulos con Costo',     value: String(numModulos),   accent: 'text-violet-500', bg: 'bg-violet-500/10 border-violet-500/20' },
-        { icon: BarChart3,  label: 'Registros Asignados',   value: String(numEntidades), accent: 'text-amber-500',  bg: 'bg-amber-500/10 border-amber-500/20' },
-      ].map(({ icon: Icon, label, value, accent, bg }) => (
+      {items.map(({ icon: Icon, label, value, accent, bg }) => (
         <div key={label} className="rounded-xl border border-border bg-card p-4 flex items-start gap-3">
           <div className={`shrink-0 w-9 h-9 rounded-lg border flex items-center justify-center ${bg}`}>
             <Icon className={`w-4 h-4 ${accent}`} />
@@ -90,6 +93,7 @@ function EntidadRow({ entidad, totalModulo, extraCols }: {
   totalModulo: number
   extraCols: string[]
 }) {
+  const { t } = useLocale()
   const [expanded, setExpanded] = useState(false)
   const totalCols = 4 + extraCols.length
 
@@ -139,14 +143,14 @@ function EntidadRow({ entidad, totalModulo, extraCols }: {
               {/* ── Datos del Registro (mismas columnas que el picker) ── */}
               <div>
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <TableIcon className="w-3 h-3" /> Datos del Registro
+                  <TableIcon className="w-3 h-3" /> {t('costosGastos.analisis.entidad.datosRegistro')}
                 </p>
                 <div className="rounded-lg border border-border overflow-x-auto">
                   <table className="w-full text-[11px]">
                     <thead className="bg-secondary/40 border-b border-border">
                       <tr>
-                        <th className="text-left font-semibold text-muted-foreground px-3 py-2 whitespace-nowrap">Código</th>
-                        <th className="text-left font-semibold text-muted-foreground px-3 py-2 whitespace-nowrap">Nombre</th>
+                        <th className="text-left font-semibold text-muted-foreground px-3 py-2 whitespace-nowrap">{t('costosGastos.common.codigo')}</th>
+                        <th className="text-left font-semibold text-muted-foreground px-3 py-2 whitespace-nowrap">{t('costosGastos.common.nombre')}</th>
                         {extraCols.map((k) => (
                           <th key={k} className="text-left font-semibold text-muted-foreground px-3 py-2 whitespace-nowrap">
                             {colLabel(k)}
@@ -172,18 +176,18 @@ function EntidadRow({ entidad, totalModulo, extraCols }: {
               {/* ── Facturas Asignadas ── */}
               <div>
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <FileText className="w-3 h-3" /> Facturas Asignadas ({entidad.facturas.length})
+                  <FileText className="w-3 h-3" /> {t('costosGastos.analisis.entidad.facturasAsignadas', { count: entidad.facturas.length })}
                 </p>
                 <div className="rounded-lg border border-border overflow-x-auto">
                   <table className="w-full text-[11px]">
                     <thead className="bg-secondary/40 border-b border-border">
                       <tr>
-                        <th className="text-left font-semibold text-muted-foreground px-3 py-2 whitespace-nowrap">N° Documento</th>
-                        <th className="text-left font-semibold text-muted-foreground px-3 py-2 whitespace-nowrap">Tipo</th>
-                        <th className="text-left font-semibold text-muted-foreground px-3 py-2 whitespace-nowrap">Fecha Emisión</th>
-                        <th className="text-left font-semibold text-muted-foreground px-3 py-2 whitespace-nowrap">Proveedor</th>
-                        <th className="text-right font-semibold text-muted-foreground px-3 py-2 whitespace-nowrap">Monto Bruto</th>
-                        <th className="text-right font-semibold text-primary px-3 py-2 whitespace-nowrap">Monto Asignado</th>
+                        <th className="text-left font-semibold text-muted-foreground px-3 py-2 whitespace-nowrap">{t('costosGastos.common.numeroDocumento')}</th>
+                        <th className="text-left font-semibold text-muted-foreground px-3 py-2 whitespace-nowrap">{t('costosGastos.common.tipo')}</th>
+                        <th className="text-left font-semibold text-muted-foreground px-3 py-2 whitespace-nowrap">{t('costosGastos.common.fechaEmision')}</th>
+                        <th className="text-left font-semibold text-muted-foreground px-3 py-2 whitespace-nowrap">{t('costosGastos.common.proveedor')}</th>
+                        <th className="text-right font-semibold text-muted-foreground px-3 py-2 whitespace-nowrap">{t('costosGastos.common.montoBruto')}</th>
+                        <th className="text-right font-semibold text-primary px-3 py-2 whitespace-nowrap">{t('costosGastos.common.montoAsignado')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -205,7 +209,7 @@ function EntidadRow({ entidad, totalModulo, extraCols }: {
                     </tbody>
                     <tfoot className="bg-secondary/30 border-t border-border">
                       <tr>
-                        <td colSpan={4} className="px-3 py-2 text-[11px] font-bold text-foreground">TOTAL</td>
+                        <td colSpan={4} className="px-3 py-2 text-[11px] font-bold text-foreground">{t('costosGastos.common.total')}</td>
                         <td className="px-3 py-2 text-right tabular-nums text-[11px] font-bold text-muted-foreground whitespace-nowrap">
                           {clp(entidad.facturas.reduce((s, f) => s + f.monto_bruto, 0))}
                         </td>
@@ -231,6 +235,7 @@ function EntidadRow({ entidad, totalModulo, extraCols }: {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function ModuloSection({ modulo, totalGlobal }: { modulo: ModuloDinamico; totalGlobal: number }) {
+  const { t } = useLocale()
   const [open, setOpen] = useState(true)
 
   return (
@@ -245,13 +250,13 @@ function ModuloSection({ modulo, totalGlobal }: { modulo: ModuloDinamico; totalG
           <TableIcon className="w-4 h-4 text-primary" />
           <span className="text-sm font-semibold text-foreground">{modulo.label}</span>
           <span className="text-xs text-muted-foreground">
-            {modulo.entidades.length} registro{modulo.entidades.length !== 1 ? 's' : ''}
+            {t('costosGastos.analisis.modulo.registroCount', { count: modulo.entidades.length })}
           </span>
         </div>
         <div className="flex items-center gap-3 text-right shrink-0">
           <div>
             <p className="text-xs font-bold text-foreground tabular-nums">{clp(modulo.total_gastos)}</p>
-            <p className="text-[11px] text-muted-foreground">{pct(modulo.total_gastos, totalGlobal)} del total</p>
+            <p className="text-[11px] text-muted-foreground">{t('costosGastos.analisis.modulo.pctDelTotal', { pct: pct(modulo.total_gastos, totalGlobal) })}</p>
           </div>
         </div>
       </button>
@@ -272,15 +277,15 @@ function ModuloSection({ modulo, totalGlobal }: { modulo: ModuloDinamico; totalG
           <table className="w-full text-xs" style={{ minWidth: `${500 + modulo.cols_extra.length * 130}px` }}>
             <thead className="bg-secondary/20 border-b border-border">
               <tr>
-                <th className="text-left font-semibold text-muted-foreground px-4 py-2 whitespace-nowrap">Registro</th>
+                <th className="text-left font-semibold text-muted-foreground px-4 py-2 whitespace-nowrap">{t('costosGastos.analisis.modulo.registro')}</th>
                 {modulo.cols_extra.map((col) => (
                   <th key={col} className="text-left font-semibold text-muted-foreground px-3 py-2 whitespace-nowrap">
                     {colLabel(col)}
                   </th>
                 ))}
-                <th className="text-center font-semibold text-muted-foreground px-3 py-2 whitespace-nowrap">Facturas</th>
-                <th className="text-right font-semibold text-muted-foreground px-3 py-2 whitespace-nowrap">Gasto Asignado</th>
-                <th className="text-right font-semibold text-muted-foreground px-3 py-2 whitespace-nowrap">% del módulo</th>
+                <th className="text-center font-semibold text-muted-foreground px-3 py-2 whitespace-nowrap">{t('costosGastos.common.facturas')}</th>
+                <th className="text-right font-semibold text-muted-foreground px-3 py-2 whitespace-nowrap">{t('costosGastos.analisis.modulo.gastoAsignado')}</th>
+                <th className="text-right font-semibold text-muted-foreground px-3 py-2 whitespace-nowrap">{t('costosGastos.analisis.modulo.pctDelModulo')}</th>
               </tr>
             </thead>
             <tbody>
@@ -296,7 +301,7 @@ function ModuloSection({ modulo, totalGlobal }: { modulo: ModuloDinamico; totalG
             <tfoot className="bg-secondary/30 border-t-2 border-border">
               <tr>
                 <td className="px-4 py-2 text-xs font-bold text-foreground">
-                  TOTAL <span className="font-normal text-muted-foreground">({modulo.entidades.length})</span>
+                  {t('costosGastos.analisis.modulo.totalConCount', { count: modulo.entidades.length })}
                 </td>
                 {modulo.cols_extra.map((col) => <td key={col} />)}
                 <td className="px-3 py-2 text-center text-xs font-bold tabular-nums">
@@ -320,21 +325,23 @@ function pctSigned(v: number | null | undefined) {
   return `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`
 }
 
-const ENTIDAD_TIPO_LABEL: Record<string, string> = {
-  contenedor: 'Contenedor',
-  producto_terminado: 'Producto terminado',
-  pallet: 'Pallet',
+const ENTIDAD_TIPO_KEYS: Record<string, string> = {
+  contenedor: 'costosGastos.analisis.entidadTipo.contenedor',
+  producto_terminado: 'costosGastos.analisis.entidadTipo.productoTerminado',
+  pallet: 'costosGastos.analisis.entidadTipo.pallet',
 }
 
 function MargenKpiBar({ resumen }: { resumen: ResumenAnalisis }) {
+  const { t } = useLocale()
+  const items = [
+    { icon: DollarSign, label: t('costosGastos.analisis.margen.kpi.ventasRegistradas'), value: clp(resumen.total_ventas), accent: 'text-emerald-500', bg: 'bg-emerald-500/10 border-emerald-500/20' },
+    { icon: FileText, label: t('costosGastos.analisis.margen.kpi.gastosAsignados'), value: clp(resumen.total_gastos_asignados), accent: 'text-amber-500', bg: 'bg-amber-500/10 border-amber-500/20' },
+    { icon: TrendingUp, label: t('costosGastos.analisis.margen.kpi.margenTotal'), value: clp(resumen.margen_total), accent: resumen.margen_total >= 0 ? 'text-primary' : 'text-destructive', bg: 'bg-primary/10 border-primary/20' },
+    { icon: BarChart3, label: t('costosGastos.analisis.margen.kpi.margenPct'), value: pctSigned(resumen.margen_pct_total), accent: 'text-violet-500', bg: 'bg-violet-500/10 border-violet-500/20' },
+  ]
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-      {[
-        { icon: DollarSign, label: 'Ventas registradas', value: clp(resumen.total_ventas), accent: 'text-emerald-500', bg: 'bg-emerald-500/10 border-emerald-500/20' },
-        { icon: FileText, label: 'Gastos asignados', value: clp(resumen.total_gastos_asignados), accent: 'text-amber-500', bg: 'bg-amber-500/10 border-amber-500/20' },
-        { icon: TrendingUp, label: 'Margen total', value: clp(resumen.margen_total), accent: resumen.margen_total >= 0 ? 'text-primary' : 'text-destructive', bg: 'bg-primary/10 border-primary/20' },
-        { icon: BarChart3, label: 'Margen %', value: pctSigned(resumen.margen_pct_total), accent: 'text-violet-500', bg: 'bg-violet-500/10 border-violet-500/20' },
-      ].map(({ icon: Icon, label, value, accent, bg }) => (
+      {items.map(({ icon: Icon, label, value, accent, bg }) => (
         <div key={label} className="rounded-xl border border-border bg-card p-4 flex items-start gap-3">
           <div className={`shrink-0 w-9 h-9 rounded-lg border flex items-center justify-center ${bg}`}>
             <Icon className={`w-4 h-4 ${accent}`} />
@@ -350,11 +357,12 @@ function MargenKpiBar({ resumen }: { resumen: ResumenAnalisis }) {
 }
 
 function MargenEntidadTable({ entidades }: { entidades: AnalisisEntidad[] }) {
+  const { t, locale } = useLocale()
   const rows = entidades.filter((e) => e.total_gastos > 0 || (e.venta_total ?? 0) > 0)
   if (!rows.length) {
     return (
       <p className="text-xs text-muted-foreground py-6 text-center">
-        Sin cruces gasto–venta por contenedor o producto terminado. Asigna facturas a entidades y registra kilos/ventas.
+        {t('costosGastos.analisis.margen.emptyState')}
       </p>
     )
   }
@@ -364,14 +372,14 @@ function MargenEntidadTable({ entidades }: { entidades: AnalisisEntidad[] }) {
       <table className="w-full text-xs" style={{ minWidth: '720px' }}>
         <thead className="bg-secondary/30 border-b border-border">
           <tr>
-            <th className="text-left font-semibold text-muted-foreground px-4 py-2">Entidad</th>
-            <th className="text-left font-semibold text-muted-foreground px-3 py-2">Tipo</th>
-            <th className="text-right font-semibold text-muted-foreground px-3 py-2">Kilos</th>
-            <th className="text-right font-semibold text-muted-foreground px-3 py-2">Ventas</th>
-            <th className="text-right font-semibold text-muted-foreground px-3 py-2">Gastos</th>
-            <th className="text-right font-semibold text-muted-foreground px-3 py-2">Costo/kg</th>
-            <th className="text-right font-semibold text-muted-foreground px-3 py-2">Margen</th>
-            <th className="text-right font-semibold text-muted-foreground px-3 py-2">Margen %</th>
+            <th className="text-left font-semibold text-muted-foreground px-4 py-2">{t('costosGastos.analisis.margen.table.entidad')}</th>
+            <th className="text-left font-semibold text-muted-foreground px-3 py-2">{t('costosGastos.common.tipo')}</th>
+            <th className="text-right font-semibold text-muted-foreground px-3 py-2">{t('costosGastos.analisis.margen.table.kilos')}</th>
+            <th className="text-right font-semibold text-muted-foreground px-3 py-2">{t('costosGastos.analisis.margen.table.ventas')}</th>
+            <th className="text-right font-semibold text-muted-foreground px-3 py-2">{t('costosGastos.analisis.margen.table.gastos')}</th>
+            <th className="text-right font-semibold text-muted-foreground px-3 py-2">{t('costosGastos.analisis.margen.table.costoPorKilo')}</th>
+            <th className="text-right font-semibold text-muted-foreground px-3 py-2">{t('costosGastos.analisis.margen.table.margen')}</th>
+            <th className="text-right font-semibold text-muted-foreground px-3 py-2">{t('costosGastos.analisis.margen.table.margenPct')}</th>
           </tr>
         </thead>
         <tbody>
@@ -384,9 +392,9 @@ function MargenEntidadTable({ entidades }: { entidades: AnalisisEntidad[] }) {
                 )}
               </td>
               <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">
-                {ENTIDAD_TIPO_LABEL[e.entidad_tipo] ?? e.entidad_tipo}
+                {ENTIDAD_TIPO_KEYS[e.entidad_tipo] ? t(ENTIDAD_TIPO_KEYS[e.entidad_tipo]) : e.entidad_tipo}
               </td>
-              <td className="px-3 py-2.5 text-right tabular-nums">{e.kilos?.toLocaleString('es-CL') ?? '—'}</td>
+              <td className="px-3 py-2.5 text-right tabular-nums">{e.kilos?.toLocaleString(locale === 'en' ? 'en-US' : 'es-CL') ?? '—'}</td>
               <td className="px-3 py-2.5 text-right tabular-nums">{clp(e.venta_total)}</td>
               <td className="px-3 py-2.5 text-right tabular-nums">{clp(e.total_gastos)}</td>
               <td className="px-3 py-2.5 text-right tabular-nums">{clp(e.costo_por_kilo)}</td>
@@ -403,6 +411,7 @@ function MargenEntidadTable({ entidades }: { entidades: AnalisisEntidad[] }) {
 }
 
 function MargenSection({ clienteId }: { clienteId: string }) {
+  const { t } = useLocale()
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<Awaited<ReturnType<typeof obtenerAnalisisCostos>> | null>(null)
 
@@ -417,10 +426,10 @@ function MargenSection({ clienteId }: { clienteId: string }) {
     <div className="space-y-4 pt-2">
       <div className="flex items-center gap-2">
         <TrendingUp className="w-4 h-4 text-primary" />
-        <h3 className="text-sm font-semibold text-foreground">Margen por contenedor / producto terminado</h3>
+        <h3 className="text-sm font-semibold text-foreground">{t('costosGastos.analisis.margen.title')}</h3>
       </div>
       <p className="text-xs text-muted-foreground -mt-2">
-        Cruce de gastos asignados con kilos y ventas registradas por entidad.
+        {t('costosGastos.analisis.margen.subtitle')}
       </p>
 
       {loading ? (
@@ -430,7 +439,7 @@ function MargenSection({ clienteId }: { clienteId: string }) {
       ) : !data?.ok ? (
         <div className="flex items-center gap-3 rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
           <AlertCircle className="w-4 h-4 shrink-0" />
-          {data?.message ?? 'Error al cargar margen.'}
+          {data?.message ?? t('costosGastos.analisis.margen.errorLoad')}
         </div>
       ) : (
         <>
@@ -451,6 +460,7 @@ interface Props {
 }
 
 export function AnalisisCostosView({ clienteId }: Props) {
+  const { t } = useLocale()
   const [loading, setLoading] = useState(true)
   const [data, setData]       = useState<Awaited<ReturnType<typeof obtenerResumenCentrosCosto>> | null>(null)
 
@@ -473,7 +483,7 @@ export function AnalisisCostosView({ clienteId }: Props) {
     return (
       <div className="flex items-center gap-3 rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
         <AlertCircle className="w-4 h-4 shrink-0" />
-        {data?.message ?? 'Error al cargar los datos.'}
+        {data?.message ?? t('costosGastos.analisis.errorLoad')}
       </div>
     )
   }
@@ -494,15 +504,14 @@ export function AnalisisCostosView({ clienteId }: Props) {
         <div className="flex flex-col items-center gap-4 py-16 text-center rounded-xl border border-dashed border-border">
           <BarChart3 className="w-12 h-12 text-muted-foreground/30" />
           <div>
-            <p className="text-sm font-semibold text-foreground mb-1">Sin asignaciones aún</p>
+            <p className="text-sm font-semibold text-foreground mb-1">{t('costosGastos.analisis.empty.title')}</p>
             <p className="text-xs text-muted-foreground max-w-sm leading-relaxed">
-              Clasifica una factura y asígnala a un centro de costo desde el panel de Clasificación.
-              Los datos aparecerán aquí agrupados por módulo.
+              {t('costosGastos.analisis.empty.description')}
             </p>
           </div>
           {data.message && data.message.startsWith('DEBUG') && (
             <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-xs text-amber-700 dark:text-amber-400 max-w-lg text-left">
-              <strong>Diagnóstico:</strong> {data.message.replace('DEBUG: ', '')}
+              <strong>{t('costosGastos.analisis.debug.label')}</strong> {data.message.replace('DEBUG: ', '')}
             </div>
           )}
         </div>

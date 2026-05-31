@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { logAudit } from '@/lib/audit-log'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -532,6 +533,14 @@ export function DataEditor({ tableId }: DataEditorProps) {
           const next = [...prev, snapshot]
           return next.length > 10 ? next.slice(next.length - 10) : next
         })
+        void logAudit(supabase, {
+          action_type: 'UPDATE_CLIENT_DATA',
+          target_type: 'dynamic_table',
+          target_id: tableId,
+          target_label: table?.name ?? tableId,
+          description: `Eliminó 1 fila en tabla "${table?.name ?? tableId}"`,
+          metadata: { operation: 'delete_row', row_id: deleteRowId },
+        })
         toast.success('Fila eliminada')
       }
     }
@@ -656,6 +665,21 @@ export function DataEditor({ tableId }: DataEditorProps) {
         description: `${inserts.length} filas nuevas, ${updates.length} filas actualizadas`,
       })
 
+      if (inserts.length > 0 || updates.length > 0) {
+        void logAudit(supabase, {
+          action_type: 'UPDATE_CLIENT_DATA',
+          target_type: 'dynamic_table',
+          target_id: tableId,
+          target_label: table?.name ?? tableId,
+          description: `Guardó cambios en "${table?.name ?? tableId}": ${inserts.length} nueva(s), ${updates.length} actualizada(s)`,
+          metadata: {
+            operation: 'save',
+            inserts: inserts.length,
+            updates: updates.length,
+          },
+        })
+      }
+
       // Push snapshot for undo (only if anything actually changed in existing rows or new rows were inserted)
       setUndoStack((prev) => {
         const next = [...prev, snapshot]
@@ -696,7 +720,7 @@ export function DataEditor({ tableId }: DataEditorProps) {
       instructions: [
         '1. Exportación de respaldo de la tabla visible en el editor.',
         '2. Los valores booleanos aparecen como Sí/No.',
-        '3. Edite en UpCrop y vuelva a exportar para obtener datos actualizados.',
+        '3. Edite en Up Crop y vuelva a exportar para obtener datos actualizados.',
       ],
       summary: `Resumen: ${rows.length} fila${rows.length !== 1 ? 's' : ''} · ${table.columns.length} columna${table.columns.length !== 1 ? 's' : ''}`,
     })

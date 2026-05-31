@@ -7,11 +7,10 @@ import { Input } from '@/components/ui/input'
 import { Bot, Send, User, Loader2, AlertCircle, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import Image from 'next/image'
+import { useLocale } from '@/components/i18n/locale-provider'
 
 const BACKEND_URL =
   'https://script.google.com/macros/s/AKfycbzO3GkI7tPQ7aZXzjmIzg7FXFSyGE86ihlNHG0FfCNQJOAxJS8gLHGp23S3Ebm7_zXy/exec'
-
-const WELCOME_MESSAGE = '¡Hola! Buenos días. Bienvenido a su cuenta UpCrop.'
 
 interface Message {
   id: string
@@ -21,25 +20,28 @@ interface Message {
   isError?: boolean
 }
 
+type TranslateFn = (key: string, params?: Record<string, string | number>) => string
+
 /**
  * Extracts the text response from different backend formats:
  * 1. data.answer
  * 2. data.candidates[0].content.parts[0].text (Gemini format)
  * 3. data.error
  */
-function extractResponseText(data: unknown): { text: string; isError: boolean } {
+function extractResponseText(
+  data: unknown,
+  t: TranslateFn,
+): { text: string; isError: boolean } {
   if (!data || typeof data !== 'object') {
-    return { text: 'Respuesta inválida del servidor.', isError: true }
+    return { text: t('aiAssistant.errors.invalidResponse'), isError: true }
   }
 
   const response = data as Record<string, unknown>
 
-  // Check for direct answer
   if (response.answer && typeof response.answer === 'string') {
     return { text: response.answer, isError: false }
   }
 
-  // Check for Gemini format
   if (response.candidates && Array.isArray(response.candidates)) {
     try {
       const candidate = response.candidates[0] as Record<string, unknown>
@@ -54,20 +56,20 @@ function extractResponseText(data: unknown): { text: string; isError: boolean } 
     }
   }
 
-  // Check for error response
   if (response.error && typeof response.error === 'string') {
     return { text: response.error, isError: true }
   }
 
-  // Fallback: try to stringify if it's an object
   if (typeof response === 'object') {
     return { text: JSON.stringify(response), isError: false }
   }
 
-  return { text: 'No se pudo interpretar la respuesta.', isError: true }
+  return { text: t('aiAssistant.errors.unparseable'), isError: true }
 }
 
 export function AIAssistantChat() {
+  const { t, locale } = useLocale()
+  const timeLocale = locale === 'en' ? 'en-US' : 'es-CL'
   const [isOpen, setIsOpen] = useState(false)
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
@@ -76,7 +78,6 @@ export function AIAssistantChat() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  // Get user email from Supabase session
   useEffect(() => {
     const supabase = createClient()
     supabase.auth.getUser().then(({ data }) => {
@@ -84,28 +85,25 @@ export function AIAssistantChat() {
     })
   }, [])
 
-  // Initialize with welcome message when chat opens
   useEffect(() => {
     if (isOpen && messages.length === 0) {
       setMessages([
         {
           id: 'welcome',
           role: 'assistant',
-          content: WELCOME_MESSAGE,
+          content: t('aiAssistant.welcome'),
           timestamp: new Date(),
         },
       ])
     }
-  }, [isOpen, messages.length])
+  }, [isOpen, messages.length, t])
 
-  // Auto-scroll to bottom when messages change
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
   }, [messages])
 
-  // Focus input when chat opens
   useEffect(() => {
     if (isOpen) {
       setTimeout(() => inputRef.current?.focus(), 100)
@@ -116,7 +114,6 @@ export function AIAssistantChat() {
     const question = input.trim()
     if (!question || isLoading) return
 
-    // Add user message
     const userMessage: Message = {
       id: `user-${Date.now()}`,
       role: 'user',
@@ -140,7 +137,7 @@ export function AIAssistantChat() {
       })
 
       const data = await response.json()
-      const { text, isError } = extractResponseText(data)
+      const { text, isError } = extractResponseText(data, t)
 
       const assistantMessage: Message = {
         id: `assistant-${Date.now()}`,
@@ -151,10 +148,13 @@ export function AIAssistantChat() {
       }
       setMessages((prev) => [...prev, assistantMessage])
     } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : t('aiAssistant.errors.connectionFallback')
       const errorMessage: Message = {
         id: `error-${Date.now()}`,
         role: 'assistant',
-        content: `Error de conexión: ${error instanceof Error ? error.message : 'No se pudo conectar con el servidor.'}`,
+        content: t('aiAssistant.errors.connection', { message }),
         timestamp: new Date(),
         isError: true,
       }
@@ -174,7 +174,6 @@ export function AIAssistantChat() {
 
   return (
     <>
-      {/* Floating Chat Button with UpCrop Logo */}
       <button
         onClick={() => setIsOpen(true)}
         className={`fixed bottom-6 right-6 z-50 w-16 h-16 rounded-full
@@ -185,18 +184,17 @@ export function AIAssistantChat() {
           transition-all duration-300 flex items-center justify-center overflow-hidden ${
           isOpen ? 'scale-0 opacity-0' : 'scale-100 opacity-100'
         }`}
-        aria-label="Abrir chat de asistente"
+        aria-label={t('aiAssistant.aria.open')}
       >
         <Image 
           src="/logo-upcrop.png" 
-          alt="UpCrop Chat" 
+          alt="Up Crop Chat" 
           width={36} 
           height={36}
           className="object-contain"
         />
       </button>
 
-      {/* Chat Window */}
       <div
         className={`fixed bottom-6 right-6 z-50 w-[380px] h-[520px] bg-card border border-border rounded-2xl shadow-2xl overflow-hidden transition-all duration-300 ${
           isOpen
@@ -204,33 +202,31 @@ export function AIAssistantChat() {
             : 'scale-95 opacity-0 translate-y-4 pointer-events-none'
         }`}
       >
-        {/* Fixed Header - Always stays at top */}
         <div className="sticky top-0 z-10 bg-gradient-to-r from-[#4A6CF7] to-[#5B7DF8] px-4 py-3 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center overflow-hidden">
               <Image 
                 src="/logo-upcrop.png" 
-                alt="UpCrop" 
+                alt="Up Crop" 
                 width={28} 
                 height={28}
                 className="object-contain"
               />
             </div>
             <div>
-              <h3 className="font-semibold text-white text-sm">IA UpCrop</h3>
-              <p className="text-blue-100 text-xs">En linea</p>
+              <h3 className="font-semibold text-white text-sm">{t('aiAssistant.title')}</h3>
+              <p className="text-blue-100 text-xs">{t('aiAssistant.statusOnline')}</p>
             </div>
           </div>
           <button
             onClick={() => setIsOpen(false)}
             className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
-            aria-label="Cerrar chat"
+            aria-label={t('aiAssistant.aria.close')}
           >
             <X className="w-4 h-4 text-white" />
           </button>
         </div>
 
-        {/* Scrollable Messages Area */}
         <div 
           ref={scrollRef}
           className="flex-1 overflow-y-auto p-4"
@@ -279,7 +275,7 @@ export function AIAssistantChat() {
                       message.role === 'user' ? 'text-blue-100' : 'text-muted-foreground'
                     }`}
                   >
-                    {message.timestamp.toLocaleTimeString('es-CL', {
+                    {message.timestamp.toLocaleTimeString(timeLocale, {
                       hour: '2-digit',
                       minute: '2-digit',
                     })}
@@ -313,7 +309,6 @@ export function AIAssistantChat() {
           </div>
         </div>
 
-        {/* Fixed Input Area - Always stays at bottom */}
         <div className="sticky bottom-0 z-10 p-3 border-t border-border bg-card shrink-0">
           <div className="flex gap-2">
             <Input
@@ -321,7 +316,7 @@ export function AIAssistantChat() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Escribe tu mensaje..."
+              placeholder={t('aiAssistant.inputPlaceholder')}
               disabled={isLoading}
               className="flex-1 bg-secondary border-border rounded-full text-sm h-10 px-4"
             />
