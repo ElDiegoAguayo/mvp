@@ -1,30 +1,39 @@
 'use client'
 
-import { Suspense, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useEffect, useRef } from 'react'
 import { Loader2 } from 'lucide-react'
 import { hashContainsAuthTokens } from '@/lib/auth/hash-redirect'
-import { ProcessAuthHash } from '@/components/auth/process-auth-hash'
+import {
+  completeAuthFromUrl,
+  redirectAfterAuth,
+} from '@/lib/auth/complete-auth-client'
 
 function AuthLandingInner() {
-  const router = useRouter()
+  const startedRef = useRef(false)
 
   useEffect(() => {
-    if (typeof window === 'undefined') return
-    if (hashContainsAuthTokens(window.location.hash)) return
-    router.replace('/auth/login')
-  }, [router])
+    if (startedRef.current) return
+    startedRef.current = true
 
-  if (typeof window !== 'undefined' && hashContainsAuthTokens(window.location.hash)) {
-    return (
-      <>
-        <ProcessAuthHash />
-        <div className="fixed inset-0 flex items-center justify-center bg-background">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      </>
-    )
-  }
+    void (async () => {
+      const hash = window.location.hash
+      const hasHash = hashContainsAuthTokens(hash)
+
+      if (hasHash) {
+        const result = await completeAuthFromUrl(null)
+        if (result.ok) {
+          redirectAfterAuth(result.destination)
+          return
+        }
+        window.location.replace(
+          `/auth/error?reason=${encodeURIComponent(result.reason)}`,
+        )
+        return
+      }
+
+      window.location.replace('/auth/login')
+    })()
+  }, [])
 
   return (
     <div className="fixed inset-0 flex items-center justify-center bg-background">

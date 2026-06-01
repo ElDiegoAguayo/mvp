@@ -5,7 +5,7 @@ import { Analytics } from '@vercel/analytics/next'
 import { Toaster } from '@/components/ui/sonner'
 import { ThemeProvider } from '@/components/theme-provider'
 import { ThemeToggleFloat } from '@/components/theme-toggle-float'
-import { ActivityHeartbeat } from '@/components/dashboard/activity-heartbeat'
+import { ConditionalActivityHeartbeat } from '@/components/dashboard/conditional-activity-heartbeat'
 import { LocaleProvider } from '@/components/i18n/locale-provider'
 import { defaultLocale, isLocale, LOCALE_COOKIE } from '@/lib/i18n/config'
 import './globals.css'
@@ -59,7 +59,7 @@ export default async function RootLayout({
           disableTransitionOnChange
         >
           <LocaleProvider initialLocale={initialLocale}>
-            <ActivityHeartbeat />
+            <ConditionalActivityHeartbeat />
             {children}
             <ThemeToggleFloat />
             <Toaster theme="dark" position="top-right" richColors closeButton />
