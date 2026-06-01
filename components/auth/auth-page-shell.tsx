@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import Image from 'next/image'
 import { ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -26,6 +27,7 @@ export function AuthPageShell({
   rootClassName,
 }: AuthPageShellProps) {
   const { t } = useLocale()
+  const [heroVideoReady, setHeroVideoReady] = useState(false)
 
   return (
     <div className={cn('login-page-root fixed inset-0 overflow-hidden bg-white dark:bg-slate-950', rootClassName)}>
@@ -93,8 +95,11 @@ export function AuthPageShell({
             loop
             playsInline
             preload="auto"
-            poster="/login-hero.png"
-            className="login-v16-hero-video"
+            onCanPlay={() => setHeroVideoReady(true)}
+            className={cn(
+              'login-v16-hero-video transition-opacity duration-300',
+              heroVideoReady ? 'opacity-100' : 'opacity-0',
+            )}
             aria-label="Operaciones Up Crop"
           >
             <source src="/login-hero.mp4?v=4" type="video/mp4" />
