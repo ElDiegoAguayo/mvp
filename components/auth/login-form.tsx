@@ -129,9 +129,17 @@ export function LoginForm({
           </div>
         </div>
         <div className="space-y-2">
-          <Label htmlFor="password" className="text-slate-800 dark:text-slate-200 font-medium text-sm">
-            {t('auth.password')}
-          </Label>
+          <div className="flex items-center justify-between gap-2">
+            <Label htmlFor="password" className="text-slate-800 dark:text-slate-200 font-medium text-sm">
+              {t('auth.password')}
+            </Label>
+            <a
+              href="/auth/recuperar-contrasena"
+              className="text-xs font-medium text-[#4063ca] hover:text-[#3B5DE7] dark:text-[#6b8cff] dark:hover:text-[#8aa4ff] transition-colors whitespace-nowrap"
+            >
+              {t('auth.forgotPassword')}
+            </a>
+          </div>
           <div className="relative">
             <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-[18px] w-[18px] text-slate-400 dark:text-slate-500" />
             <Input

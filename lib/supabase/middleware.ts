@@ -80,7 +80,9 @@ export async function updateSession(request: NextRequest) {
 
     if (maintenanceActive && isClientUser) {
       const onAuthPage =
-        pathname.startsWith('/auth/login') || pathname.startsWith('/auth/registro')
+        pathname.startsWith('/auth/login') ||
+        pathname.startsWith('/auth/registro') ||
+        pathname.startsWith('/auth/recuperar-contrasena')
 
       if (pathname.startsWith('/dashboard') || onAuthPage) {
         await supabase.auth.signOut()

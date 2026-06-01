@@ -530,6 +530,107 @@ export type UpdateUserState = {
 export type CreateSubuserState = {
   ok: boolean
   message: string
+  userId?: string
+}
+
+async function finalizeSubuserAccount(
+  adminClient: ReturnType<typeof createSupabaseClient>,
+  opts: {
+    subuserId: string
+    email: string
+    parentUserId: string
+    fullName: string | null
+  },
+): Promise<{ ok: true; parentLabel: string } | { ok: false; message: string }> {
+  const { subuserId, email, parentUserId, fullName } = opts
+
+  const { error: profileError } = await adminClient
+    .from('profiles')
+    .update({
+      full_name: fullName,
+      email,
+      role: 'user' as const,
+      is_active: true,
+      parent_user_id: parentUserId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', subuserId)
+
+  if (profileError) {
+    return {
+      ok: false,
+      message: `Falló la actualización del perfil: ${profileError.message}`,
+    }
+  }
+
+  let parentLabel = parentUserId
+
+  try {
+    const [moduleAccessRes, tableAccessRes, chartAccessRes, parentProfileRes] =
+      await Promise.all([
+        adminClient
+          .from('user_module_access')
+          .select('module_id, enabled, display_order')
+          .eq('user_id', parentUserId),
+        adminClient
+          .from('user_table_access')
+          .select('table_id, can_view')
+          .eq('user_id', parentUserId),
+        adminClient
+          .from('user_chart_access')
+          .select('chart_id, can_view')
+          .eq('user_id', parentUserId),
+        adminClient
+          .from('profiles')
+          .select('full_name, email')
+          .eq('id', parentUserId)
+          .maybeSingle(),
+      ])
+
+    parentLabel =
+      parentProfileRes.data?.full_name ||
+      parentProfileRes.data?.email ||
+      parentUserId
+
+    const moduleInserts = (moduleAccessRes.data ?? []).map((row) => ({
+      user_id: subuserId,
+      module_id: row.module_id,
+      enabled: row.enabled,
+      display_order: row.display_order ?? 0,
+    }))
+
+    const tableInserts = (tableAccessRes.data ?? []).map((row) => ({
+      user_id: subuserId,
+      table_id: row.table_id,
+      can_view: row.can_view,
+    }))
+
+    const chartInserts = (chartAccessRes.data ?? []).map((row) => ({
+      user_id: subuserId,
+      chart_id: row.chart_id,
+      can_view: row.can_view,
+    }))
+
+    if (moduleInserts.length > 0) {
+      await adminClient
+        .from('user_module_access')
+        .upsert(moduleInserts, { onConflict: 'user_id,module_id' })
+    }
+    if (tableInserts.length > 0) {
+      await adminClient
+        .from('user_table_access')
+        .upsert(tableInserts, { onConflict: 'user_id,table_id' })
+    }
+    if (chartInserts.length > 0) {
+      await adminClient
+        .from('user_chart_access')
+        .upsert(chartInserts, { onConflict: 'user_id,chart_id' })
+    }
+  } catch (err) {
+    console.error('[v0] Subuser access clone error:', err)
+  }
+
+  return { ok: true, parentLabel }
 }
 
 /**
@@ -613,91 +714,21 @@ export async function createSubuserAction(
     return { ok: false, message: msg }
   }
 
-  const profileBase = {
-    full_name: fullName,
+  const finalized = await finalizeSubuserAccount(adminClient, {
+    subuserId: created.user.id,
     email,
-    role: 'user' as const,
-    is_active: true,
-    parent_user_id: parentUserId,
-    updated_at: new Date().toISOString(),
-  }
+    parentUserId,
+    fullName,
+  })
 
-  let profileError = (
-    await adminClient.from('profiles').update(profileBase).eq('id', created.user.id)
-  ).error
-
-  if (profileError) {
+  if (!finalized.ok) {
     return {
       ok: false,
-      message: `Subusuario creado, pero falló la actualización del perfil: ${profileError.message}`,
+      message: `Subusuario creado, pero ${finalized.message}`,
     }
   }
 
-  const techInspectorMigrationMissing = false
-
-  try {
-    const [moduleAccessRes, tableAccessRes, chartAccessRes, parentProfileRes] = await Promise.all([
-      adminClient
-        .from('user_module_access')
-        .select('module_id, enabled, display_order')
-        .eq('user_id', parentUserId),
-      adminClient
-        .from('user_table_access')
-        .select('table_id, can_view')
-        .eq('user_id', parentUserId),
-      adminClient
-        .from('user_chart_access')
-        .select('chart_id, can_view')
-        .eq('user_id', parentUserId),
-      adminClient
-        .from('profiles')
-        .select('full_name, email')
-        .eq('id', parentUserId)
-        .maybeSingle(),
-    ])
-
-    const moduleInserts = (moduleAccessRes.data ?? []).map((row) => ({
-      user_id: created.user.id,
-      module_id: row.module_id,
-      enabled: row.enabled,
-      display_order: row.display_order ?? 0,
-    }))
-
-    const tableInserts = (tableAccessRes.data ?? []).map((row) => ({
-      user_id: created.user.id,
-      table_id: row.table_id,
-      can_view: row.can_view,
-    }))
-
-    const chartInserts = (chartAccessRes.data ?? []).map((row) => ({
-      user_id: created.user.id,
-      chart_id: row.chart_id,
-      can_view: row.can_view,
-    }))
-
-    if (moduleInserts.length > 0) {
-      await adminClient
-        .from('user_module_access')
-        .upsert(moduleInserts, { onConflict: 'user_id,module_id' })
-    }
-    if (tableInserts.length > 0) {
-      await adminClient
-        .from('user_table_access')
-        .upsert(tableInserts, { onConflict: 'user_id,table_id' })
-    }
-    if (chartInserts.length > 0) {
-      await adminClient
-        .from('user_chart_access')
-        .upsert(chartInserts, { onConflict: 'user_id,chart_id' })
-    }
-  } catch (err) {
-    console.error('[v0] Subuser access clone error:', err)
-  }
-
-  const parentLabel =
-    parentProfileRes.data?.full_name ||
-    parentProfileRes.data?.email ||
-    parentUserId
+  const { parentLabel } = finalized
 
   await logAudit(
     adminClient,
@@ -720,9 +751,95 @@ export async function createSubuserAction(
   revalidatePath('/admin')
   return {
     ok: true,
-    message: techInspectorMigrationMissing
-      ? `Subusuario creado para ${fullName} (${email}), pero falta aplicar la migración 054 en Supabase para activar el rol de inspector.`
-      : `Subusuario creado para ${fullName} (${email}).`,
+    message: `Subusuario creado para ${fullName} (${email}).`,
+    userId: created.user.id,
+  }
+}
+
+/**
+ * Invites a subuser by email. They set name and password via /auth/registro.
+ */
+export async function inviteSubuserByEmailAction(
+  _prev: CreateSubuserState | undefined,
+  formData: FormData,
+): Promise<CreateSubuserState> {
+  const email = String(formData.get('email') ?? '').trim().toLowerCase()
+  const parentUserId = String(formData.get('parent_user_id') ?? '').trim()
+
+  if (!email || !parentUserId) {
+    return { ok: false, message: 'El correo y el cliente principal son obligatorios.' }
+  }
+
+  const { supabase, caller, isAdmin, callerProfile } = await requireAdminCaller()
+  if (!caller) return { ok: false, message: 'Sesión expirada. Vuelve a iniciar sesión.' }
+  if (!isAdmin) return { ok: false, message: 'Solo administradores pueden invitar subusuarios.' }
+
+  const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!supabaseUrl || !serviceKey) {
+    return { ok: false, message: 'Configuración del servidor incompleta.' }
+  }
+
+  const { buildAuthCallbackUrl } = await import('@/lib/auth/site-url')
+  const redirectTo = buildAuthCallbackUrl('/auth/registro')
+
+  const adminClient = createSupabaseClient(supabaseUrl, serviceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+
+  const { data: invited, error: inviteError } =
+    await adminClient.auth.admin.inviteUserByEmail(email, {
+      redirectTo,
+    })
+
+  if (inviteError || !invited.user) {
+    const msg = inviteError?.message ?? 'No se pudo enviar la invitación.'
+    if (msg.toLowerCase().includes('already registered') || msg.toLowerCase().includes('exists')) {
+      return { ok: false, message: 'Ya existe un usuario con ese email.' }
+    }
+    return { ok: false, message: formatAuthEmailError(msg) }
+  }
+
+  const finalized = await finalizeSubuserAccount(adminClient, {
+    subuserId: invited.user.id,
+    email,
+    parentUserId,
+    fullName: null,
+  })
+
+  if (!finalized.ok) {
+    return {
+      ok: false,
+      message: `Invitación enviada, pero ${finalized.message}`,
+    }
+  }
+
+  const { parentLabel } = finalized
+  const actorLabel =
+    callerProfile?.full_name || callerProfile?.email || 'Admin'
+
+  await logAudit(
+    adminClient,
+    {
+      action_type: 'SEND_USER_INVITE',
+      target_type: 'subuser',
+      target_id: invited.user.id,
+      target_label: email,
+      description: `${actorLabel} invitó por correo al subusuario ${email} del cliente ${parentLabel}.`,
+      metadata: { parent_user_id: parentUserId, parent_label: parentLabel, created: true },
+    },
+    {
+      actor_id: caller.id,
+      actor_email: callerProfile?.email ?? caller.email ?? null,
+      actor_name: callerProfile?.full_name ?? null,
+    },
+  )
+
+  revalidatePath('/admin')
+  return {
+    ok: true,
+    message: `Enviamos un enlace a ${email} para que active su cuenta.`,
+    userId: invited.user.id,
   }
 }
 

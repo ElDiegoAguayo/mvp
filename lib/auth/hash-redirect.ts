@@ -12,7 +12,7 @@ export function resolvePostAuthPath(
     case 'signup':
       return '/auth/registro'
     case 'recovery':
-      return '/auth/registro?flow=welcome'
+      return '/auth/recuperar-contrasena'
     default:
       return '/dashboard'
   }

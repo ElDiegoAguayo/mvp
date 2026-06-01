@@ -69,7 +69,14 @@ export function ThemeToggleButton({ className, size = 'md' }: ThemeToggleButtonP
 export function ThemeToggleFloat() {
   const pathname = usePathname()
 
-  if (pathname === '/auth/login' || pathname?.startsWith('/auth/login/')) {
+  if (
+    pathname === '/auth/login' ||
+    pathname?.startsWith('/auth/login/') ||
+    pathname === '/auth/registro' ||
+    pathname?.startsWith('/auth/registro/') ||
+    pathname === '/auth/recuperar-contrasena' ||
+    pathname?.startsWith('/auth/recuperar-contrasena/')
+  ) {
     return null
   }
 
