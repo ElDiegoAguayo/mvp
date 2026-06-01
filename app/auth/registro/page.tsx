@@ -119,7 +119,7 @@ function RegistroContent() {
   }
 
   return (
-    <AuthPageShell>
+    <AuthPageShell showHeroVideo={false}>
       <RegistrationForm
         fullName={fullName}
         setFullName={setFullName}

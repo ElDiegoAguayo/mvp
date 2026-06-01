@@ -14,6 +14,7 @@ type AuthPageShellProps = {
   heroLogo?: React.ReactNode
   overlay?: React.ReactNode
   shake?: boolean
+  showHeroVideo?: boolean
   contentClassName?: string
   rootClassName?: string
 }
@@ -23,6 +24,7 @@ export function AuthPageShell({
   heroLogo,
   overlay,
   shake = false,
+  showHeroVideo = true,
   contentClassName,
   rootClassName,
 }: AuthPageShellProps) {
@@ -32,7 +34,12 @@ export function AuthPageShell({
   return (
     <div className={cn('login-page-root fixed inset-0 overflow-hidden bg-white dark:bg-slate-950', rootClassName)}>
       <div className="login-v16-split h-full w-full flex min-h-0 overflow-hidden bg-white dark:bg-slate-950">
-        <div className="relative flex w-full lg:w-[min(520px,46%)] shrink-0 flex-col bg-white dark:bg-slate-950 min-h-0">
+        <div
+          className={cn(
+            'relative flex w-full shrink-0 flex-col bg-white dark:bg-slate-950 min-h-0',
+            showHeroVideo && 'lg:w-[min(520px,46%)]',
+          )}
+        >
           <div className="login-v16-watermark login-v16-watermark-left pointer-events-none" aria-hidden>
             <Image
               src={LOGO_ISOTYPE}
@@ -88,6 +95,7 @@ export function AuthPageShell({
           </main>
         </div>
 
+        {showHeroVideo && (
         <div className="login-v16-hero-panel relative hidden lg:flex flex-1 min-w-0 min-h-0 overflow-hidden">
           <video
             autoPlay
@@ -106,6 +114,7 @@ export function AuthPageShell({
           </video>
           <div className="absolute inset-0 bg-gradient-to-br from-[#4063ca]/10 via-transparent to-[#1e3a8a]/15 dark:from-[#4063ca]/20 dark:to-[#0f172a]/25 pointer-events-none" />
         </div>
+        )}
       </div>
     </div>
   )
