@@ -19,7 +19,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   Loader2, User, Save, Lock, AlertCircle, ImageIcon,
   Upload, Trash2, Check, RefreshCw, AlertTriangle,
-  ZoomIn, ZoomOut, Crop,
+  ZoomIn, ZoomOut, Crop, MapPin,
 } from 'lucide-react'
 import {
   AlertDialog,
@@ -40,6 +40,9 @@ import {
 } from '@/app/admin/actions'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { TechAssistanceLocationsPanel } from '@/components/dashboard/asistencia-tecnica/tech-assistance-locations-panel'
+import { isPrincipalClientProfile } from '@/lib/profiles/principal-clients'
+import { SendUserInviteButton } from '@/components/admin/send-user-invite-button'
 
 // ─── Canvas crop helper ────────────────────────────────────────────────────────
 async function getCroppedBlob(imageSrc: string, pixelCrop: Area): Promise<Blob> {
@@ -64,6 +67,8 @@ interface UserRow {
   email: string | null
   role: string
   avatar_url?: string | null
+  parent_user_id?: string | null
+  is_tech_inspector?: boolean | null
 }
 
 interface EditUserDialogProps {
@@ -223,6 +228,9 @@ export function EditUserDialog({ open, onOpenChange, user }: EditUserDialogProps
   const initials = (user?.full_name ?? user?.email ?? '?')
     .split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
 
+  const showLocationsTab = user ? isPrincipalClientProfile(user) : false
+  const tabCount = showLocationsTab ? 4 : 3
+
   return (
     <>
     <Dialog open={open} onOpenChange={(o) => !isPending && !isPasswordPending && onOpenChange(o)}>
@@ -248,10 +256,18 @@ export function EditUserDialog({ open, onOpenChange, user }: EditUserDialogProps
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
-          <TabsList className="grid grid-cols-3 bg-secondary/50 border-b border-border rounded-none mx-0 h-10 flex-shrink-0">
+          <TabsList className={cn(
+            'grid bg-secondary/50 border-b border-border rounded-none mx-0 h-10 flex-shrink-0',
+            tabCount === 4 ? 'grid-cols-4' : 'grid-cols-3',
+          )}>
             <TabsTrigger value="info" className="flex items-center gap-1.5 text-xs rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary">
               <User className="w-3.5 h-3.5" />Informacion
             </TabsTrigger>
+            {showLocationsTab && (
+              <TabsTrigger value="locations" className="flex items-center gap-1.5 text-xs rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary">
+                <MapPin className="w-3.5 h-3.5" />Ubicacion
+              </TabsTrigger>
+            )}
             <TabsTrigger value="photo" className="flex items-center gap-1.5 text-xs rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary">
               <ImageIcon className="w-3.5 h-3.5" />Foto de Perfil
             </TabsTrigger>
@@ -278,6 +294,24 @@ export function EditUserDialog({ open, onOpenChange, user }: EditUserDialogProps
                   placeholder="correo@ejemplo.com" disabled={isPending}
                   className="bg-secondary border-border" />
               </div>
+
+              {user?.email && (
+                <div className="rounded-lg border border-sky-500/25 bg-sky-500/5 px-4 py-3 space-y-2">
+                  <p className="text-sm font-medium text-foreground">Invitación por correo</p>
+                  <p className="text-xs text-muted-foreground">
+                    Envía un enlace a {user.email} para que active su cuenta.
+                  </p>
+                  <SendUserInviteButton
+                    userId={user.id}
+                    email={user.email}
+                    fullName={user.full_name}
+                    variant="outline"
+                    size="sm"
+                    className="border-sky-500/30"
+                  />
+                </div>
+              )}
+
               <div className="flex justify-end gap-2 pt-2">
                 <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isPending}>
                   Cancelar
@@ -288,6 +322,12 @@ export function EditUserDialog({ open, onOpenChange, user }: EditUserDialogProps
               </div>
             </form>
           </TabsContent>
+
+          {showLocationsTab && user && (
+            <TabsContent value="locations" className="flex-1 overflow-y-auto p-6 mt-0">
+              <TechAssistanceLocationsPanel clientUserId={user.id} />
+            </TabsContent>
+          )}
 
           {/* ── Tab: Foto de Perfil ── */}
           <TabsContent value="photo" className="flex-1 overflow-y-auto p-6 mt-0 space-y-5">

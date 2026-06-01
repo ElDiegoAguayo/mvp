@@ -150,6 +150,15 @@ export const es = {
         },
       },
     },
+    locations: {
+      title: 'Ubicación de trabajo',
+      description: 'Lugar registrado para tus servicios de asistencia técnica y control de geocerca.',
+      none: 'Aún no tienes una ubicación registrada. Contacta a Up Crop para configurarla.',
+      radius: 'Radio de geocerca: {meters} m',
+      mapHint: 'Mapa de tu ubicación registrada.',
+      adminOptionalTitle: 'Ubicación de trabajo (opcional)',
+      adminOptionalHint: 'Puedes registrar el lugar ahora o agregarlo después al editar el cliente. Solo se permite una ubicación por cliente.',
+    },
   },
   storage: {
     title: 'Almacenamiento',

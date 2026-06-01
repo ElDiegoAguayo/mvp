@@ -23,6 +23,7 @@ export type AuditActionType =
   | 'IMPORT_EXCEL'
   | 'DELETE_IMPORT'
   | 'UPDATE_PASSWORD'
+  | 'SEND_USER_INVITE'
   | 'UPDATE_DATA_ACCESS'
   | 'RESTORE'
   | 'SYSTEM'
@@ -188,6 +189,7 @@ export const ACTION_LABEL: Record<AuditActionType, string> = {
   IMPORT_EXCEL: 'Importación desde Excel',
   DELETE_IMPORT: 'Eliminación de importación',
   UPDATE_PASSWORD: 'Actualización de contraseña',
+  SEND_USER_INVITE: 'Invitación de registro enviada',
   UPDATE_DATA_ACCESS: 'Actualización de acceso a datos',
   RESTORE: 'Restauración',
   SYSTEM: 'Sistema',

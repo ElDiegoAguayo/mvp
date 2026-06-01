@@ -14,6 +14,7 @@ import type { ClientStorageModule } from '@/lib/client-storage'
 
 import type { ServicePlanId } from '@/lib/subscription-plans'
 import { isServicePlanId } from '@/lib/subscription-plans'
+import type { TechLocationOption } from '@/app/actions/tech-assistance-location-actions'
 
 export interface ProfilePageData {
   profile: {
@@ -36,6 +37,8 @@ export interface ProfilePageData {
     modules: ClientStorageModule[]
   } | null
   enabledModules: Array<{ id: string; slug: string; name: string; icon: string }>
+  showClientLocations: boolean
+  clientLocations: TechLocationOption[]
 }
 
 async function resolveActingUserId(sessionUserId: string): Promise<string> {
@@ -68,7 +71,7 @@ export async function getMyProfilePageDataAction(): Promise<ProfilePageData | nu
 
   const { data: profileRow } = await supabase
     .from('profiles')
-    .select('id, full_name, email, role, avatar_url, created_at, parent_user_id, storage_quota_gb, storage_quota_bytes')
+    .select('id, full_name, email, role, avatar_url, created_at, parent_user_id, storage_quota_gb, storage_quota_bytes, is_tech_inspector')
     .eq('id', actingUserId)
     .single()
 
@@ -136,6 +139,21 @@ export async function getMyProfilePageDataAction(): Promise<ProfilePageData | nu
       .map(m => ({ id: m.id, slug: m.slug, name: m.name, icon: m.icon }))
   }
 
+  const showClientLocations =
+    profileRow.role === 'user' && profileRow.is_tech_inspector !== true
+  let clientLocations: TechLocationOption[] = []
+
+  if (showClientLocations) {
+    const { data: locRows } = await supabase
+      .from('tech_assistance_locations')
+      .select('id, name, lat, lng, radius_meters, search_query')
+      .eq('user_id', storageOwnerId)
+      .eq('is_active', true)
+      .order('name')
+      .limit(1)
+    clientLocations = (locRows ?? []) as TechLocationOption[]
+  }
+
   return {
     profile: {
       id: profileRow.id,
@@ -153,5 +171,7 @@ export async function getMyProfilePageDataAction(): Promise<ProfilePageData | nu
     servicePlanId,
     storagePlan,
     enabledModules,
+    showClientLocations,
+    clientLocations,
   }
 }

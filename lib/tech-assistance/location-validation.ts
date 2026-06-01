@@ -16,6 +16,9 @@ export type TechAssistanceLocationRow = {
   is_active: boolean
 }
 
+/** Each principal client may have at most one active work location. */
+export const MAX_CLIENT_LOCATIONS = 1
+
 export function toGeofenceLocation(row: {
   id: string
   name: string

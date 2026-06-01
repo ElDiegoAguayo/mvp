@@ -104,7 +104,7 @@ export async function updateSession(request: NextRequest) {
         return NextResponse.redirect(url)
       }
     } else if (
-      (pathname.startsWith('/auth/login') || pathname.startsWith('/auth/registro')) &&
+      pathname.startsWith('/auth/login') &&
       !(maintenanceActive && isClientUser) &&
       !isServerActionRequest(request)
     ) {

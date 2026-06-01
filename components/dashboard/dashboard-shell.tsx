@@ -23,12 +23,15 @@ import {
   ChevronRight,
 } from 'lucide-react'
 
+import type { ServicePlanId } from '@/lib/subscription-plans'
+
 interface ShellUser {
   id: string
   email: string | null
   full_name: string
   role: string
   avatar_url?: string | null
+  service_plan_id?: ServicePlanId | null
 }
 
 interface ShellModule {

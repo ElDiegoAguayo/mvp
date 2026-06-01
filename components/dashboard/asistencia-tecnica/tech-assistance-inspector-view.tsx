@@ -1,5 +1,6 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useMemo, useState, useTransition } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
@@ -52,10 +53,23 @@ import { captureDeviceGeolocation } from '@/lib/tech-assistance/capture-geolocat
 import {
   geofenceErrorMessage,
   isWithinGeofence,
+  type GeofenceLocation,
 } from '@/lib/tech-assistance/geofence'
 import { toGeofenceLocation } from '@/lib/tech-assistance/location-validation'
 import { todayWorkDateISO, formatWorkDateLabel } from '@/lib/tech-assistance/work-date'
 import type { TechAssistanceLocation, TechAssistanceService } from '@/lib/tech-assistance/types'
+
+const TechAssistanceGeofenceMap = dynamic(
+  () => import('@/components/dashboard/asistencia-tecnica/tech-assistance-geofence-map'),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-[280px] animate-pulse rounded-xl border border-border bg-secondary" />
+    ),
+  },
+)
+
+const INSPECTOR_ATTENDANCE_VALUE = 1
 
 type InspectorServiceOption = Pick<
   TechAssistanceService,
@@ -86,6 +100,9 @@ export function TechAssistanceInspectorView({
   const { t, locale } = useLocale()
   const supabase = useMemo(() => createClient(), [])
   const [clients, setClients] = useState<InspectorClientOption[]>([])
+  const [clientLocations, setClientLocations] = useState<GeofenceLocation[]>([])
+  const [userPosition, setUserPosition] = useState<{ lat: number; lng: number } | null>(null)
+  const [gpsWatchFailed, setGpsWatchFailed] = useState(false)
   const [selectedClientId, setSelectedClientId] = useState('')
   const [services, setServices] = useState<InspectorServiceOption[]>([])
   const [entries, setEntries] = useState<TechAssistanceEntry[]>([])
@@ -109,7 +126,6 @@ export function TechAssistanceInspectorView({
     notes: '',
     location_label: '',
     location_id: null as string | null,
-    attendance_value: '1',
     regular_hours: '',
     overtime_hours: '',
     started_at: '',
@@ -129,7 +145,6 @@ export function TechAssistanceInspectorView({
       notes: '',
       location_label: '',
       location_id: null,
-      attendance_value: '1',
       regular_hours: '',
       overtime_hours: '',
       started_at: '',
@@ -150,6 +165,23 @@ export function TechAssistanceInspectorView({
     setClients(res.clients)
     return res.clients
   }, [])
+
+  const loadClientLocations = useCallback(
+    async (clientId: string) => {
+      if (!clientId) {
+        setClientLocations([])
+        return
+      }
+      const { data } = await supabase
+        .from('tech_assistance_locations')
+        .select('id, name, lat, lng, radius_meters')
+        .eq('user_id', clientId)
+        .eq('is_active', true)
+        .order('name')
+      setClientLocations((data ?? []).map(row => toGeofenceLocation(row)))
+    },
+    [supabase],
+  )
 
   const loadServices = useCallback(
     async (clientId: string) => {
@@ -219,8 +251,27 @@ export function TechAssistanceInspectorView({
   useEffect(() => {
     if (!selectedClientId) return
     void loadServices(selectedClientId)
+    void loadClientLocations(selectedClientId)
     setEntryForm(f => ({ ...f, service_id: '' }))
-  }, [selectedClientId, loadServices])
+  }, [selectedClientId, loadServices, loadClientLocations])
+
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      setGpsWatchFailed(true)
+      return
+    }
+
+    const watchId = navigator.geolocation.watchPosition(
+      pos => {
+        setGpsWatchFailed(false)
+        setUserPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude })
+      },
+      () => setGpsWatchFailed(true),
+      { enableHighAccuracy: true, maximumAge: 15_000, timeout: 20_000 },
+    )
+
+    return () => navigator.geolocation.clearWatch(watchId)
+  }, [])
 
   const applyServiceToEntryForm = (serviceId: string) => {
     const svc = services.find(s => s.id === serviceId)
@@ -242,6 +293,51 @@ export function TechAssistanceInspectorView({
     const loc = selectedService?.tech_assistance_locations
     return loc ? toGeofenceLocation(loc) : null
   }, [selectedService])
+
+  const userInsideGeofence = useMemo(() => {
+    if (!activeGeofence || !userPosition) return null
+    return isWithinGeofence(
+      userPosition.lat,
+      userPosition.lng,
+      activeGeofence.lat,
+      activeGeofence.lng,
+      activeGeofence.radius_meters,
+    )
+  }, [activeGeofence, userPosition])
+
+  const canMarkWithGps = Boolean(
+    entryForm.service_id &&
+      activeGeofence &&
+      userPosition &&
+      userInsideGeofence === true,
+  )
+
+  const mapStatus = useMemo((): { label: string; tone: 'neutral' | 'ok' | 'warn' } => {
+    if (!selectedClientId) {
+      return { label: t('asistenciaTecnica.client.selectWorking'), tone: 'neutral' }
+    }
+    if (!entryForm.service_id) {
+      return { label: t('asistenciaTecnica.geofence.selectLaborForMap'), tone: 'neutral' }
+    }
+    if (!activeGeofence) {
+      return { label: t('asistenciaTecnica.geofence.noLocationOnService'), tone: 'warn' }
+    }
+    if (gpsWatchFailed || !userPosition) {
+      return { label: t('asistenciaTecnica.geofence.waitingGps'), tone: 'warn' }
+    }
+    if (userInsideGeofence) {
+      return { label: t('asistenciaTecnica.geofence.inside'), tone: 'ok' }
+    }
+    return { label: t('asistenciaTecnica.geofence.outside'), tone: 'warn' }
+  }, [
+    selectedClientId,
+    entryForm.service_id,
+    activeGeofence,
+    gpsWatchFailed,
+    userPosition,
+    userInsideGeofence,
+    t,
+  ])
 
   const validateGpsAgainstGeofence = (lat: number, lng: number): boolean => {
     if (!activeGeofence) {
@@ -272,7 +368,6 @@ export function TechAssistanceInspectorView({
       started_at: now.toISOString(),
       check_in_lat: loc.lat,
       check_in_lng: loc.lng,
-      attendance_value: f.attendance_value || '1',
     }))
     toast.success(t('asistenciaTecnica.correction.checkInSuccess'))
   }
@@ -313,7 +408,6 @@ export function TechAssistanceInspectorView({
       notes: entry.notes ?? '',
       location_label: entry.location_label ?? '',
       location_id: entry.location_id ?? null,
-      attendance_value: String(entry.attendance_value ?? 1),
       regular_hours: entry.regular_hours != null ? String(entry.regular_hours) : autoHours.regular_hours,
       overtime_hours: entry.overtime_hours != null ? String(entry.overtime_hours) : autoHours.overtime_hours,
       started_at: entry.started_at ?? '',
@@ -345,7 +439,7 @@ export function TechAssistanceInspectorView({
       quantity: parseFloat(entryForm.quantity) || 0,
       location_label: entryForm.location_label,
       location_id: entryForm.location_id,
-      attendance_value: parseFloat(entryForm.attendance_value) || 1,
+      attendance_value: INSPECTOR_ATTENDANCE_VALUE,
       regular_hours: computedHours?.regularHours ?? null,
       overtime_hours: computedHours?.overtimeHours ?? null,
       notes: entryForm.notes,
@@ -467,8 +561,9 @@ export function TechAssistanceInspectorView({
               size="lg"
               variant="outline"
               onClick={() => void handleCheckIn()}
-              disabled={!entryForm.service_id}
-              className="h-14 border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10"
+              disabled={!canMarkWithGps}
+              title={!canMarkWithGps ? mapStatus.label : undefined}
+              className="h-14 border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10 disabled:opacity-50"
             >
               <MapPin className="mr-2 h-5 w-5 text-emerald-600" />
               {t('asistenciaTecnica.inspector.checkIn')}
@@ -478,8 +573,9 @@ export function TechAssistanceInspectorView({
               size="lg"
               variant="outline"
               onClick={() => void handleCheckOut()}
-              disabled={!entryForm.started_at || !entryForm.service_id}
-              className="h-14 border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10"
+              disabled={!canMarkWithGps || !entryForm.started_at}
+              title={!canMarkWithGps ? mapStatus.label : undefined}
+              className="h-14 border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 disabled:opacity-50"
             >
               <MapPin className="mr-2 h-5 w-5 text-amber-600" />
               {t('asistenciaTecnica.inspector.checkOut')}
@@ -526,14 +622,12 @@ export function TechAssistanceInspectorView({
             </div>
             <div className="space-y-2">
               <Label>{t('asistenciaTecnica.planilla.headers.attendance')}</Label>
-              <Input
-                type="number"
-                min={0}
-                step="0.1"
-                value={entryForm.attendance_value}
-                onChange={e => setEntryForm(f => ({ ...f, attendance_value: e.target.value }))}
-                className="bg-secondary border-border"
-              />
+              <div className="flex min-h-10 items-center rounded-md border border-border bg-secondary px-3 py-2 text-sm font-semibold">
+                {t('asistenciaTecnica.inspector.attendanceValue')}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t('asistenciaTecnica.inspector.attendanceFixed')}
+              </p>
             </div>
             <div className="space-y-2 sm:col-span-2">
               <Label>{t('asistenciaTecnica.inspector.notesOptional')}</Label>
@@ -543,6 +637,22 @@ export function TechAssistanceInspectorView({
                 className="bg-secondary border-border"
               />
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>{t('asistenciaTecnica.geofence.mapTitle')}</Label>
+            <TechAssistanceGeofenceMap
+              activeLocation={activeGeofence}
+              clientLocations={clientLocations}
+              userPosition={userPosition}
+              statusLabel={mapStatus.label}
+              statusTone={mapStatus.tone}
+            />
+            {!entryForm.service_id && clientLocations.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {t('asistenciaTecnica.geofence.clientLocationsHint')}
+              </p>
+            )}
           </div>
 
           <Button

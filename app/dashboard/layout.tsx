@@ -6,6 +6,7 @@ import { ViewAsProvider } from '@/components/dashboard/view-as-provider'
 import { SupportModeBanner } from '@/components/dashboard/support-mode-banner'
 import { getViewAsContext, VIEW_AS_COOKIE } from '@/lib/impersonation'
 import { compareModulesByAreaThenName } from '@/lib/modules/areas'
+import { isServicePlanId, type ServicePlanId } from '@/lib/subscription-plans'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,7 +24,7 @@ export default async function DashboardLayout({
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('id, full_name, email, role, is_active, avatar_url, is_tech_inspector')
+    .select('id, full_name, email, role, is_active, avatar_url, is_tech_inspector, parent_user_id')
     .eq('id', user.id)
     .single()
 
@@ -118,6 +119,25 @@ export default async function DashboardLayout({
     )
   }
 
+  async function resolveServicePlanId(
+    userId: string,
+    parentUserId?: string | null,
+  ): Promise<ServicePlanId | null> {
+    const ownerId = parentUserId ?? userId
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('service_plan_id')
+      .eq('id', ownerId)
+      .maybeSingle()
+    if (error?.message?.includes('service_plan_id')) return null
+    return isServicePlanId(data?.service_plan_id) ? data.service_plan_id : null
+  }
+
+  let shellServicePlanId = await resolveServicePlanId(
+    profile?.id ?? user.id,
+    profile?.parent_user_id,
+  )
+
   // In support mode, show target client identity in the shell sidebar
   let shellUser = {
     id: profile?.id ?? user.id,
@@ -129,22 +149,28 @@ export default async function DashboardLayout({
       'Usuario',
     role: profile?.role ?? 'user',
     avatar_url: profile?.avatar_url ?? null,
+    service_plan_id: shellServicePlanId,
   }
 
   if (isSupportMode && viewAs.viewAsUserId) {
     const { data: targetProfile } = await supabase
       .from('profiles')
-      .select('id, full_name, email, avatar_url')
+      .select('id, full_name, email, avatar_url, parent_user_id, service_plan_id')
       .eq('id', viewAs.viewAsUserId)
       .single()
 
     if (targetProfile) {
+      shellServicePlanId = await resolveServicePlanId(
+        targetProfile.id,
+        targetProfile.parent_user_id,
+      )
       shellUser = {
         id: targetProfile.id,
         email: targetProfile.email,
         full_name: targetProfile.full_name || targetProfile.email?.split('@')[0] || 'Cliente',
         role: 'user',
         avatar_url: targetProfile.avatar_url ?? null,
+        service_plan_id: shellServicePlanId,
       }
     }
   }

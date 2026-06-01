@@ -23,6 +23,7 @@ import {
 } from '@/app/actions/tech-assistance-location-actions'
 import { useLocale } from '@/components/i18n/locale-provider'
 import { cn } from '@/lib/utils'
+import { MAX_CLIENT_LOCATIONS } from '@/lib/tech-assistance/location-validation'
 
 interface TechAssistanceLocationsPanelProps {
   clientUserId: string | null
@@ -120,6 +121,10 @@ export function TechAssistanceLocationsPanel({ clientUserId }: TechAssistanceLoc
       toast.error(t('asistenciaTecnica.locations.validation'))
       return
     }
+    if (!editingId && locations.length >= MAX_CLIENT_LOCATIONS) {
+      toast.error(t('asistenciaTecnica.locations.limitOne'))
+      return
+    }
     startTransition(async () => {
       const res = await upsertTechLocationAction({
         id: editingId ?? undefined,
@@ -150,8 +155,12 @@ export function TechAssistanceLocationsPanel({ clientUserId }: TechAssistanceLoc
     )
   }
 
+  const hasLocation = locations.length >= MAX_CLIENT_LOCATIONS
+  const showCreateForm = !hasLocation || editingId
+
   return (
     <div className="space-y-4">
+      {showCreateForm ? (
       <Card className="border-border">
         <CardHeader>
           <CardTitle className="text-lg">
@@ -235,6 +244,11 @@ export function TechAssistanceLocationsPanel({ clientUserId }: TechAssistanceLoc
           </div>
         </CardContent>
       </Card>
+      ) : (
+        <p className="rounded-lg border border-border/60 bg-secondary/20 px-4 py-3 text-sm text-muted-foreground">
+          {t('asistenciaTecnica.locations.limitOneHint')}
+        </p>
+      )}
 
       <Card className="border-border">
         <CardContent className="pt-6">

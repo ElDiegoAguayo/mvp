@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient as createServerClient } from '@/lib/supabase/server'
 import type { TechAssistanceLocationRow } from '@/lib/tech-assistance/location-validation'
+import { MAX_CLIENT_LOCATIONS } from '@/lib/tech-assistance/location-validation'
 
 const REVALIDATE = '/dashboard/asistencia-tecnica'
 
@@ -66,7 +67,22 @@ export async function upsertTechLocationAction(input: {
       .eq('user_id', input.clientUserId)
     if (error) return { ok: false, message: error.message }
     revalidatePath(REVALIDATE)
+    revalidatePath('/dashboard/perfil')
     return { ok: true, id: input.id }
+  }
+
+  const { count, error: countError } = await supabase
+    .from('tech_assistance_locations')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', input.clientUserId)
+    .eq('is_active', true)
+
+  if (countError) return { ok: false, message: countError.message }
+  if ((count ?? 0) >= MAX_CLIENT_LOCATIONS) {
+    return {
+      ok: false,
+      message: 'Este cliente ya tiene una ubicación. Edítala o elimínala antes de agregar otra.',
+    }
   }
 
   const { data, error } = await supabase
@@ -77,6 +93,7 @@ export async function upsertTechLocationAction(input: {
 
   if (error) return { ok: false, message: error.message }
   revalidatePath(REVALIDATE)
+  revalidatePath('/dashboard/perfil')
   return { ok: true, id: data.id }
 }
 
@@ -96,6 +113,7 @@ export async function deactivateTechLocationAction(
 
   if (error) return { ok: false, message: error.message }
   revalidatePath(REVALIDATE)
+  revalidatePath('/dashboard/perfil')
   return { ok: true }
 }
 
@@ -103,3 +121,36 @@ export type TechLocationOption = Pick<
   TechAssistanceLocationRow,
   'id' | 'name' | 'lat' | 'lng' | 'radius_meters' | 'search_query'
 >
+
+export async function listClientLocationsAction(
+  clientUserId: string,
+): Promise<{ ok: true; locations: TechLocationOption[] } | { ok: false; message: string }> {
+  const supabase = await createServerClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { ok: false, message: 'No autenticado.' }
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role, parent_user_id, is_tech_inspector')
+    .eq('id', user.id)
+    .maybeSingle()
+
+  const isAdmin = profile?.role === 'admin'
+  const ownerId = profile?.parent_user_id ?? user.id
+
+  if (!isAdmin && clientUserId !== ownerId && clientUserId !== user.id) {
+    return { ok: false, message: 'No autorizado.' }
+  }
+
+  const { data, error } = await supabase
+    .from('tech_assistance_locations')
+    .select('id, name, lat, lng, radius_meters, search_query')
+    .eq('user_id', clientUserId)
+    .eq('is_active', true)
+    .order('name')
+
+  if (error) return { ok: false, message: error.message }
+  return { ok: true, locations: (data ?? []) as TechLocationOption[] }
+}

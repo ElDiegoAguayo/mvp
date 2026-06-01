@@ -4,7 +4,13 @@ import { Button } from '@/components/ui/button'
 import { AlertTriangle } from 'lucide-react'
 import { BRAND_NAME } from '@/lib/brand'
 
-export default function AuthErrorPage() {
+export default async function AuthErrorPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ reason?: string }>
+}) {
+  const { reason } = await searchParams
+
   return (
     <div className="flex min-h-screen items-center justify-center p-8">
       <div className="w-full max-w-md text-center">
@@ -18,9 +24,17 @@ export default function AuthErrorPage() {
           Error de Autenticación
         </h1>
         
-        <p className="text-muted-foreground mb-8 leading-relaxed">
+        <p className="text-muted-foreground mb-4 leading-relaxed">
           Ha ocurrido un error durante el proceso de autenticación. Por favor, intente nuevamente o contacte a soporte si el problema persiste.
         </p>
+
+        {reason && (
+          <p className="text-xs text-muted-foreground mb-8 rounded-lg border border-border bg-secondary/30 px-3 py-2 break-words">
+            Detalle: {decodeURIComponent(reason.replace(/\+/g, ' '))}
+          </p>
+        )}
+
+        {!reason && <div className="mb-8" />}
 
         <div className="flex flex-col gap-3">
           <Button asChild className="w-full h-12 bg-primary text-primary-foreground hover:bg-gold-light font-semibold">

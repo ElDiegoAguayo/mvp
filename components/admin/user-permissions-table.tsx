@@ -69,6 +69,7 @@ import { InspectorClientsDialog } from './inspector-clients-dialog'
 import { ModuleOrderDialog } from './module-order-dialog'
 import { ManageModuleAreasDialog } from './manage-module-areas-dialog'
 import { AssignServicePlanDialog } from './assign-service-plan-dialog'
+import { SendUserInviteButton } from './send-user-invite-button'
 import {
   getServicePlanBadgeClass,
   getServicePlanLabel,
@@ -1169,6 +1170,13 @@ export function UserPermissionsTable() {
                             >
                               <Pencil className="w-3.5 h-3.5" />
                             </Button>
+                            <SendUserInviteButton
+                              userId={user.id}
+                              email={user.email}
+                              size="icon"
+                              variant="ghost"
+                              className="text-muted-foreground hover:text-sky-600 hover:bg-sky-500/10"
+                            />
                             {!user.is_tech_inspector && (
                               <Button
                                 size="sm"
@@ -1561,6 +1569,14 @@ export function UserPermissionsTable() {
                     <Pencil className="w-4 h-4 mr-2" />
                     Editar
                   </Button>
+                  <SendUserInviteButton
+                    userId={user.id}
+                    email={user.email}
+                    fullName={user.full_name}
+                    variant="outline"
+                    size="sm"
+                    className="flex-1 border-sky-500/30 text-sky-700 dark:text-sky-400 hover:bg-sky-500/10"
+                  />
                   {!user.is_tech_inspector && (
                     <Button
                       size="sm"

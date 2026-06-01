@@ -151,6 +151,15 @@ export const en: Messages = {
         },
       },
     },
+    locations: {
+      title: 'Work location',
+      description: 'Place registered for your technical assistance services and geofence control.',
+      none: 'You do not have a location registered yet. Contact Up Crop to set it up.',
+      radius: 'Geofence radius: {meters} m',
+      mapHint: 'Map of your registered location.',
+      adminOptionalTitle: 'Work location (optional)',
+      adminOptionalHint: 'You can register the place now or add it later when editing the client. Only one location per client is allowed.',
+    },
   },
   storage: {
     title: 'Storage',

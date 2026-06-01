@@ -281,7 +281,11 @@ export async function createTechEntryAction(input: {
 
   const quantity = Number(input.quantity) || 0
   const amounts = calculateTechAmounts(quantity, Number(service.unit_price_net))
-  const attendanceValue = input.attendance_value != null ? Number(input.attendance_value) : 1
+  const attendanceValue = isInspector
+    ? 1
+    : input.attendance_value != null
+      ? Number(input.attendance_value)
+      : 1
 
   const { data, error } = await supabase
     .from('tech_assistance_entries')
@@ -404,7 +408,11 @@ export async function updateTechEntryAction(input: {
   if (input.check_out_lat !== undefined) patch.check_out_lat = input.check_out_lat
   if (input.check_out_lng !== undefined) patch.check_out_lng = input.check_out_lng
   if (input.location_label !== undefined) patch.location_label = input.location_label.trim() || null
-  if (input.attendance_value != null) patch.attendance_value = Number(input.attendance_value)
+  if (isInspector) {
+    patch.attendance_value = 1
+  } else if (input.attendance_value != null) {
+    patch.attendance_value = Number(input.attendance_value)
+  }
   if (input.regular_hours !== undefined) patch.regular_hours = input.regular_hours
   if (input.overtime_hours !== undefined) patch.overtime_hours = input.overtime_hours
   if (input.notes !== undefined) patch.notes = input.notes.trim() || null

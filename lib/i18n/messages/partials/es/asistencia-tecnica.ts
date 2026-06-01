@@ -86,7 +86,7 @@ export const asistenciaTecnica = {
     createTitle: 'Nueva ubicación',
     editTitle: 'Editar ubicación',
     description:
-      'Define el nombre del lugar, busca las coordenadas escribiendo la dirección y fija el radio permitido para marcar asistencia.',
+      'Define el nombre del lugar, busca las coordenadas escribiendo la dirección y fija el radio permitido para marcar asistencia. Cada cliente puede tener solo una ubicación.',
     nameLabel: 'Nombre del lugar',
     namePlaceholder: 'Fundo BellaVista – Cuartel 3',
     searchLabel: 'Buscar dirección o referencia',
@@ -104,7 +104,9 @@ export const asistenciaTecnica = {
     saved: 'Ubicación guardada',
     updated: 'Ubicación actualizada',
     deleted: 'Ubicación eliminada',
-    none: 'Sin ubicaciones configuradas.',
+    none: 'Sin ubicación configurada.',
+    limitOne: 'Este cliente ya tiene una ubicación registrada.',
+    limitOneHint: 'Ya hay una ubicación configurada. Edítala o elimínala para registrar otra.',
     selectClientFirst: 'Selecciona un cliente arriba para gestionar ubicaciones.',
     tableName: 'Lugar',
     tableCoords: 'Coordenadas',
@@ -115,6 +117,13 @@ export const asistenciaTecnica = {
     radiusInfo: 'Radio permitido: {meters} m desde el punto configurado.',
     locationFromService: 'Definida en la labor seleccionada.',
     noLocationOnService: 'Esta labor no tiene ubicación con geocerca. Contacta a Up Crop.',
+    mapTitle: 'Mapa del lugar de trabajo',
+    selectLaborForMap: 'Selecciona una labor para ver la geocerca del sitio.',
+    clientLocationsHint: 'Ubicaciones configuradas para este cliente.',
+    inside: 'Estás dentro del radio permitido. Puedes marcar entrada o salida.',
+    outside: 'Estás fuera del radio. Acércate al lugar para marcar.',
+    waitingGps: 'Esperando tu ubicación GPS…',
+    gpsUnavailable: 'No se pudo obtener tu ubicación.',
   },
   correction: {
     editTitle: 'Completar / corregir registro',
@@ -179,6 +188,8 @@ export const asistenciaTecnica = {
     gpsRequired: 'Debes marcar entrada con GPS antes de guardar',
     todayOnlyHint: 'Solo puedes registrar asistencia del día de hoy.',
     pastRecordReadOnly: 'Los registros de días anteriores no se pueden modificar.',
+    attendanceFixed: 'Tu asistencia cuenta como 1 automáticamente.',
+    attendanceValue: '1 día',
   },
   planilla: {
     clientInfo:

@@ -12,6 +12,20 @@ export async function GET(request: NextRequest) {
     if (!error) {
       return NextResponse.redirect(`${origin}${next}`)
     }
+    const errorUrl = new URL(`${origin}/auth/error`)
+    errorUrl.searchParams.set('reason', error.message)
+    return NextResponse.redirect(errorUrl.toString())
+  }
+
+  const authError =
+    searchParams.get('error_description') ??
+    searchParams.get('error') ??
+    searchParams.get('reason')
+
+  if (authError) {
+    const errorUrl = new URL(`${origin}/auth/error`)
+    errorUrl.searchParams.set('reason', authError)
+    return NextResponse.redirect(errorUrl.toString())
   }
 
   return NextResponse.redirect(`${origin}/auth/error`)

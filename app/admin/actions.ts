@@ -136,6 +136,7 @@ export async function getIpGeolocationsAction(ips: string[]): Promise<Record<str
 export type CreateUserState = {
   ok: boolean
   message: string
+  userId?: string
 }
 
 /**
@@ -272,6 +273,233 @@ export async function createUserAction(
   return {
     ok: true,
     message: `Cuenta creada para ${fullName} (${email}).`,
+    userId: created.user.id,
+  }
+}
+
+export type SendUserInviteState = {
+  ok: boolean
+  message: string
+}
+
+export type InviteUserState = {
+  ok: boolean
+  message: string
+  userId?: string
+}
+
+async function requireAdminCaller() {
+  const supabase = await createServerClient()
+  const {
+    data: { user: caller },
+  } = await supabase.auth.getUser()
+  if (!caller) return { supabase, caller: null, isAdmin: false as const }
+
+  const { data: callerProfile } = await supabase
+    .from('profiles')
+    .select('role, full_name, email')
+    .eq('id', caller.id)
+    .single()
+
+  return {
+    supabase,
+    caller,
+    isAdmin: callerProfile?.role === 'admin',
+    callerProfile,
+  }
+}
+
+/**
+ * Sends a registration invite email to an existing user (or resends if pending).
+ * Uses Supabase Auth emails — configure SMTP/templates in the Supabase dashboard.
+ */
+export async function sendUserRegistrationInviteAction(
+  userId: string,
+): Promise<SendUserInviteState> {
+  const { supabase, caller, isAdmin, callerProfile } = await requireAdminCaller()
+  if (!caller) return { ok: false, message: 'Sesión expirada. Vuelve a iniciar sesión.' }
+  if (!isAdmin) return { ok: false, message: 'Solo administradores pueden enviar invitaciones.' }
+
+  const trimmedId = userId.trim()
+  if (!trimmedId) return { ok: false, message: 'Usuario no válido.' }
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('id, full_name, email, is_active')
+    .eq('id', trimmedId)
+    .maybeSingle()
+
+  if (!profile?.email) {
+    return { ok: false, message: 'Este usuario no tiene correo registrado.' }
+  }
+
+  const email = profile.email.trim().toLowerCase()
+
+  const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+  if (!supabaseUrl || !serviceKey || !anonKey) {
+    return { ok: false, message: 'Configuración del servidor incompleta para enviar correos.' }
+  }
+
+  const { buildAuthCallbackUrl } = await import('@/lib/auth/site-url')
+  const inviteRedirect = buildAuthCallbackUrl('/auth/registro')
+  const welcomeRedirect = buildAuthCallbackUrl('/auth/registro?flow=welcome')
+
+  const adminClient = createSupabaseClient(supabaseUrl, serviceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+
+  const { data: authData, error: authLookupError } =
+    await adminClient.auth.admin.getUserById(trimmedId)
+
+  if (authLookupError && !authLookupError.message.toLowerCase().includes('not found')) {
+    return { ok: false, message: authLookupError.message }
+  }
+
+  const authUser = authData?.user
+  let delivery: 'invite' | 'welcome' = 'invite'
+
+  if (!authUser) {
+    const { error } = await adminClient.auth.admin.inviteUserByEmail(email, {
+      redirectTo: inviteRedirect,
+    })
+    if (error) return { ok: false, message: error.message }
+  } else if (authUser.invited_at && !authUser.email_confirmed_at) {
+    const { error } = await adminClient.auth.admin.inviteUserByEmail(email, {
+      redirectTo: inviteRedirect,
+    })
+    if (error) return { ok: false, message: error.message }
+  } else {
+    delivery = 'welcome'
+    const anonClient = createSupabaseClient(supabaseUrl, anonKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    })
+    const { error } = await anonClient.auth.resetPasswordForEmail(email, {
+      redirectTo: welcomeRedirect,
+    })
+    if (error) return { ok: false, message: error.message }
+  }
+
+  const actorLabel =
+    callerProfile?.full_name || callerProfile?.email || 'Admin'
+
+  await logAudit(
+    adminClient,
+    {
+      action_type: 'SEND_USER_INVITE',
+      target_type: 'user',
+      target_id: trimmedId,
+      target_label: email,
+      description: `${actorLabel} envió invitación de registro a ${email}.`,
+      metadata: { delivery },
+    },
+    {
+      actor_id: caller.id,
+      actor_email: callerProfile?.email ?? caller.email ?? null,
+      actor_name: callerProfile?.full_name ?? null,
+    },
+  )
+
+  revalidatePath('/admin')
+  return {
+    ok: true,
+    message: `Enviamos un enlace a ${email} para que active su cuenta.`,
+  }
+}
+
+/**
+ * Creates a user by email invitation (no admin-chosen password).
+ * The invitee completes registration via the link in their inbox.
+ */
+export async function inviteUserByEmailAction(
+  _prev: InviteUserState | undefined,
+  formData: FormData,
+): Promise<InviteUserState> {
+  const email = String(formData.get('email') ?? '').trim().toLowerCase()
+  const role = String(formData.get('role') ?? 'user')
+
+  if (!email) {
+    return { ok: false, message: 'El correo es obligatorio.' }
+  }
+  if (!['admin', 'user'].includes(role)) {
+    return { ok: false, message: 'Rol inválido.' }
+  }
+
+  const { supabase, caller, isAdmin, callerProfile } = await requireAdminCaller()
+  if (!caller) return { ok: false, message: 'Sesión expirada. Vuelve a iniciar sesión.' }
+  if (!isAdmin) return { ok: false, message: 'Solo administradores pueden invitar usuarios.' }
+
+  const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!supabaseUrl || !serviceKey) {
+    return { ok: false, message: 'Configuración del servidor incompleta.' }
+  }
+
+  const { buildAuthCallbackUrl } = await import('@/lib/auth/site-url')
+  const redirectTo = buildAuthCallbackUrl('/auth/registro')
+
+  const adminClient = createSupabaseClient(supabaseUrl, serviceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+
+  const { data: invited, error: inviteError } =
+    await adminClient.auth.admin.inviteUserByEmail(email, {
+      redirectTo,
+    })
+
+  if (inviteError || !invited.user) {
+    const msg = inviteError?.message ?? 'No se pudo enviar la invitación.'
+    if (msg.toLowerCase().includes('already registered') || msg.toLowerCase().includes('exists')) {
+      return { ok: false, message: 'Ya existe un usuario con ese email.' }
+    }
+    return { ok: false, message: msg }
+  }
+
+  const { error: profileError } = await adminClient
+    .from('profiles')
+    .update({
+      full_name: null,
+      email,
+      role,
+      is_active: true,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', invited.user.id)
+
+  if (profileError) {
+    return {
+      ok: false,
+      message: `Invitación enviada, pero falló la actualización del perfil: ${profileError.message}`,
+    }
+  }
+
+  const actorLabel =
+    callerProfile?.full_name || callerProfile?.email || 'Admin'
+
+  await logAudit(
+    adminClient,
+    {
+      action_type: 'SEND_USER_INVITE',
+      target_type: 'user',
+      target_id: invited.user.id,
+      target_label: email,
+      description: `${actorLabel} invitó por correo a ${email} con rol ${role}.`,
+      metadata: { role, created: true },
+    },
+    {
+      actor_id: caller.id,
+      actor_email: callerProfile?.email ?? caller.email ?? null,
+      actor_name: callerProfile?.full_name ?? null,
+    },
+  )
+
+  revalidatePath('/admin')
+  return {
+    ok: true,
+    message: `Enviamos un enlace a ${email} para que active su cuenta.`,
+    userId: invited.user.id,
   }
 }
 

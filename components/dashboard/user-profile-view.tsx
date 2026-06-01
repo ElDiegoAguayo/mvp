@@ -21,6 +21,7 @@ import { getModuleIcon } from '@/lib/module-icons'
 import { STORAGE_PLANS } from '@/lib/vault-storage'
 import { cn } from '@/lib/utils'
 import type { ProfilePageData } from '@/app/actions/profile-actions'
+import { ClientLocationsProfileSection } from '@/components/dashboard/client-locations-profile-section'
 
 interface UserProfileViewProps {
   data: ProfilePageData
@@ -41,7 +42,7 @@ function formatMemberSince(iso: string | null, locale: string): string {
 
 export function UserProfileView({ data }: UserProfileViewProps) {
   const { locale, t, tModule } = useLocale()
-  const { profile, storagePlan, enabledModules, servicePlanId } = data
+  const { profile, storagePlan, enabledModules, servicePlanId, showClientLocations, clientLocations } = data
 
   const roleLabel =
     profile.role === 'admin'
@@ -233,6 +234,10 @@ export function UserProfileView({ data }: UserProfileViewProps) {
           </Card>
         </div>
       </div>
+
+      {showClientLocations && (
+        <ClientLocationsProfileSection locations={clientLocations} />
+      )}
 
       <SubscriptionPlansShowcase id={SERVICE_PLANS_SECTION_ID} currentPlanId={servicePlanId} />
     </div>

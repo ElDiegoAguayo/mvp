@@ -32,7 +32,16 @@ import {
   Shuffle,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { createUserAction } from '@/app/admin/actions'
+import { createUserAction, inviteUserByEmailAction } from '@/app/admin/actions'
+import { upsertTechLocationAction } from '@/app/actions/tech-assistance-location-actions'
+import {
+  ClientLocationFormFields,
+  emptyClientLocationForm,
+  hasClientLocationDraft,
+  type ClientLocationFormValues,
+} from '@/components/admin/client-location-form-fields'
+import { useLocale } from '@/components/i18n/locale-provider'
+import { Switch } from '@/components/ui/switch'
 
 interface CreateUserDialogProps {
   open: boolean
@@ -52,12 +61,16 @@ function generatePassword(): string {
 }
 
 export function CreateUserDialog({ open, onOpenChange }: CreateUserDialogProps) {
+  const { t } = useLocale()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [fullName, setFullName] = useState('')
   const [role, setRole] = useState<'user' | 'admin'>('user')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [locationForm, setLocationForm] = useState<ClientLocationFormValues>(emptyClientLocationForm())
+  const [geocoding, setGeocoding] = useState(false)
+  const [inviteByEmail, setInviteByEmail] = useState(false)
   const [isPending, startTransition] = useTransition()
   const firstFieldRef = useRef<HTMLInputElement>(null)
 
@@ -75,6 +88,38 @@ export function CreateUserDialog({ open, onOpenChange }: CreateUserDialogProps) 
     setRole('user')
     setShowPassword(false)
     setError(null)
+    setLocationForm(emptyClientLocationForm())
+    setGeocoding(false)
+    setInviteByEmail(false)
+  }
+
+  const handleGeocode = async () => {
+    const query = locationForm.search_query.trim() || locationForm.name.trim()
+    if (!query) {
+      toast.error(t('asistenciaTecnica.locations.searchRequired'))
+      return
+    }
+    setGeocoding(true)
+    try {
+      const res = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`)
+      const data = await res.json()
+      if (!data.ok) {
+        toast.error(data.message ?? t('asistenciaTecnica.locations.geocodeFailed'))
+        return
+      }
+      setLocationForm(f => ({
+        ...f,
+        search_query: query,
+        lat: String(data.lat),
+        lng: String(data.lng),
+        name: f.name.trim() || query.split(',')[0]?.trim() || f.name,
+      }))
+      toast.success(t('asistenciaTecnica.locations.geocodeSuccess'))
+    } catch {
+      toast.error(t('asistenciaTecnica.locations.geocodeFailed'))
+    } finally {
+      setGeocoding(false)
+    }
   }
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -83,18 +128,46 @@ export function CreateUserDialog({ open, onOpenChange }: CreateUserDialogProps) 
 
     const fd = new FormData()
     fd.set('email', email)
-    fd.set('password', password)
-    fd.set('full_name', fullName)
     fd.set('role', role)
 
+    if (!inviteByEmail) {
+      fd.set('full_name', fullName)
+      fd.set('password', password)
+    }
+
     startTransition(async () => {
-      const result = await createUserAction(undefined, fd)
+      const result = inviteByEmail
+        ? await inviteUserByEmailAction(undefined, fd)
+        : await createUserAction(undefined, fd)
       if (!result.ok) {
         setError(result.message)
-        toast.error('No se pudo crear el usuario', { description: result.message })
+        toast.error(
+          inviteByEmail ? 'No se pudo enviar la invitación' : 'No se pudo crear el usuario',
+          { description: result.message },
+        )
         return
       }
-      toast.success('Cliente registrado', { description: result.message })
+
+      if (role === 'user' && result.userId && hasClientLocationDraft(locationForm)) {
+        const locResult = await upsertTechLocationAction({
+          clientUserId: result.userId,
+          name: locationForm.name.trim(),
+          search_query: locationForm.search_query.trim() || null,
+          lat: Number(locationForm.lat),
+          lng: Number(locationForm.lng),
+          radius_meters: Number(locationForm.radius_meters) || 500,
+        })
+        if (!locResult.ok) {
+          toast.warning('Cliente creado, pero no se guardó la ubicación', {
+            description: locResult.message,
+          })
+        }
+      }
+
+      toast.success(
+        inviteByEmail ? 'Correo enviado' : 'Cliente registrado',
+        { description: result.message },
+      )
       resetForm()
       onOpenChange(false)
     })
@@ -136,26 +209,6 @@ export function CreateUserDialog({ open, onOpenChange }: CreateUserDialogProps) 
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="new-name" className="text-foreground">
-              Nombre completo
-            </Label>
-            <div className="relative">
-              <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                id="new-name"
-                ref={firstFieldRef}
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                placeholder="Juan Pérez"
-                required
-                disabled={isPending}
-                autoComplete="off"
-                className="pl-9 bg-background border-border"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-2">
             <Label htmlFor="new-email" className="text-foreground">
               Email
             </Label>
@@ -163,6 +216,7 @@ export function CreateUserDialog({ open, onOpenChange }: CreateUserDialogProps) 
               <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 id="new-email"
+                ref={firstFieldRef}
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -175,6 +229,45 @@ export function CreateUserDialog({ open, onOpenChange }: CreateUserDialogProps) 
             </div>
           </div>
 
+          {!inviteByEmail && (
+          <div className="space-y-2">
+            <Label htmlFor="new-name" className="text-foreground">
+              Nombre completo
+            </Label>
+            <div className="relative">
+              <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                id="new-name"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder="Juan Pérez"
+                required
+                disabled={isPending}
+                autoComplete="off"
+                className="pl-9 bg-background border-border"
+              />
+            </div>
+          </div>
+          )}
+
+          <div className="flex items-center justify-between rounded-lg border border-border/60 bg-secondary/20 px-3 py-2.5">
+            <div className="space-y-0.5 pr-3">
+              <Label htmlFor="invite-by-email" className="text-sm font-medium">
+                Invitar por correo
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Solo necesitas el email. La persona activará su cuenta desde el enlace del correo.
+              </p>
+            </div>
+            <Switch
+              id="invite-by-email"
+              checked={inviteByEmail}
+              onCheckedChange={setInviteByEmail}
+              disabled={isPending}
+            />
+          </div>
+
+          {!inviteByEmail && (
           <div className="space-y-2">
             <Label htmlFor="new-password" className="text-foreground">
               Contraseña
@@ -187,8 +280,8 @@ export function CreateUserDialog({ open, onOpenChange }: CreateUserDialogProps) 
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Mínimo 8 caracteres"
-                required
-                minLength={8}
+                required={!inviteByEmail}
+                minLength={inviteByEmail ? undefined : 8}
                 disabled={isPending}
                 autoComplete="new-password"
                 className="pl-9 pr-20 bg-background border-border"
@@ -226,6 +319,7 @@ export function CreateUserDialog({ open, onOpenChange }: CreateUserDialogProps) 
               Compártela con el cliente por un canal seguro.
             </p>
           </div>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="new-role" className="text-foreground">
@@ -246,6 +340,16 @@ export function CreateUserDialog({ open, onOpenChange }: CreateUserDialogProps) 
             </Select>
           </div>
 
+          {role === 'user' && (
+            <ClientLocationFormFields
+              form={locationForm}
+              onChange={setLocationForm}
+              geocoding={geocoding}
+              onGeocode={handleGeocode}
+              disabled={isPending}
+            />
+          )}
+
           <DialogFooter className="gap-2 sm:gap-2">
             <Button
               type="button"
@@ -264,7 +368,12 @@ export function CreateUserDialog({ open, onOpenChange }: CreateUserDialogProps) 
               {isPending ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Creando...
+                  {inviteByEmail ? 'Enviando...' : 'Creando...'}
+                </>
+              ) : inviteByEmail ? (
+                <>
+                  <Mail className="w-4 h-4 mr-2" />
+                  Enviar invitación
                 </>
               ) : (
                 <>

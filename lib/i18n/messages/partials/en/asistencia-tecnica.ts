@@ -85,7 +85,7 @@ export const asistenciaTecnica = {
     createTitle: 'New location',
     editTitle: 'Edit location',
     description:
-      'Set the place name, search coordinates by typing the address, and define the allowed check-in radius.',
+      'Set the place name, search coordinates by typing the address, and define the allowed check-in radius. Each client may have only one location.',
     nameLabel: 'Place name',
     namePlaceholder: 'BellaVista Farm – Block 3',
     searchLabel: 'Search address or reference',
@@ -103,7 +103,9 @@ export const asistenciaTecnica = {
     saved: 'Location saved',
     updated: 'Location updated',
     deleted: 'Location removed',
-    none: 'No locations configured.',
+    none: 'No location configured.',
+    limitOne: 'This client already has a registered location.',
+    limitOneHint: 'A location is already configured. Edit or remove it to register another.',
     selectClientFirst: 'Select a client above to manage locations.',
     tableName: 'Place',
     tableCoords: 'Coordinates',
@@ -114,6 +116,13 @@ export const asistenciaTecnica = {
     radiusInfo: 'Allowed radius: {meters} m from the configured point.',
     locationFromService: 'Set by the selected labor.',
     noLocationOnService: 'This labor has no geofenced location. Contact Up Crop.',
+    mapTitle: 'Work site map',
+    selectLaborForMap: 'Select a labor to see the site geofence.',
+    clientLocationsHint: 'Locations configured for this client.',
+    inside: 'You are within the allowed radius. You can check in or out.',
+    outside: 'You are outside the radius. Move closer to check in.',
+    waitingGps: 'Waiting for your GPS location…',
+    gpsUnavailable: 'Could not get your location.',
   },
   correction: {
     editTitle: 'Complete / correct record',
@@ -179,6 +188,8 @@ export const asistenciaTecnica = {
     gpsRequired: 'You must check in with GPS before saving',
     todayOnlyHint: 'You can only register attendance for today.',
     pastRecordReadOnly: 'Records from previous days cannot be modified.',
+    attendanceFixed: 'Your attendance counts as 1 automatically.',
+    attendanceValue: '1 day',
   },
   planilla: {
     clientInfo:
