@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useLocale } from '@/components/i18n/locale-provider'
+import { LocationPreviewMap } from '@/components/shared/location-preview-map'
 
 export type ClientLocationFormValues = {
   name: string
@@ -12,6 +13,7 @@ export type ClientLocationFormValues = {
   lat: string
   lng: string
   radius_meters: string
+  resolved_address: string
 }
 
 export const emptyClientLocationForm = (): ClientLocationFormValues => ({
@@ -20,6 +22,7 @@ export const emptyClientLocationForm = (): ClientLocationFormValues => ({
   lat: '',
   lng: '',
   radius_meters: '500',
+  resolved_address: '',
 })
 
 interface ClientLocationFormFieldsProps {
@@ -82,9 +85,13 @@ export function ClientLocationFormFields({
       </div>
 
       {form.lat && form.lng && (
-        <p className="text-xs tabular-nums text-emerald-700 dark:text-emerald-400">
-          {Number(form.lat).toFixed(5)}, {Number(form.lng).toFixed(5)}
-        </p>
+        <LocationPreviewMap
+          lat={form.lat}
+          lng={form.lng}
+          radiusMeters={form.radius_meters}
+          displayName={form.resolved_address || form.search_query || null}
+          label={form.name || null}
+        />
       )}
 
       <div className="space-y-2">

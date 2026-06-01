@@ -64,6 +64,7 @@ import { useLocale } from '@/components/i18n/locale-provider'
 import { TechAssistancePlanillaTable } from '@/components/dashboard/asistencia-tecnica/tech-assistance-planilla-table'
 import { TechAssistanceSchedulePanel } from '@/components/dashboard/asistencia-tecnica/tech-assistance-schedule-panel'
 import { TechAssistanceLocationsPanel } from '@/components/dashboard/asistencia-tecnica/tech-assistance-locations-panel'
+import { defaultClientLocationId } from '@/lib/tech-assistance/location-validation'
 import { exportPlanillaExcel } from '@/lib/tech-assistance/export-planilla-excel'
 import {
   formatServicePeriod,
@@ -80,19 +81,23 @@ export interface TechAssistanceClientOption {
   label: string
 }
 
-async function captureGeolocation(): Promise<{ lat: number; lng: number } | null> {
-  if (typeof navigator === 'undefined' || !navigator.geolocation) return null
-  return new Promise(resolve => {
-    navigator.geolocation.getCurrentPosition(
-      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => resolve(null),
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
-    )
-  })
-}
-
 function todayISO() {
   return new Date().toISOString().slice(0, 10)
+}
+
+function toDatetimeLocalValue(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const tzOffset = d.getTimezoneOffset() * 60_000
+  return new Date(d.getTime() - tzOffset).toISOString().slice(0, 16)
+}
+
+function fromDatetimeLocalValue(value: string): string {
+  if (!value) return ''
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toISOString()
 }
 
 const emptyEntryForm = () => ({
@@ -155,7 +160,7 @@ export function TechAssistanceManager({
       unit_price_net: '',
       period_start: '',
       period_end: '',
-      location_id: '',
+      location_id: defaultClientLocationId(locations),
     })
   }
 
@@ -234,6 +239,12 @@ export function TechAssistanceManager({
   }, [loadData])
 
   useEffect(() => {
+    const autoId = defaultClientLocationId(locations)
+    if (!autoId || editingServiceId) return
+    setServiceForm(f => (f.location_id === autoId ? f : { ...f, location_id: autoId }))
+  }, [locations, editingServiceId])
+
+  useEffect(() => {
     if (isAdmin && clients.length && !clientUserId) {
       setClientUserId(clients[0].id)
     }
@@ -292,43 +303,44 @@ export function TechAssistanceManager({
     return { totalOpen, approved, openCount: open.length }
   }, [entries, proformas])
 
-  const handleCheckIn = async () => {
-    const loc = await captureGeolocation()
-    if (!loc) {
-      toast.error(t('asistenciaTecnica.geo.failed'))
-      return
-    }
-    const now = new Date()
+  const resolveSiteCoords = useCallback((): { lat: number; lng: number } | null => {
+    const locId = entryForm.location_id
+    const loc = locId ? locations.find(l => l.id === locId) : null
+    const target = loc ?? locations[0] ?? null
+    if (!target) return null
+    return { lat: target.lat, lng: target.lng }
+  }, [entryForm.location_id, locations])
+
+  const handleCheckInTimeChange = (value: string) => {
+    const started_at = fromDatetimeLocalValue(value)
+    const coords = started_at ? resolveSiteCoords() : null
     setEntryForm(f => ({
       ...f,
-      started_at: now.toISOString(),
-      check_in_lat: loc.lat,
-      check_in_lng: loc.lng,
-      attendance_value: f.attendance_value || '1',
+      started_at,
+      check_in_lat: started_at && coords ? coords.lat : null,
+      check_in_lng: started_at && coords ? coords.lng : null,
+      ...(started_at ? {} : { ended_at: '', check_out_lat: null, check_out_lng: null }),
     }))
-    toast.success(t('asistenciaTecnica.correction.checkInSuccess'))
   }
 
-  const handleCheckOut = async () => {
-    const loc = await captureGeolocation()
-    if (!loc) {
-      toast.error(t('asistenciaTecnica.geo.failedShort'))
-      return
-    }
-    const ended_at = new Date().toISOString()
+  const handleCheckOutTimeChange = (value: string) => {
+    const ended_at = fromDatetimeLocalValue(value)
     setEntryForm(f => {
-      const hours = hoursBreakdownToFormValues(
-        computeWorkHoursFromTimestamps(f.started_at, ended_at),
-      )
+      const coords = ended_at ? resolveSiteCoords() : null
+      const hours =
+        ended_at && f.started_at
+          ? hoursBreakdownToFormValues(
+              computeWorkHoursFromTimestamps(f.started_at, ended_at),
+            )
+          : {}
       return {
         ...f,
         ended_at,
-        check_out_lat: loc.lat,
-        check_out_lng: loc.lng,
+        check_out_lat: ended_at && coords ? coords.lat : null,
+        check_out_lng: ended_at && coords ? coords.lng : null,
         ...hours,
       }
     })
-    toast.success(t('asistenciaTecnica.correction.checkOutSuccess'))
   }
 
   const handleEditService = (service: TechAssistanceService) => {
@@ -348,7 +360,7 @@ export function TechAssistanceManager({
       toast.error(t('asistenciaTecnica.services.validation'))
       return
     }
-    if (!serviceForm.location_id) {
+    if (!serviceForm.location_id && !defaultClientLocationId(locations)) {
       toast.error(t('asistenciaTecnica.services.locationRequired'))
       return
     }
@@ -359,7 +371,9 @@ export function TechAssistanceManager({
       return
     }
     startTransition(async () => {
-      const selectedLoc = locations.find(l => l.id === serviceForm.location_id)
+      const selectedLoc =
+        locations.find(l => l.id === serviceForm.location_id) ?? locations[0] ?? null
+      const locationId = serviceForm.location_id || defaultClientLocationId(locations)
       const res = await upsertTechServiceAction({
         id: editingServiceId ?? undefined,
         clientUserId: effectiveClientId ?? undefined,
@@ -368,7 +382,7 @@ export function TechAssistanceManager({
         unit_price_net: parseFloat(serviceForm.unit_price_net),
         period_start: serviceForm.period_start || null,
         period_end: serviceForm.period_end || null,
-        location_id: serviceForm.location_id || null,
+        location_id: locationId || null,
         location_label: selectedLoc?.name ?? null,
       })
       if (res.ok) {
@@ -537,13 +551,19 @@ export function TechAssistanceManager({
         </Card>
       </div>
 
-      <Tabs defaultValue={isClientView ? 'planilla' : 'asistencia'} className="space-y-4">
+      <Tabs defaultValue={isClientView ? 'planilla' : 'servicios'} className="space-y-4">
         <TabsList
           className={cn(
             'grid w-full bg-secondary',
             isClientView ? 'grid-cols-2' : 'grid-cols-2 lg:grid-cols-5',
           )}
         >
+          {!isClientView && (
+            <TabsTrigger value="servicios" className="gap-1.5">
+              <Plus className="h-4 w-4" />
+              {t('asistenciaTecnica.tabs.services')}
+            </TabsTrigger>
+          )}
           {!isClientView && (
             <TabsTrigger value="asistencia" className="gap-1.5">
               <HardHat className="h-4 w-4" />
@@ -554,12 +574,6 @@ export function TechAssistanceManager({
             <FileSpreadsheet className="h-4 w-4" />
             {isClientView ? t('asistenciaTecnica.tabs.records') : t('asistenciaTecnica.tabs.planilla')}
           </TabsTrigger>
-          {!isClientView && (
-            <TabsTrigger value="servicios" className="gap-1.5">
-              <Plus className="h-4 w-4" />
-              {t('asistenciaTecnica.tabs.services')}
-            </TabsTrigger>
-          )}
           {!isClientView && (
             <TabsTrigger value="ubicaciones" className="gap-1.5">
               <MapPin className="h-4 w-4" />
@@ -620,27 +634,38 @@ export function TechAssistanceManager({
               </p>
               <div className="space-y-2 sm:col-span-2">
                 <Label>{t('asistenciaTecnica.services.locationSelectLabel')}</Label>
-                <Select
-                  value={serviceForm.location_id}
-                  onValueChange={v => setServiceForm(f => ({ ...f, location_id: v }))}
-                >
-                  <SelectTrigger className="bg-secondary border-border">
-                    <SelectValue placeholder={t('asistenciaTecnica.services.locationSelectPlaceholder')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {locations.map(loc => (
-                      <SelectItem key={loc.id} value={loc.id}>
-                        {loc.name} ({loc.radius_meters} m)
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {locations.length === 0 && (
-                  <p className="text-xs text-amber-600 dark:text-amber-400">
-                    {t('asistenciaTecnica.services.noLocationsHint')}
-                  </p>
+                {locations.length > 0 ? (
+                  <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-secondary/30 px-3 py-2.5">
+                    <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground">
+                        {locations[0].name}{' '}
+                        <span className="font-normal text-muted-foreground">
+                          ({locations[0].radius_meters} m)
+                        </span>
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {t('asistenciaTecnica.services.locationAutoAssigned')}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <Select
+                      value={serviceForm.location_id}
+                      onValueChange={v => setServiceForm(f => ({ ...f, location_id: v }))}
+                      disabled
+                    >
+                      <SelectTrigger className="bg-secondary border-border">
+                        <SelectValue placeholder={t('asistenciaTecnica.services.locationSelectPlaceholder')} />
+                      </SelectTrigger>
+                      <SelectContent />
+                    </Select>
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      {t('asistenciaTecnica.services.noLocationsHint')}
+                    </p>
+                  </>
                 )}
-                <p className="text-xs text-muted-foreground">{t('asistenciaTecnica.services.locationHint')}</p>
               </div>
               <div className="space-y-2">
                 <Label>{t('asistenciaTecnica.services.billingTypeLabel')}</Label>
@@ -859,22 +884,30 @@ export function TechAssistanceManager({
                 </div>
               </div>
 
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="outline" onClick={() => void handleCheckIn()} className="border-border">
-                  <MapPin className="mr-2 h-4 w-4 text-emerald-600" />
-                  {t('asistenciaTecnica.correction.checkInGps')}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => void handleCheckOut()}
-                  disabled={!entryForm.started_at}
-                  className="border-border"
-                >
-                  <MapPin className="mr-2 h-4 w-4 text-amber-600" />
-                  {t('asistenciaTecnica.correction.checkOutGps')}
-                </Button>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>{t('asistenciaTecnica.correction.checkInTime')}</Label>
+                  <Input
+                    type="datetime-local"
+                    value={toDatetimeLocalValue(entryForm.started_at)}
+                    onChange={e => handleCheckInTimeChange(e.target.value)}
+                    className="bg-secondary border-border"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t('asistenciaTecnica.correction.checkOutTime')}</Label>
+                  <Input
+                    type="datetime-local"
+                    value={toDatetimeLocalValue(entryForm.ended_at)}
+                    onChange={e => handleCheckOutTimeChange(e.target.value)}
+                    disabled={!entryForm.started_at}
+                    className="bg-secondary border-border"
+                  />
+                </div>
               </div>
+              <p className="text-xs text-muted-foreground">
+                {t('asistenciaTecnica.correction.adminTimeHint')}
+              </p>
 
               <TechAssistanceSchedulePanel
                 startedAt={entryForm.started_at}
@@ -883,6 +916,7 @@ export function TechAssistanceManager({
 
               {(entryForm.check_in_lat != null || entryForm.check_out_lat != null) && (
                 <div className="rounded-lg border border-border bg-secondary/30 px-3 py-2 text-xs text-muted-foreground space-y-1">
+                  <p className="font-medium text-foreground">{t('asistenciaTecnica.correction.siteCoordsNote')}</p>
                   {entryForm.check_in_lat != null && (
                     <p>
                       {t('asistenciaTecnica.correction.checkInLabel')}: {entryForm.check_in_lat.toFixed(5)}, {entryForm.check_in_lng?.toFixed(5)}

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, useTransition } from 'react'
 import { toast } from 'sonner'
-import { Loader2, MapPin, Pencil, Search, Trash2 } from 'lucide-react'
+import { Loader2, Pencil, Search, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -24,6 +24,7 @@ import {
 import { useLocale } from '@/components/i18n/locale-provider'
 import { cn } from '@/lib/utils'
 import { MAX_CLIENT_LOCATIONS } from '@/lib/tech-assistance/location-validation'
+import { LocationPreviewMap } from '@/components/shared/location-preview-map'
 
 interface TechAssistanceLocationsPanelProps {
   clientUserId: string | null
@@ -35,6 +36,7 @@ const emptyForm = () => ({
   lat: '',
   lng: '',
   radius_meters: '500',
+  resolved_address: '',
 })
 
 export function TechAssistanceLocationsPanel({ clientUserId }: TechAssistanceLocationsPanelProps) {
@@ -91,6 +93,7 @@ export function TechAssistanceLocationsPanel({ clientUserId }: TechAssistanceLoc
         search_query: query,
         lat: String(data.lat),
         lng: String(data.lng),
+        resolved_address: data.displayName ?? query,
         name: f.name.trim() || query.split(',')[0]?.trim() || f.name,
       }))
       toast.success(t('asistenciaTecnica.locations.geocodeSuccess'))
@@ -109,6 +112,7 @@ export function TechAssistanceLocationsPanel({ clientUserId }: TechAssistanceLoc
       lat: String(loc.lat),
       lng: String(loc.lng),
       radius_meters: String(loc.radius_meters),
+      resolved_address: loc.search_query ?? loc.name,
     })
   }
 
@@ -208,14 +212,14 @@ export function TechAssistanceLocationsPanel({ clientUserId }: TechAssistanceLoc
             <p className="text-xs text-muted-foreground">{t('asistenciaTecnica.locations.searchHint')}</p>
           </div>
           {form.lat && form.lng && (
-            <div className="sm:col-span-2 rounded-lg border border-emerald-500/25 bg-emerald-500/5 px-3 py-2 text-sm">
-              <div className="flex items-center gap-2 font-medium text-emerald-800 dark:text-emerald-300">
-                <MapPin className="h-4 w-4" />
-                {t('asistenciaTecnica.locations.coordsReady')}
-              </div>
-              <p className="mt-1 tabular-nums text-xs text-muted-foreground">
-                {Number(form.lat).toFixed(5)}, {Number(form.lng).toFixed(5)}
-              </p>
+            <div className="sm:col-span-2">
+              <LocationPreviewMap
+                lat={form.lat}
+                lng={form.lng}
+                radiusMeters={form.radius_meters}
+                displayName={form.resolved_address || form.search_query || null}
+                label={form.name || null}
+              />
             </div>
           )}
           <div className="space-y-2">

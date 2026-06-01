@@ -571,7 +571,8 @@ async function finalizeSubuserAccount(
         adminClient
           .from('user_module_access')
           .select('module_id, enabled, display_order')
-          .eq('user_id', parentUserId),
+          .eq('user_id', parentUserId)
+          .eq('enabled', true),
         adminClient
           .from('user_table_access')
           .select('table_id, can_view')

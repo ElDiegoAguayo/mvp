@@ -5,7 +5,6 @@ import {
   Crown,
   HardDrive,
   Layers,
-  Mail,
   Shield,
   User,
   Users,
@@ -13,12 +12,14 @@ import {
 import { ClientStorageBar } from '@/components/vault/vault-storage-bar'
 import { SubscriptionPlansShowcase, SERVICE_PLANS_SECTION_ID } from '@/components/dashboard/subscription-plans-showcase'
 import { ContractedPlanCard } from '@/components/dashboard/contracted-plan-card'
+import { PlanBrandMark } from '@/components/dashboard/plan-brand-mark'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { useLocale } from '@/components/i18n/locale-provider'
 import { translateStoragePlanLabel } from '@/lib/i18n/translate'
 import { getModuleIcon } from '@/lib/module-icons'
 import { STORAGE_PLANS } from '@/lib/vault-storage'
+import { getServicePlanNameClass } from '@/lib/service-plan-admin'
 import { cn } from '@/lib/utils'
 import type { ProfilePageData } from '@/app/actions/profile-actions'
 import { ClientLocationsProfileSection } from '@/components/dashboard/client-locations-profile-section'
@@ -42,7 +43,7 @@ function formatMemberSince(iso: string | null, locale: string): string {
 
 export function UserProfileView({ data }: UserProfileViewProps) {
   const { locale, t, tModule } = useLocale()
-  const { profile, storagePlan, enabledModules, servicePlanId, showClientLocations, clientLocations } = data
+  const { profile, storagePlan, enabledModules, servicePlanId, showClientLocations, clientLocations, linkedSubusersCount } = data
 
   const roleLabel =
     profile.role === 'admin'
@@ -50,6 +51,8 @@ export function UserProfileView({ data }: UserProfileViewProps) {
       : profile.isSubuser
         ? t('profile.roleSubuser')
         : t('profile.roleClient')
+
+  const nameClass = getServicePlanNameClass(servicePlanId)
 
   return (
     <div className="space-y-8">
@@ -70,8 +73,8 @@ export function UserProfileView({ data }: UserProfileViewProps) {
             <CardDescription>{t('profile.personalDataDesc')}</CardDescription>
           </CardHeader>
           <CardContent className="pt-6">
-            <div className="flex flex-col items-center text-center sm:flex-row sm:items-start sm:text-left sm:gap-5">
-              <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-primary/20 bg-primary/10">
+            <div className="flex items-center gap-4 rounded-xl border border-border/60 bg-secondary/10 p-4">
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-primary/20">
                 {profile.avatar_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -80,29 +83,42 @@ export function UserProfileView({ data }: UserProfileViewProps) {
                     className="h-full w-full object-cover"
                   />
                 ) : (
-                  <span className="text-3xl font-bold text-primary">
+                  <span
+                    className={cn(
+                      'flex h-full w-full items-center justify-center bg-primary/10 text-xl font-bold',
+                      nameClass,
+                    )}
+                  >
                     {profile.full_name.charAt(0).toUpperCase()}
                   </span>
                 )}
               </div>
-              <div className="mt-4 min-w-0 flex-1 sm:mt-0">
-                <h2 className="text-xl font-bold text-foreground">{profile.full_name}</h2>
-                <Badge variant="secondary" className="mt-2 border border-primary/20 bg-primary/10 text-primary">
+              <div className="min-w-0 flex-1">
+                <h2 className={cn('truncate text-xl font-bold', nameClass)}>{profile.full_name}</h2>
+                <p className="truncate text-sm text-muted-foreground">{profile.email ?? '—'}</p>
+                <Badge variant="secondary" className="mt-1.5 border border-primary/20 bg-primary/10 text-primary">
                   {roleLabel}
                 </Badge>
               </div>
+              <PlanBrandMark planId={servicePlanId} size="sm" className="shrink-0 self-center" />
             </div>
 
             <dl className="mt-6 space-y-4">
-              <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-secondary/20 px-4 py-3">
-                <Mail className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                <div className="min-w-0">
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t('profile.email')}
-                  </dt>
-                  <dd className="truncate text-sm font-medium text-foreground">{profile.email ?? '—'}</dd>
+              {enabledModules.length > 0 && (
+                <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-secondary/20 px-4 py-3">
+                  <Layers className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div>
+                    <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {t('profile.modulesTitle')}
+                    </dt>
+                    <dd className="text-sm font-medium text-foreground">
+                      {enabledModules.length === 1
+                        ? t('profile.modulesActiveCount_one')
+                        : t('profile.modulesActiveCount_other', { count: enabledModules.length })}
+                    </dd>
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-secondary/20 px-4 py-3">
                 <Calendar className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
@@ -116,14 +132,46 @@ export function UserProfileView({ data }: UserProfileViewProps) {
                 </div>
               </div>
 
-              {profile.isSubuser && profile.parentName && (
+              {linkedSubusersCount !== null && (
                 <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-secondary/20 px-4 py-3">
                   <Users className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                   <div>
                     <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {t('profile.linkedSubusersTitle')}
+                    </dt>
+                    <dd className="text-sm font-medium text-foreground">
+                      {linkedSubusersCount === 0
+                        ? t('profile.linkedSubusers_none')
+                        : linkedSubusersCount === 1
+                          ? t('profile.linkedSubusers_one')
+                          : t('profile.linkedSubusers_other', { count: linkedSubusersCount })}
+                    </dd>
+                  </div>
+                </div>
+              )}
+
+              {profile.isSubuser && (profile.parentName || profile.parentEmail) && (
+                <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-secondary/20 px-4 py-3">
+                  <Users className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0">
+                    <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       {t('profile.parentAccount')}
                     </dt>
-                    <dd className="text-sm font-medium text-foreground">{profile.parentName}</dd>
+                    <dd className="mt-1 space-y-0.5">
+                      {profile.parentName && (
+                        <p className="text-sm font-medium text-foreground">{profile.parentName}</p>
+                      )}
+                      {profile.parentEmail && (
+                        <p
+                          className={cn(
+                            'truncate text-sm',
+                            profile.parentName ? 'text-muted-foreground' : 'font-medium text-foreground',
+                          )}
+                        >
+                          {profile.parentEmail}
+                        </p>
+                      )}
+                    </dd>
                   </div>
                 </div>
               )}

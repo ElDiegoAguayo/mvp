@@ -145,6 +145,23 @@ export async function upsertTechServiceAction(input: {
     input.clientUserId,
   )
 
+  let locationId = input.location_id || null
+  let locationLabel = input.location_label?.trim() || null
+  if (!locationId) {
+    const { data: clientLocations } = await supabase
+      .from('tech_assistance_locations')
+      .select('id, name')
+      .eq('user_id', ownerId)
+      .eq('is_active', true)
+      .order('name')
+      .limit(1)
+    const sole = clientLocations?.[0]
+    if (sole) {
+      locationId = sole.id
+      locationLabel = locationLabel || sole.name
+    }
+  }
+
   const row = {
     user_id: ownerId,
     name: input.name.trim(),
@@ -152,8 +169,8 @@ export async function upsertTechServiceAction(input: {
     unit_price_net: input.unit_price_net,
     period_start: periodStart,
     period_end: periodEnd,
-    location_label: input.location_label?.trim() || null,
-    location_id: input.location_id || null,
+    location_label: locationLabel,
+    location_id: locationId,
     updated_at: new Date().toISOString(),
   }
 

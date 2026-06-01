@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Loader2 } from 'lucide-react'
 import { clearViewAsCookieAction } from '@/app/admin/impersonation-actions'
-import { checkLoginLockout, checkIpBlocked, getLoginClientIpAction, recordLoginAttempt, auditSecurityEvent } from '@/app/auth/login-actions'
+import { checkLoginLockout, checkIpBlocked, getLoginClientIpAction, recordLoginAttempt, auditSecurityEvent, verifyLoginProfileAction } from '@/app/auth/login-actions'
 import { getMaintenanceModePublicAction } from '@/app/admin/maintenance-actions'
 import { LoginLayout } from '@/components/auth/login-layout'
 
@@ -168,19 +168,17 @@ function LoginContent() {
       if (data.user) {
         const maintenance = await getMaintenanceModePublicAction()
 
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('is_active, role, full_name')
-          .eq('id', data.user.id)
-          .maybeSingle()
+        const profileResult = await verifyLoginProfileAction(data.user.id)
 
-        if (profileError) {
-          console.error('[v0] Profile fetch error:', profileError)
+        if (!profileResult.ok) {
+          console.error('[v0] Profile fetch error:', profileResult.error)
           await supabase.auth.signOut()
           setError('No se pudo verificar el estado de tu cuenta. Intenta de nuevo.')
           setIsLoading(false)
           return // ABORT
         }
+
+        const profile = profileResult.profile
 
         if (maintenance.enabled && profile?.role === 'user') {
           console.log('[v0] Maintenance block - Email:', data.user.email)

@@ -19,6 +19,13 @@ export type TechAssistanceLocationRow = {
 /** Each principal client may have at most one active work location. */
 export const MAX_CLIENT_LOCATIONS = 1
 
+/** When the client has a configured location, use it as the default for new services. */
+export function defaultClientLocationId(
+  locations: ReadonlyArray<{ id: string }>,
+): string {
+  return locations[0]?.id ?? ''
+}
+
 export function toGeofenceLocation(row: {
   id: string
   name: string

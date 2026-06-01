@@ -41,6 +41,32 @@ export async function getLoginClientIpAction(): Promise<string> {
 }
 
 /**
+ * Read profile after sign-in using service role (bypasses RLS misconfiguration on profiles).
+ */
+export async function verifyLoginProfileAction(userId: string): Promise<{
+  ok: boolean
+  profile: { is_active: boolean; role: string; full_name: string | null } | null
+  error?: string
+}> {
+  const admin = getServiceClient()
+  if (!admin) {
+    return { ok: false, profile: null, error: 'missing_service_role' }
+  }
+
+  const { data, error } = await admin
+    .from('profiles')
+    .select('is_active, role, full_name')
+    .eq('id', userId)
+    .maybeSingle()
+
+  if (error) {
+    return { ok: false, profile: null, error: error.message }
+  }
+
+  return { ok: true, profile: data }
+}
+
+/**
  * Check if an IP is manually blocked by an admin.
  * Uses service role because blocked_ips RLS is admin-only.
  */
@@ -206,6 +232,6 @@ export async function auditSecurityEvent(
       console.error('[v0] Error auditing security event:', error)
     }
   } catch (error) {
-    console.error('[v0] Audit security event error:', error)
+    console.error('[v0] Audit security event error:', error instanceof Error ? error.message : error)
   }
 }

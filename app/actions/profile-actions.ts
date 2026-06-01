@@ -15,6 +15,7 @@ import type { ClientStorageModule } from '@/lib/client-storage'
 import type { ServicePlanId } from '@/lib/subscription-plans'
 import { isServicePlanId } from '@/lib/subscription-plans'
 import type { TechLocationOption } from '@/app/actions/tech-assistance-location-actions'
+import { isPrincipalClientProfile } from '@/lib/profiles/principal-clients'
 
 export interface ProfilePageData {
   profile: {
@@ -26,7 +27,9 @@ export interface ProfilePageData {
     created_at: string | null
     isSubuser: boolean
     parentName: string | null
+    parentEmail: string | null
   }
+  linkedSubusersCount: number | null
   servicePlanId: ServicePlanId | null
   storagePlan: {
     planId: string
@@ -78,13 +81,24 @@ export async function getMyProfilePageDataAction(): Promise<ProfilePageData | nu
   if (!profileRow) return null
 
   let parentName: string | null = null
+  let parentEmail: string | null = null
   if (profileRow.parent_user_id) {
     const { data: parent } = await supabase
       .from('profiles')
       .select('full_name, email')
       .eq('id', profileRow.parent_user_id)
       .maybeSingle()
-    parentName = parent?.full_name || parent?.email || null
+    parentName = parent?.full_name?.trim() || null
+    parentEmail = parent?.email ?? null
+  }
+
+  let linkedSubusersCount: number | null = null
+  if (isPrincipalClientProfile(profileRow)) {
+    const { count } = await supabase
+      .from('profiles')
+      .select('id', { count: 'exact', head: true })
+      .eq('parent_user_id', actingUserId)
+    linkedSubusersCount = count ?? 0
   }
 
   const storageOwnerId = profileRow.parent_user_id ?? actingUserId
@@ -167,7 +181,9 @@ export async function getMyProfilePageDataAction(): Promise<ProfilePageData | nu
       created_at: profileRow.created_at,
       isSubuser: !!profileRow.parent_user_id,
       parentName,
+      parentEmail,
     },
+    linkedSubusersCount,
     servicePlanId,
     storagePlan,
     enabledModules,

@@ -112,6 +112,7 @@ export function CreateUserDialog({ open, onOpenChange }: CreateUserDialogProps) 
         search_query: query,
         lat: String(data.lat),
         lng: String(data.lng),
+        resolved_address: data.displayName ?? query,
         name: f.name.trim() || query.split(',')[0]?.trim() || f.name,
       }))
       toast.success(t('asistenciaTecnica.locations.geocodeSuccess'))

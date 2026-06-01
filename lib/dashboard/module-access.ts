@@ -1,11 +1,19 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-/** Whether a user may open a module (own access + parent access for subusers). */
+/** Whether a user may open a module (own access + parent access for subusers). Admins always may. */
 export async function userCanAccessModule(
   supabase: SupabaseClient,
   userId: string,
   moduleId: string,
 ): Promise<boolean> {
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role, parent_user_id')
+    .eq('id', userId)
+    .maybeSingle()
+
+  if (profile?.role === 'admin') return true
+
   const { data: ownAccess } = await supabase
     .from('user_module_access')
     .select('enabled')
@@ -15,12 +23,6 @@ export async function userCanAccessModule(
     .maybeSingle()
 
   if (!ownAccess) return false
-
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('parent_user_id')
-    .eq('id', userId)
-    .maybeSingle()
 
   if (!profile?.parent_user_id) return true
 

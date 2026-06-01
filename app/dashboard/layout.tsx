@@ -50,6 +50,8 @@ export default async function DashboardLayout({
   const restrictToTechAssistance =
     isFieldInspector || (isSupportMode && viewerProfile?.is_tech_inspector === true)
 
+  const isLoggedInAdmin = profile?.role === 'admin' && !isSupportMode
+
   const { data: userAccessData } = await supabase
     .from('user_module_access')
     .select('module_id, enabled, display_order')
@@ -58,8 +60,13 @@ export default async function DashboardLayout({
 
   let enabledModuleIds = (userAccessData ?? []).map((a) => a.module_id)
 
-  // Subusers only see modules enabled for them AND active on the parent account.
-  if (viewerProfile?.parent_user_id) {
+  if (isLoggedInAdmin) {
+    const { data: allActiveModules } = await supabase
+      .from('modules')
+      .select('id')
+      .eq('is_active', true)
+    enabledModuleIds = (allActiveModules ?? []).map((m) => m.id)
+  } else if (viewerProfile?.parent_user_id) {
     const { data: parentAccessData } = await supabase
       .from('user_module_access')
       .select('module_id')
