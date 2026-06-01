@@ -309,6 +309,25 @@ async function requireAdminCaller() {
   }
 }
 
+function formatAuthEmailError(message: string): string {
+  const lower = message.toLowerCase()
+  if (
+    lower.includes('error sending invite email') ||
+    lower.includes('error sending recovery email') ||
+    lower.includes('error sending email')
+  ) {
+    return (
+      'No se pudo enviar el correo de invitación. Revisa Supabase → Authentication → Logs para el detalle. ' +
+      'Causas habituales: dominio no verificado en Resend, remitente distinto al dominio (ej. noreply@tudominio.cl), ' +
+      'API key incorrecta en SMTP, o plantilla Invite user con error.'
+    )
+  }
+  if (lower.includes('rate limit') || lower.includes('email rate limit')) {
+    return 'Límite de correos alcanzado. Espera unos minutos o revisa Rate Limits en Supabase.'
+  }
+  return message
+}
+
 /**
  * Sends a registration invite email to an existing user (or resends if pending).
  * Uses Supabase Auth emails — configure SMTP/templates in the Supabase dashboard.
@@ -365,12 +384,12 @@ export async function sendUserRegistrationInviteAction(
     const { error } = await adminClient.auth.admin.inviteUserByEmail(email, {
       redirectTo: inviteRedirect,
     })
-    if (error) return { ok: false, message: error.message }
+    if (error) return { ok: false, message: formatAuthEmailError(error.message) }
   } else if (authUser.invited_at && !authUser.email_confirmed_at) {
     const { error } = await adminClient.auth.admin.inviteUserByEmail(email, {
       redirectTo: inviteRedirect,
     })
-    if (error) return { ok: false, message: error.message }
+    if (error) return { ok: false, message: formatAuthEmailError(error.message) }
   } else {
     delivery = 'welcome'
     const anonClient = createSupabaseClient(supabaseUrl, anonKey, {
@@ -379,7 +398,7 @@ export async function sendUserRegistrationInviteAction(
     const { error } = await anonClient.auth.resetPasswordForEmail(email, {
       redirectTo: welcomeRedirect,
     })
-    if (error) return { ok: false, message: error.message }
+    if (error) return { ok: false, message: formatAuthEmailError(error.message) }
   }
 
   const actorLabel =
@@ -454,7 +473,7 @@ export async function inviteUserByEmailAction(
     if (msg.toLowerCase().includes('already registered') || msg.toLowerCase().includes('exists')) {
       return { ok: false, message: 'Ya existe un usuario con ese email.' }
     }
-    return { ok: false, message: msg }
+    return { ok: false, message: formatAuthEmailError(msg) }
   }
 
   const { error: profileError } = await adminClient
