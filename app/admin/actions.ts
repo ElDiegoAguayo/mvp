@@ -311,7 +311,7 @@ async function requireAdminCaller() {
 
 /**
  * Sends a registration invite email to an existing user (or resends if pending).
- * Uses Supabase generateLink + a branded Resend template (no Supabase default email).
+ * Uses Supabase Auth emails — configure SMTP/templates in the Supabase dashboard.
  */
 export async function sendUserRegistrationInviteAction(
   userId: string,
@@ -337,13 +337,13 @@ export async function sendUserRegistrationInviteAction(
 
   const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-  if (!supabaseUrl || !serviceKey) {
+  if (!supabaseUrl || !serviceKey || !anonKey) {
     return { ok: false, message: 'Configuración del servidor incompleta para enviar correos.' }
   }
 
   const { buildAuthCallbackUrl } = await import('@/lib/auth/site-url')
-  const { deliverRegistrationInvite } = await import('@/lib/email/deliver-registration-invite')
   const inviteRedirect = buildAuthCallbackUrl('/auth/registro')
   const welcomeRedirect = buildAuthCallbackUrl('/auth/registro?flow=welcome')
 
@@ -361,26 +361,25 @@ export async function sendUserRegistrationInviteAction(
   const authUser = authData?.user
   let delivery: 'invite' | 'welcome' = 'invite'
 
-  const useWelcomeFlow =
-    authUser &&
-    !(authUser.invited_at && !authUser.email_confirmed_at) &&
-    Boolean(authUser.email_confirmed_at || authUser.confirmed_at)
-
-  if (useWelcomeFlow) {
+  if (!authUser) {
+    const { error } = await adminClient.auth.admin.inviteUserByEmail(email, {
+      redirectTo: inviteRedirect,
+    })
+    if (error) return { ok: false, message: error.message }
+  } else if (authUser.invited_at && !authUser.email_confirmed_at) {
+    const { error } = await adminClient.auth.admin.inviteUserByEmail(email, {
+      redirectTo: inviteRedirect,
+    })
+    if (error) return { ok: false, message: error.message }
+  } else {
     delivery = 'welcome'
-  }
-
-  const delivered = await deliverRegistrationInvite({
-    adminClient,
-    email,
-    redirectTo: delivery === 'welcome' ? welcomeRedirect : inviteRedirect,
-    linkType: delivery === 'welcome' ? 'recovery' : 'invite',
-    variant: delivery === 'welcome' ? 'welcome' : 'invite',
-    recipientName: profile.full_name,
-  })
-
-  if (!delivered.ok) {
-    return { ok: false, message: delivered.message }
+    const anonClient = createSupabaseClient(supabaseUrl, anonKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    })
+    const { error } = await anonClient.auth.resetPasswordForEmail(email, {
+      redirectTo: welcomeRedirect,
+    })
+    if (error) return { ok: false, message: error.message }
   }
 
   const actorLabel =
@@ -439,26 +438,24 @@ export async function inviteUserByEmailAction(
   }
 
   const { buildAuthCallbackUrl } = await import('@/lib/auth/site-url')
-  const { deliverRegistrationInvite } = await import('@/lib/email/deliver-registration-invite')
   const redirectTo = buildAuthCallbackUrl('/auth/registro')
 
   const adminClient = createSupabaseClient(supabaseUrl, serviceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   })
 
-  const delivered = await deliverRegistrationInvite({
-    adminClient,
-    email,
-    redirectTo,
-    linkType: 'invite',
-    variant: 'invite',
-  })
+  const { data: invited, error: inviteError } =
+    await adminClient.auth.admin.inviteUserByEmail(email, {
+      redirectTo,
+    })
 
-  if (!delivered.ok) {
-    return { ok: false, message: delivered.message }
+  if (inviteError || !invited.user) {
+    const msg = inviteError?.message ?? 'No se pudo enviar la invitación.'
+    if (msg.toLowerCase().includes('already registered') || msg.toLowerCase().includes('exists')) {
+      return { ok: false, message: 'Ya existe un usuario con ese email.' }
+    }
+    return { ok: false, message: msg }
   }
-
-  const invitedUserId = delivered.userId
 
   const { error: profileError } = await adminClient
     .from('profiles')
@@ -469,7 +466,7 @@ export async function inviteUserByEmailAction(
       is_active: true,
       updated_at: new Date().toISOString(),
     })
-    .eq('id', invitedUserId)
+    .eq('id', invited.user.id)
 
   if (profileError) {
     return {
@@ -486,7 +483,7 @@ export async function inviteUserByEmailAction(
     {
       action_type: 'SEND_USER_INVITE',
       target_type: 'user',
-      target_id: invitedUserId,
+      target_id: invited.user.id,
       target_label: email,
       description: `${actorLabel} invitó por correo a ${email} con rol ${role}.`,
       metadata: { role, created: true },
@@ -502,7 +499,7 @@ export async function inviteUserByEmailAction(
   return {
     ok: true,
     message: `Enviamos un enlace a ${email} para que active su cuenta.`,
-    userId: invitedUserId,
+    userId: invited.user.id,
   }
 }
 
