@@ -2,12 +2,11 @@ export const estimacionCosecha = {
   page: {
     title: 'Harvest estimation',
     subtitle:
-      'Phenological counts, kg estimation and harvest plan by block — customized per client.',
+      'Phenological counts and kg estimation by block — customized per client.',
   },
   tabs: {
     count: 'Count',
     estimation: 'Harvest estimation',
-    plan: 'Harvest plan',
   },
   loading: 'Loading estimations…',
   filters: {
@@ -114,10 +113,10 @@ export const estimacionCosecha = {
   },
   prePost: {
     title: 'Pre-pruning vs post-pruning by block',
-    subtitle: 'Comparison of estimated kg and % variation',
+    subtitle: 'Comparison of estimated kg and load reduction %',
     prePoda: 'Pre-pruning',
     postPoda: 'Post-pruning',
-    variation: 'Variation',
+    variation: 'Load reduction',
   },
   charts: {
     kgByField: 'Kg by field',
@@ -131,9 +130,10 @@ export const estimacionCosecha = {
     timeline: 'Timeline evolution',
     timelineSub: 'Cumulative sum by record date',
     estimatedKg: 'Estimated kg',
-    samplesByBlock: 'Samples by block',
-    samplesByBlockSub: 'Number of trees counted',
-    samples: 'Samples',
+    avgDardosByBlock: 'Avg. spurs x block',
+    avgDardosByBlockSub: 'Spurs per plant (average by block and variety)',
+    avgTwigsByBlock: 'Avg. twigs x block',
+    avgTwigsByBlockSub: 'Spurs per twig (average by block and variety)',
     spursPrePost: 'Spurs/plant pre vs post',
     spursPrePostSub: 'Average by block and variety',
   },

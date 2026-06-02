@@ -16,8 +16,7 @@ export default async function EstimacionCosechaPage({
 }) {
   const { tab } = await searchParams
   const initialTab =
-    tab === 'plan' ? 'plan' as const
-    : tab === 'estimacion' ? 'estimacion' as const
+    tab === 'estimacion' ? 'estimacion' as const
     : 'conteo' as const
 
   const supabase = await createClient()

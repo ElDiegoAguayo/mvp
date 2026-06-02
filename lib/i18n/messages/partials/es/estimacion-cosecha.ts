@@ -2,12 +2,11 @@ export const estimacionCosecha = {
   page: {
     title: 'Estimación de cosecha',
     subtitle:
-      'Conteos fenológicos, estimación de kg y plan de cosecha por cuartel — personalizado por cliente.',
+      'Conteos fenológicos y estimación de kg por cuartel — personalizado por cliente.',
   },
   tabs: {
     count: 'Conteo',
     estimation: 'Estimación de cosecha',
-    plan: 'Plan de cosecha',
   },
   loading: 'Cargando estimaciones…',
   filters: {
@@ -113,10 +112,10 @@ export const estimacionCosecha = {
   },
   prePost: {
     title: 'Pre-poda vs Post-poda por cuartel',
-    subtitle: 'Comparación de kg estimados y variación %',
+    subtitle: 'Comparación de kg estimados y disminución de carga %',
     prePoda: 'Pre-poda',
     postPoda: 'Post-poda',
-    variation: 'Variación',
+    variation: 'Disminución de carga',
   },
   charts: {
     kgByField: 'Kg por campo',
@@ -130,9 +129,10 @@ export const estimacionCosecha = {
     timeline: 'Evolución en el tiempo',
     timelineSub: 'Suma acumulada por fecha de registro',
     estimatedKg: 'Kg estimados',
-    samplesByBlock: 'Muestras por cuartel',
-    samplesByBlockSub: 'Cantidad de árboles contados',
-    samples: 'Muestras',
+    avgDardosByBlock: 'Prom. dardos x cuartel',
+    avgDardosByBlockSub: 'Dardos por planta (promedio por cuartel y variedad)',
+    avgTwigsByBlock: 'Prom. ramillas x cuartel',
+    avgTwigsByBlockSub: 'Dardos por ramilla (promedio por cuartel y variedad)',
     spursPrePost: 'Dardos/planta Pre vs Post',
     spursPrePostSub: 'Promedio por cuartel y variedad',
   },

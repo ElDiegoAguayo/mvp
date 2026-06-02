@@ -19,6 +19,7 @@ import { MaintenanceModePanel } from '@/components/admin/maintenance-mode-panel'
 import { DashboardLayoutManager } from '@/components/admin/dashboard-layout-manager'
 import { TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Suspense } from 'react'
+import { BrandWordmark, brandLogoImageClass } from '@/components/brand/brand-wordmark'
 
 interface AdminPageProps {
   searchParams: Promise<{ tab?: string; clientId?: string; moduleId?: string }>
@@ -79,12 +80,10 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
                   alt="Up Crop" 
                   width={24} 
                   height={24}
-                  className="object-contain"
+                  className={brandLogoImageClass}
                 />
               </div>
-              <span className="truncate text-lg font-bold text-foreground sm:text-xl">
-                Up <span className="text-[#4A6CF7]">Crop</span>
-              </span>
+              <BrandWordmark className="truncate text-lg sm:text-xl" />
               <span className="hidden text-muted-foreground sm:inline">/</span>
               <span className="hidden font-medium text-foreground sm:inline">Admin</span>
             </div>
@@ -188,7 +187,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
                       alt="Up Crop" 
                       width={24} 
                       height={24}
-                      className="object-contain"
+                      className={brandLogoImageClass}
                     />
                   </div>
                   <h1 className="text-2xl font-bold text-foreground sm:text-3xl">

@@ -13,6 +13,7 @@ import {
   EyeOff,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { BrandWordmark, brandLogoImageClass } from '@/components/brand/brand-wordmark'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -62,13 +63,14 @@ export function UpCropLogoMark({
         alt="Up Crop"
         width={iconSize}
         height={iconSize}
-        className="object-contain shrink-0"
+        className={brandLogoImageClass}
         priority
       />
       <div className={cn(horizontal ? 'text-left' : 'text-center')}>
-        <p className={cn('font-bold tracking-tight text-slate-900 dark:text-slate-100', titleClass)}>
-          Up <span className="text-[#4063ca] dark:text-[#6b8cff]">Crop</span>
-        </p>
+        <BrandWordmark
+          as="p"
+          className={cn('tracking-tight text-slate-900 dark:text-white', titleClass)}
+        />
         {showTagline && (
           <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400 mt-0.5">
             Agri-Tech · Exportadores

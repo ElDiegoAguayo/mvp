@@ -2,7 +2,9 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { AlertTriangle } from 'lucide-react'
+import { BrandWordmark, brandLogoImageClass } from '@/components/brand/brand-wordmark'
 import { BRAND_NAME } from '@/lib/brand'
+import { cn } from '@/lib/utils'
 
 export default async function AuthErrorPage({
   searchParams,
@@ -48,10 +50,8 @@ export default async function AuthErrorPage({
 
         <div className="mt-8 pt-8 border-t border-border">
           <div className="flex items-center justify-center gap-2 text-muted-foreground">
-            <Image src="/logo-upcrop.png" alt={BRAND_NAME} width={20} height={20} className="rounded" />
-            <span className="text-sm font-medium text-foreground">
-              Up <span className="text-primary">Crop</span>
-            </span>
+            <Image src="/logo-upcrop.png" alt={BRAND_NAME} width={20} height={20} className={cn('rounded', brandLogoImageClass)} />
+            <BrandWordmark className="text-sm" />
           </div>
         </div>
       </div>

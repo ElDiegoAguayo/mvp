@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
-  Loader2, Plus, Pencil, Trash2, BarChart3, CalendarRange, MapPin, Trees, FileSpreadsheet, Upload, Download, ClipboardList,
+  Loader2, Plus, Pencil, Trash2, BarChart3, MapPin, Trees, FileSpreadsheet, Upload, Download, ClipboardList,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -65,15 +65,14 @@ import { HarvestEstimationCards } from '@/components/dashboard/harvest/harvest-e
 import { HarvestRowBadge, isComputedHarvestRow } from '@/components/dashboard/harvest/harvest-row-badge'
 import { OfflinePendingBadge } from '@/components/dashboard/offline-pending-badge'
 import { computePrePostDeltaRows } from '@/lib/agronomy/compute-pre-post-delta'
-import { HarvestPlanManager } from '@/components/dashboard/harvest-plan/harvest-plan-manager'
 import { loadHarvestModuleData, offlineWrite } from '@/lib/offline/agronomy-offline'
 import { OFFLINE_EVENT } from '@/lib/offline/types'
 import { useLocale } from '@/components/i18n/locale-provider'
 
-export type HarvestEstimationTab = 'conteo' | 'estimacion' | 'plan'
+export type HarvestEstimationTab = 'conteo' | 'estimacion'
 
 function isHarvestEstimationTab(value: string | null | undefined): value is HarvestEstimationTab {
-  return value === 'conteo' || value === 'estimacion' || value === 'plan'
+  return value === 'conteo' || value === 'estimacion'
 }
 
 interface HarvestField {
@@ -704,40 +703,58 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
       .map(([date, estimated]) => ({ date, estimated }))
   }, [estimationDisplayRows, t])
 
-  const countSamplesByBlock = useMemo(() => {
-    const map = new Map<string, number>()
-    for (const r of countRows) {
-      const label = r.field_name ? `${r.field_name} · ${r.block_name}` : r.block_name
-      map.set(label, (map.get(label) ?? 0) + 1)
-    }
-    return [...map.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .map(([name, samples]) => ({ name, samples, dardos: 0 }))
-  }, [countRows])
-
-  const countPrePostDardos = useMemo(() => {
-    const map = new Map<string, { name: string; pre: number; post: number; preN: number; postN: number }>()
+  const countAvgDardosByBlock = useMemo(() => {
+    const map = new Map<string, { name: string; sum: number; n: number }>()
     for (const row of countSummaries) {
       const key = `${row.field_name}::${row.block_name}::${row.variety}`
       const label = `${row.block_name} · ${row.variety}`
-      const entry = map.get(key) ?? { name: label, pre: 0, post: 0, preN: 0, postN: 0 }
+      const entry = map.get(key) ?? { name: label, sum: 0, n: 0 }
+      entry.sum += Number(row.dardos_per_plant ?? 0)
+      entry.n += 1
+      map.set(key, entry)
+    }
+    return [...map.values()]
+      .map((e) => ({ name: e.name, value: e.n > 0 ? e.sum / e.n : 0 }))
+      .filter((e) => e.value > 0)
+      .sort((a, b) => b.value - a.value)
+  }, [countSummaries])
+
+  const countAvgTwigsByBlock = useMemo(() => {
+    const map = new Map<string, { name: string; sum: number; n: number }>()
+    for (const row of countSummaries) {
+      const key = `${row.field_name}::${row.block_name}::${row.variety}`
+      const label = `${row.block_name} · ${row.variety}`
+      const entry = map.get(key) ?? { name: label, sum: 0, n: 0 }
+      entry.sum += Number(row.dardos_per_branch ?? 0)
+      entry.n += 1
+      map.set(key, entry)
+    }
+    return [...map.values()]
+      .map((e) => ({ name: e.name, value: e.n > 0 ? e.sum / e.n : 0 }))
+      .filter((e) => e.value > 0)
+      .sort((a, b) => b.value - a.value)
+  }, [countSummaries])
+
+  const countPrePostDardos = useMemo(() => {
+    const map = new Map<string, { name: string; pre: number; post: number }>()
+    for (const row of countSummaries) {
       const dardos = Number(row.dardos_per_plant ?? 0)
-      if (row.count_state === 'Post-poda') {
-        entry.post += dardos
-        entry.postN += 1
+      if (!Number.isFinite(dardos) || dardos <= 0) continue
+
+      const key = `${row.field_name}::${row.block_name}::${row.variety}`
+      const label = `${row.block_name} · ${row.variety}`
+      const entry = map.get(key) ?? { name: label, pre: 0, post: 0 }
+
+      if ((row.count_state ?? 'Pre-poda') === 'Post-poda') {
+        entry.post = dardos
       } else {
-        entry.pre += dardos
-        entry.preN += 1
+        entry.pre = dardos
       }
       map.set(key, entry)
     }
     return [...map.values()]
-      .map((e) => ({
-        name: e.name,
-        pre: e.preN > 0 ? e.pre / e.preN : 0,
-        post: e.postN > 0 ? e.post / e.postN : 0,
-      }))
       .filter((e) => e.pre > 0 || e.post > 0)
+      .sort((a, b) => Math.max(b.pre, b.post) - Math.max(a.pre, a.post))
   }, [countSummaries])
 
   const missingHaCount = useMemo(
@@ -760,20 +777,6 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
       .map((r) => r.record_date)
       .filter(Boolean) as string[]
     return dates.sort().reverse()[0] ?? null
-  }, [estimationDisplayRows])
-
-  const prePostBlockCounts = useMemo(() => {
-    let pre = 0
-    let post = 0
-    const seen = new Set<string>()
-    for (const r of estimationDisplayRows) {
-      const key = `${r.field_name}::${r.block_name}::${r.variety}`
-      if (seen.has(key)) continue
-      seen.add(key)
-      if (r.count_state === 'Post-poda') post++
-      else pre++
-    }
-    return { pre, post }
   }, [estimationDisplayRows])
 
   const prePostDeltaRows = useMemo(
@@ -1430,9 +1433,6 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
           <TabsTrigger value="estimacion" className="gap-2">
             <BarChart3 className="w-4 h-4" /> {t('estimacionCosecha.tabs.estimation')}
           </TabsTrigger>
-          <TabsTrigger value="plan" className="gap-2">
-            <CalendarRange className="w-4 h-4" /> {t('estimacionCosecha.tabs.plan')}
-          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="conteo" className="space-y-4 mt-4">
@@ -1441,10 +1441,6 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
           {(countRows.length > 0 || countSummaries.length > 0) && (
             <HarvestSeasonSummary
               totalKg={totals}
-              fieldCount={new Set(estimationDisplayRows.map((r) => r.field_name).filter(Boolean)).size}
-              blockCount={new Set(estimationDisplayRows.map((r) => r.block_name)).size}
-              preBlockCount={prePostBlockCounts.pre}
-              postBlockCount={prePostBlockCounts.post}
               missingHaCount={missingHaCount}
               lastRecordDate={lastRecordDate}
               computedCount={computedCount}
@@ -1453,9 +1449,10 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
           )}
 
           {(countRows.length > 0 || countSummaries.length > 0) &&
-            (countSamplesByBlock.length > 0 || countPrePostDardos.length > 0) && (
+            (countAvgDardosByBlock.length > 0 || countAvgTwigsByBlock.length > 0 || countPrePostDardos.length > 0) && (
             <HarvestCountCharts
-              samplesByBlock={countSamplesByBlock}
+              avgDardosByBlock={countAvgDardosByBlock}
+              avgTwigsByBlock={countAvgTwigsByBlock}
               prePostDardos={countPrePostDardos}
             />
           )}
@@ -1521,10 +1518,8 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                           <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.block')}</th>
                           <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.variety')}</th>
                           <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.samples')}</th>
-                          <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.avgTree')}</th>
                           <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.avgSpur')}</th>
                           <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.avgTwigs')}</th>
-                          <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.avgCoral')}</th>
                           <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.status')}</th>
                         </tr>
                       </thead>
@@ -1538,10 +1533,8 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                               <td className="px-3 py-3 font-medium">{row.block_name}</td>
                               <td className="px-3 py-3">{row.variety}</td>
                               <td className="px-3 py-3 tabular-nums text-muted-foreground">{row.sample_count}</td>
-                              <td className="px-3 py-3 tabular-nums font-medium">{fmtCountAvg(row.arbol)}</td>
                               <td className="px-3 py-3 tabular-nums font-medium">{fmtCountAvg(row.dardos_per_plant)}</td>
                               <td className="px-3 py-3 tabular-nums font-medium">{fmtCountAvg(row.dardos_per_branch)}</td>
-                              <td className="px-3 py-3 tabular-nums font-medium">{fmtCountAvg(row.dardo_coral)}</td>
                               <td className="px-3 py-3">
                                 <Badge variant="outline" className={COUNT_STYLE[countState]}>{tCountState(t, countState)}</Badge>
                               </td>
@@ -1562,10 +1555,8 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                       <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.block')}</th>
                       <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.variety')}</th>
                       <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.row')}</th>
-                      <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.tree')}</th>
                       <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.spur')}</th>
                       <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.twigs')}</th>
-                      <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.coralSpur')}</th>
                       <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.status')}</th>
                       <th className="px-3 py-3 w-20" />
                     </tr>
@@ -1579,10 +1570,8 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                           <td className="px-3 py-3 font-medium">{row.block_name}</td>
                           <td className="px-3 py-3">{row.variety ?? row.crop}</td>
                           <td className="px-3 py-3 tabular-nums">{row.hilera ?? '—'}</td>
-                          <td className="px-3 py-3 tabular-nums">{row.arbol ?? '—'}</td>
                           <td className="px-3 py-3 tabular-nums">{fmtCount(row.dardos_per_plant)}</td>
                           <td className="px-3 py-3 tabular-nums">{fmtCount(row.dardos_per_branch)}</td>
-                          <td className="px-3 py-3 tabular-nums">{fmtCount(row.dardo_coral)}</td>
                           <td className="px-3 py-3">
                             <div className="flex flex-wrap items-center gap-1">
                               <Badge variant="outline" className={COUNT_STYLE[countState]}>{tCountState(t, countState)}</Badge>
@@ -1617,10 +1606,6 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
           {estimationDisplayRows.length > 0 && (
             <HarvestSeasonSummary
               totalKg={totals}
-              fieldCount={totalsByField.length}
-              blockCount={chartByBlock.length}
-              preBlockCount={prePostBlockCounts.pre}
-              postBlockCount={prePostBlockCounts.post}
               missingHaCount={missingHaCount}
               lastRecordDate={lastRecordDate}
               computedCount={computedCount}
@@ -1687,7 +1672,7 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
 
           {estimationDisplayRows.length === 0 ? (
             <div className="rounded-xl border border-dashed p-12 text-center text-muted-foreground">
-              <CalendarRange className="w-10 h-10 mx-auto mb-3 opacity-40" />
+              <BarChart3 className="w-10 h-10 mx-auto mb-3 opacity-40" />
               <p className="font-medium text-foreground mb-1">{t('estimacionCosecha.empty.noEstimationsTitle')}</p>
               <p className="text-sm mb-4">
                 {t('estimacionCosecha.empty.noEstimationsDesc')}
@@ -1778,9 +1763,6 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
           )}
         </TabsContent>
 
-        <TabsContent value="plan" className="space-y-4 mt-4">
-          <HarvestPlanManager embedded />
-        </TabsContent>
       </Tabs>
 
       {/* Dialog importar Excel */}

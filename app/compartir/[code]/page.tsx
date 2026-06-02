@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Loader2, FileText, FileSpreadsheet, Image as ImageIcon, Download, AlertCircle, Clock } from 'lucide-react'
+import { BrandWordmark } from '@/components/brand/brand-wordmark'
 import { Button } from '@/components/ui/button'
 
 interface SharedLink {
@@ -73,9 +74,7 @@ export default function SharePage() {
     <div className="min-h-screen bg-background flex flex-col items-center justify-start pt-12 px-4">
       {/* Brand bar */}
       <div className="mb-8 flex items-center gap-2">
-        <span className="text-2xl font-bold tracking-tight text-foreground">
-          Up <span className="text-primary">Crop</span>
-        </span>
+        <BrandWordmark className="text-2xl tracking-tight" />
         <span className="text-muted-foreground text-sm">/ Bóveda Documental</span>
       </div>
 

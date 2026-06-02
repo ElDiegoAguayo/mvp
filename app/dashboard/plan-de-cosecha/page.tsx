@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation'
 
 export const dynamic = 'force-dynamic'
 
-/** Plan de cosecha vive dentro de Estimación de cosecha (pestaña). */
+/** Plan de cosecha retirado: redirige a estimación de cosecha. */
 export default function PlanDeCosechaPage() {
-  redirect('/dashboard/estimacion-cosecha?tab=plan')
+  redirect('/dashboard/estimacion-cosecha')
 }

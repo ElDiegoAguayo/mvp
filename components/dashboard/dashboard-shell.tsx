@@ -14,6 +14,7 @@ import { LanguageSwitcher } from '@/components/i18n/language-switcher'
 import { useLocale } from '@/components/i18n/locale-provider'
 import { isModuleRouteActive, resolveModuleHref } from '@/lib/dashboard/module-routes'
 import { groupModulesByArea, type ModuleArea } from '@/lib/modules/areas'
+import { BrandWordmark, brandLogoImageClass } from '@/components/brand/brand-wordmark'
 import { cn } from '@/lib/utils'
 import {
   Menu,
@@ -163,12 +164,10 @@ export function DashboardShell({
               alt="Up Crop"
               width={32}
               height={32}
-              className="rounded-lg shrink-0"
+              className={cn('rounded-lg', brandLogoImageClass)}
             />
             {!collapsed && (
-              <span className="text-xl font-bold text-foreground truncate">
-                Up <span className="text-primary">Crop</span>
-              </span>
+              <BrandWordmark className="text-xl truncate" />
             )}
           </div>
           <LanguageSwitcher compact={collapsed} className={collapsed ? 'scale-[0.85]' : 'shrink-0'} />
@@ -257,11 +256,9 @@ export function DashboardShell({
                     alt="Up Crop"
                     width={32}
                     height={32}
-                    className="rounded-lg shrink-0"
+                    className={cn('rounded-lg', brandLogoImageClass)}
                   />
-                  <span className="text-xl font-bold text-foreground truncate">
-                    Up <span className="text-primary">Crop</span>
-                  </span>
+                  <BrandWordmark className="text-xl truncate" />
                 </div>
                 <LanguageSwitcher compact />
               </div>
@@ -330,11 +327,9 @@ export function DashboardShell({
                 alt="Up Crop"
                 width={28}
                 height={28}
-                className="rounded-lg"
+                className={cn('rounded-lg', brandLogoImageClass)}
               />
-              <span className="font-bold text-foreground">
-                Up <span className="text-primary">Crop</span>
-              </span>
+              <BrandWordmark />
             </div>
             <LanguageSwitcher compact />
           </div>

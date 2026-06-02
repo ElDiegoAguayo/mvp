@@ -1,15 +1,11 @@
 'use client'
 
 import { formatKg } from '@/lib/agronomy/format'
-import { BarChart3, CalendarDays, MapPin, Trees, AlertTriangle, Database, Calculator } from 'lucide-react'
+import { BarChart3, CalendarDays, AlertTriangle, Database, Calculator } from 'lucide-react'
 import { useLocale } from '@/components/i18n/locale-provider'
 
 interface HarvestSeasonSummaryProps {
   totalKg: number
-  fieldCount: number
-  blockCount: number
-  preBlockCount: number
-  postBlockCount: number
   missingHaCount: number
   lastRecordDate: string | null
   computedCount: number
@@ -18,10 +14,6 @@ interface HarvestSeasonSummaryProps {
 
 export function HarvestSeasonSummary({
   totalKg,
-  fieldCount,
-  blockCount,
-  preBlockCount,
-  postBlockCount,
   missingHaCount,
   lastRecordDate,
   computedCount,
@@ -31,24 +23,12 @@ export function HarvestSeasonSummary({
 
   return (
     <div className="rounded-xl border bg-card p-4 space-y-4">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="rounded-lg border bg-gradient-to-br from-primary/10 to-card p-3 col-span-2 lg:col-span-1">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-lg border bg-gradient-to-br from-primary/10 to-card p-3">
           <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
             <BarChart3 className="w-3.5 h-3.5" /> {t('estimacionCosecha.summary.estimatedKg')}
           </p>
           <p className="text-2xl font-bold text-primary">{formatKg(totalKg)}</p>
-        </div>
-        <div className="rounded-lg border bg-muted/20 p-3">
-          <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
-            <Trees className="w-3.5 h-3.5" /> {t('estimacionCosecha.summary.fieldsBlocks')}
-          </p>
-          <p className="text-lg font-semibold">{fieldCount} / {blockCount}</p>
-        </div>
-        <div className="rounded-lg border bg-muted/20 p-3">
-          <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
-            <MapPin className="w-3.5 h-3.5" /> {t('estimacionCosecha.summary.countPrePost')}
-          </p>
-          <p className="text-lg font-semibold">{preBlockCount} / {postBlockCount}</p>
         </div>
         <div className="rounded-lg border bg-muted/20 p-3">
           <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1">

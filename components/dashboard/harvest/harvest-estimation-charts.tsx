@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import {
   Bar,
   BarChart,
   CartesianGrid,
   Cell,
+  LabelList,
   Legend,
   Line,
   LineChart,
@@ -35,8 +36,7 @@ export interface TimelinePoint {
 
 export interface CountChartPoint {
   name: string
-  samples: number
-  dardos: number
+  value: number
 }
 
 const UPCROP = {
@@ -81,6 +81,87 @@ function useIsDarkMode() {
   return isDark
 }
 
+function formatBarLabel(value: unknown): string {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n <= 0) return ''
+  return n.toLocaleString(undefined, { maximumFractionDigits: 1 })
+}
+
+function barLabelFontSize(count: number): number {
+  if (count > 30) return 11
+  if (count > 18) return 12
+  if (count > 10) return 13
+  return 14
+}
+
+function barChartTopMargin(count: number): number {
+  if (count > 14) return 40
+  if (count > 8) return 34
+  return 28
+}
+
+/** Ancho mínimo por categoría para que barras y etiquetas respiren (scroll horizontal). */
+function scrollChartWidth(itemCount: number, groupedSeries = 1): number {
+  const slot = groupedSeries > 1 ? 116 : 88
+  return Math.max(480, itemCount * slot + 64)
+}
+
+function xAxisLayout(itemCount: number, groupedSeries = 1) {
+  const slot = groupedSeries > 1 ? 116 : 88
+  const flatLabels = slot >= 84 && itemCount <= 18
+  return {
+    slot,
+    angle: flatLabels ? 0 : -28,
+    textAnchor: flatLabels ? ('middle' as const) : ('end' as const),
+    height: flatLabels ? 52 : 72,
+    maxBarSize: Math.min(52, Math.round(slot * 0.52)),
+  }
+}
+
+function ChartScrollArea({
+  width,
+  height,
+  children,
+}: {
+  width: number
+  height: number
+  children: ReactNode
+}) {
+  return (
+    <div className="w-full overflow-x-auto overflow-y-hidden rounded-lg border border-border/40 bg-muted/10 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border">
+      <div style={{ width, minWidth: '100%', height }}>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function barLabelFill(isDark: boolean): string {
+  return isDark ? '#f8fafc' : UPCROP.chart5
+}
+
+function NumberTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean
+  payload?: Array<{ name?: string; value?: number; color?: string }>
+  label?: string
+}) {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="rounded-lg border border-primary/30 bg-card px-3 py-2 shadow-md text-xs space-y-0.5">
+      <p className="font-medium text-foreground">{label}</p>
+      {payload.map((entry) => (
+        <p key={entry.name} style={{ color: entry.color }}>
+          {entry.name}: {Number(entry.value ?? 0).toLocaleString(undefined, { maximumFractionDigits: 1 })}
+        </p>
+      ))}
+    </div>
+  )
+}
+
 function KgTooltip({
   active,
   payload,
@@ -117,6 +198,82 @@ function SimpleKgTooltip({
     <div className="rounded-lg border border-primary/30 bg-card px-3 py-2 shadow-md text-xs">
       <p className="font-medium text-foreground mb-0.5">{label}</p>
       <p className="font-semibold" style={{ color: UPCROP.chart4 }}>{formatKg(Number(payload[0]?.value ?? 0))}</p>
+    </div>
+  )
+}
+
+function CountBarChart({
+  title,
+  subtitle,
+  data,
+  axisColor,
+  gridColor,
+  valueLabel,
+}: {
+  title: string
+  subtitle: string
+  data: CountChartPoint[]
+  axisColor: string
+  gridColor: string
+  valueLabel: string
+}) {
+  if (data.length === 0) return null
+
+  const isDark = useIsDarkMode()
+  const chartHeight = data.length > 6 ? 360 : 320
+  const labelSize = barLabelFontSize(data.length)
+  const topMargin = barChartTopMargin(data.length)
+  const chartWidth = scrollChartWidth(data.length)
+  const xAxis = xAxisLayout(data.length)
+
+  return (
+    <div className="rounded-xl border bg-card p-4">
+      <div className="mb-3">
+        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+        <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
+      </div>
+      <ChartScrollArea width={chartWidth} height={chartHeight}>
+        <ResponsiveContainer width="100%" height={chartHeight}>
+          <BarChart
+            data={data}
+            margin={{ top: topMargin, right: 16, left: 4, bottom: xAxis.height }}
+            barCategoryGap="18%"
+          >
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} />
+            <XAxis
+              dataKey="name"
+              stroke={axisColor}
+              tick={{ fontSize: 10, fill: axisColor }}
+              axisLine={{ stroke: axisColor }}
+              tickLine={{ stroke: axisColor }}
+              angle={xAxis.angle}
+              textAnchor={xAxis.textAnchor}
+              height={xAxis.height}
+              interval={0}
+            />
+            <YAxis
+              stroke={axisColor}
+              tick={{ fontSize: 10, fill: axisColor }}
+              axisLine={{ stroke: axisColor }}
+              tickLine={{ stroke: axisColor }}
+              width={48}
+              domain={[0, (max: number) => Math.ceil(max * 1.2) || 1]}
+            />
+            <Tooltip
+              formatter={(v: number) => [v.toLocaleString(undefined, { maximumFractionDigits: 1 }), valueLabel]}
+            />
+            <Bar dataKey="value" name={valueLabel} fill={UPCROP.primary} radius={[6, 6, 0, 0]} maxBarSize={xAxis.maxBarSize}>
+              <LabelList
+                dataKey="value"
+                position="top"
+                offset={6}
+                formatter={formatBarLabel}
+                style={{ fontSize: labelSize, fontWeight: 700, fill: barLabelFill(isDark) }}
+              />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </ChartScrollArea>
     </div>
   )
 }
@@ -185,7 +342,7 @@ function CompareBarChart({
   axisColor,
   gridColor,
   keys,
-  colors,
+  useNumberTooltip = false,
 }: {
   title: string
   subtitle: string
@@ -193,18 +350,31 @@ function CompareBarChart({
   axisColor: string
   gridColor: string
   keys: Array<{ key: string; label: string; color: string }>
+  useNumberTooltip?: boolean
 }) {
   if (data.length === 0) return null
 
+  const isDark = useIsDarkMode()
+  const chartHeight = data.length > 6 ? 360 : 320
+  const labelSize = barLabelFontSize(data.length)
+  const topMargin = barChartTopMargin(data.length)
+  const chartWidth = scrollChartWidth(data.length, keys.length)
+  const xAxis = xAxisLayout(data.length, keys.length)
+
   return (
-    <div className="rounded-xl border bg-card p-4 flex flex-col min-h-[360px]">
+    <div className="rounded-xl border bg-card p-4">
       <div className="mb-3">
         <h3 className="text-sm font-semibold text-foreground">{title}</h3>
         <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
       </div>
-      <div className="flex-1 min-h-[280px]">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} margin={{ top: 8, right: 8, left: 4, bottom: 4 }}>
+      <ChartScrollArea width={chartWidth} height={chartHeight}>
+        <ResponsiveContainer width="100%" height={chartHeight}>
+          <BarChart
+            data={data}
+            margin={{ top: topMargin, right: 16, left: 4, bottom: xAxis.height }}
+            barCategoryGap="18%"
+            barGap={4}
+          >
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} />
             <XAxis
               dataKey="name"
@@ -212,9 +382,9 @@ function CompareBarChart({
               tick={{ fontSize: 10, fill: axisColor }}
               axisLine={{ stroke: axisColor }}
               tickLine={{ stroke: axisColor }}
-              angle={data.length > 3 ? -28 : 0}
-              textAnchor={data.length > 3 ? 'end' : 'middle'}
-              height={data.length > 3 ? 64 : 32}
+              angle={xAxis.angle}
+              textAnchor={xAxis.textAnchor}
+              height={xAxis.height}
               interval={0}
             />
             <YAxis
@@ -224,15 +394,27 @@ function CompareBarChart({
               tickLine={{ stroke: axisColor }}
               tickFormatter={(v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v))}
               width={48}
+              domain={[0, (max: number) => Math.ceil(max * 1.2) || 1]}
             />
-            <Tooltip content={<KgTooltip />} cursor={{ fill: `${UPCROP.primary}22` }} />
+            <Tooltip
+              content={useNumberTooltip ? <NumberTooltip /> : <KgTooltip />}
+              cursor={{ fill: `${UPCROP.primary}22` }}
+            />
             <Legend wrapperStyle={{ fontSize: 11 }} />
             {keys.map(({ key, label, color }) => (
-              <Bar key={key} dataKey={key} name={label} fill={color} radius={[4, 4, 0, 0]} maxBarSize={36} />
+              <Bar key={key} dataKey={key} name={label} fill={color} radius={[4, 4, 0, 0]} maxBarSize={xAxis.maxBarSize}>
+                <LabelList
+                  dataKey={key}
+                  position="top"
+                  offset={6}
+                  formatter={formatBarLabel}
+                  style={{ fontSize: labelSize, fontWeight: 700, fill: barLabelFill(isDark) }}
+                />
+              </Bar>
             ))}
           </BarChart>
         </ResponsiveContainer>
-      </div>
+      </ChartScrollArea>
     </div>
   )
 }
@@ -378,68 +560,61 @@ export function HarvestEstimationCharts({
 }
 
 interface HarvestCountChartsProps {
-  samplesByBlock: CountChartPoint[]
+  avgDardosByBlock: CountChartPoint[]
+  avgTwigsByBlock: CountChartPoint[]
   prePostDardos: PrePostPoint[]
 }
 
-export function HarvestCountCharts({ samplesByBlock, prePostDardos }: HarvestCountChartsProps) {
+export function HarvestCountCharts({ avgDardosByBlock, avgTwigsByBlock, prePostDardos }: HarvestCountChartsProps) {
   const isDark = useIsDarkMode()
   const { t } = useLocale()
   const axisColor = isDark ? UPCROP.axisDark : UPCROP.axisLight
   const gridColor = isDark ? UPCROP.gridDark : UPCROP.gridLight
-  const preKey = 'Pre-poda'
-  const postKey = 'Post-poda'
+  const preKey = 'pre'
+  const postKey = 'post'
 
-  if (samplesByBlock.length === 0 && prePostDardos.length === 0) return null
+  if (avgDardosByBlock.length === 0 && avgTwigsByBlock.length === 0 && prePostDardos.length === 0) return null
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 lg:grid-cols-2">
-        {samplesByBlock.length > 0 && (
-          <div className="rounded-xl border bg-card p-4 flex flex-col min-h-[320px]">
-            <div className="mb-3">
-              <h3 className="text-sm font-semibold text-foreground">{t('estimacionCosecha.charts.samplesByBlock')}</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">{t('estimacionCosecha.charts.samplesByBlockSub')}</p>
-            </div>
-            <div className="flex-1 min-h-[240px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={samplesByBlock} margin={{ top: 8, right: 8, left: 4, bottom: 4 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridColor} />
-                  <XAxis
-                    dataKey="name"
-                    stroke={axisColor}
-                    tick={{ fontSize: 10, fill: axisColor }}
-                    angle={samplesByBlock.length > 4 ? -28 : 0}
-                    textAnchor={samplesByBlock.length > 4 ? 'end' : 'middle'}
-                    height={samplesByBlock.length > 4 ? 64 : 32}
-                    interval={0}
-                  />
-                  <YAxis stroke={axisColor} tick={{ fontSize: 10, fill: axisColor }} width={40} />
-                  <Tooltip />
-                  <Bar dataKey="samples" name={t('estimacionCosecha.charts.samples')} fill={UPCROP.primary} radius={[6, 6, 0, 0]} maxBarSize={48} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        )}
-        {prePostDardos.length > 0 && (
-          <CompareBarChart
-            title={t('estimacionCosecha.charts.spursPrePost')}
-            subtitle={t('estimacionCosecha.charts.spursPrePostSub')}
-            data={prePostDardos.map((row) => ({
-              name: row.name,
-              [preKey]: row.pre,
-              [postKey]: row.post,
-            }))}
-            axisColor={axisColor}
-            gridColor={gridColor}
-            keys={[
-              { key: preKey, label: t('estimacionCosecha.prePost.prePoda'), color: UPCROP.pre },
-              { key: postKey, label: t('estimacionCosecha.prePost.postPoda'), color: UPCROP.post },
-            ]}
-          />
-        )}
-      </div>
+      {avgDardosByBlock.length > 0 && (
+        <CountBarChart
+          title={t('estimacionCosecha.charts.avgDardosByBlock')}
+          subtitle={t('estimacionCosecha.charts.avgDardosByBlockSub')}
+          data={avgDardosByBlock}
+          axisColor={axisColor}
+          gridColor={gridColor}
+          valueLabel={t('estimacionCosecha.table.avgSpur')}
+        />
+      )}
+      {avgTwigsByBlock.length > 0 && (
+        <CountBarChart
+          title={t('estimacionCosecha.charts.avgTwigsByBlock')}
+          subtitle={t('estimacionCosecha.charts.avgTwigsByBlockSub')}
+          data={avgTwigsByBlock}
+          axisColor={axisColor}
+          gridColor={gridColor}
+          valueLabel={t('estimacionCosecha.table.avgTwigs')}
+        />
+      )}
+      {prePostDardos.length > 0 && (
+        <CompareBarChart
+          title={t('estimacionCosecha.charts.spursPrePost')}
+          subtitle={t('estimacionCosecha.charts.spursPrePostSub')}
+          data={prePostDardos.map((row) => ({
+            name: row.name,
+            [preKey]: row.pre,
+            [postKey]: row.post,
+          }))}
+          axisColor={axisColor}
+          gridColor={gridColor}
+          useNumberTooltip
+          keys={[
+            { key: preKey, label: t('estimacionCosecha.prePost.prePoda'), color: UPCROP.pre },
+            { key: postKey, label: t('estimacionCosecha.prePost.postPoda'), color: UPCROP.post },
+          ]}
+        />
+      )}
     </div>
   )
 }
