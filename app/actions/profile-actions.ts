@@ -14,6 +14,10 @@ import type { ClientStorageModule } from '@/lib/client-storage'
 
 import type { ServicePlanId } from '@/lib/subscription-plans'
 import { isServicePlanId } from '@/lib/subscription-plans'
+import {
+  buildServicePlanSubscriptionInfo,
+  type ServicePlanSubscriptionStatus,
+} from '@/lib/service-plan-subscription'
 import type { TechLocationOption } from '@/app/actions/tech-assistance-location-actions'
 import { isPrincipalClientProfile } from '@/lib/profiles/principal-clients'
 
@@ -31,6 +35,9 @@ export interface ProfilePageData {
   }
   linkedSubusersCount: number | null
   servicePlanId: ServicePlanId | null
+  servicePlanActivatedAt: string | null
+  servicePlanExpiresAt: string | null
+  servicePlanStatus: ServicePlanSubscriptionStatus
   storagePlan: {
     planId: string
     planLabel: string
@@ -49,18 +56,32 @@ async function resolveActingUserId(sessionUserId: string): Promise<string> {
   return viewAs.viewAsUserId ?? sessionUserId
 }
 
-async function resolveServicePlanId(
+async function resolveServicePlanSubscription(
   supabase: Awaited<ReturnType<typeof createServerClient>>,
   ownerId: string,
-): Promise<ServicePlanId | null> {
+) {
   const { data, error } = await supabase
     .from('profiles')
-    .select('service_plan_id')
+    .select('service_plan_id, service_plan_activated_at, service_plan_expires_at')
     .eq('id', ownerId)
     .maybeSingle()
 
-  if (error?.message?.includes('service_plan_id')) return null
-  return isServicePlanId(data?.service_plan_id) ? data.service_plan_id : null
+  if (error?.message?.includes('service_plan_id')) {
+    return buildServicePlanSubscriptionInfo(null, null, null)
+  }
+
+  const planId = isServicePlanId(data?.service_plan_id) ? data.service_plan_id : null
+  const activatedAt = data?.service_plan_activated_at ?? null
+  const expiresAt = data?.service_plan_expires_at ?? null
+
+  if (
+    error?.message?.includes('service_plan_activated_at') ||
+    error?.message?.includes('service_plan_expires_at')
+  ) {
+    return buildServicePlanSubscriptionInfo(planId, null, null)
+  }
+
+  return buildServicePlanSubscriptionInfo(planId, activatedAt, expiresAt)
 }
 
 export async function getMyProfilePageDataAction(): Promise<ProfilePageData | null> {
@@ -102,7 +123,7 @@ export async function getMyProfilePageDataAction(): Promise<ProfilePageData | nu
   }
 
   const storageOwnerId = profileRow.parent_user_id ?? actingUserId
-  const servicePlanId = await resolveServicePlanId(supabase, storageOwnerId)
+  const servicePlan = await resolveServicePlanSubscription(supabase, storageOwnerId)
   let storagePlan: ProfilePageData['storagePlan'] = null
 
   if (profileRow.role === 'user' || profileRow.parent_user_id) {
@@ -184,7 +205,10 @@ export async function getMyProfilePageDataAction(): Promise<ProfilePageData | nu
       parentEmail,
     },
     linkedSubusersCount,
-    servicePlanId,
+    servicePlanId: servicePlan.planId,
+    servicePlanActivatedAt: servicePlan.activatedAt,
+    servicePlanExpiresAt: servicePlan.expiresAt,
+    servicePlanStatus: servicePlan.status,
     storagePlan,
     enabledModules,
     showClientLocations,

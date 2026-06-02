@@ -132,10 +132,16 @@ export const es = {
     contractedPlan: {
       title: 'Plan contratado',
       active: 'Activo',
+      expiring: 'Por vencer',
+      expired: 'Vencido',
       none: 'Aún no tienes un plan de servicio asignado a tu cuenta.',
       contact: 'Contactar a Up Crop',
       viewPlans: 'Ver planes',
       monthlyValue: 'Valor mensual',
+      activatedAt: 'Activado el {date} a las {time}',
+      validUntil: 'Válido hasta el {date} a las {time}',
+      expiredOn: 'Venció el {date} a las {time}',
+      expiringIn: 'Vence en {days} días',
     },
     servicePlans: {
       sectionTitlePrefix: 'Planes con criterio',

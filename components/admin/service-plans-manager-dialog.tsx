@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import Link from 'next/link'
 import { Building2, Crown, Sparkles, Zap } from 'lucide-react'
 import {
   Dialog,
@@ -165,20 +165,17 @@ export function ServicePlansManagerDialog({ open, onOpenChange }: ServicePlansMa
 }
 
 export function ServicePlansManagerButton({ className }: { className?: string }) {
-  const [open, setOpen] = useState(false)
-
   return (
-    <>
-      <Button
-        type="button"
-        variant="outline"
-        onClick={() => setOpen(true)}
-        className={cn('border-border hover:bg-primary hover:text-primary-foreground hover:border-primary', className)}
-      >
+    <Button
+      type="button"
+      variant="outline"
+      asChild
+      className={cn('border-border hover:bg-primary hover:text-primary-foreground hover:border-primary', className)}
+    >
+      <Link href="/admin/planes-servicio">
         <Crown className="mr-2 h-4 w-4" />
         Planes de servicio
-      </Button>
-      <ServicePlansManagerDialog open={open} onOpenChange={setOpen} />
-    </>
+      </Link>
+    </Button>
   )
 }

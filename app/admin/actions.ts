@@ -24,6 +24,11 @@ import {
   resolveStorageQuotaBytes,
 } from '@/lib/vault-storage'
 import { isServicePlanId, type ServicePlanId } from '@/lib/subscription-plans'
+import {
+  buildServicePlanSubscriptionInfo,
+  computeServicePlanExpiresAt,
+  type ServicePlanSubscriptionStatus,
+} from '@/lib/service-plan-subscription'
 import { syncInspectorModulesOnly } from '@/lib/admin/sync-inspector-modules'
 import {
   applyPrincipalClientFilters,
@@ -2458,16 +2463,31 @@ export async function updateClientServicePlanAction(
     return { ok: false, message: 'Solo se puede asignar plan a clientes principales.' }
   }
 
+  const now = new Date()
+  const planDates = planId
+    ? {
+        service_plan_activated_at: now.toISOString(),
+        service_plan_expires_at: computeServicePlanExpiresAt(now).toISOString(),
+      }
+    : {
+        service_plan_activated_at: null,
+        service_plan_expires_at: null,
+      }
+
   const { error } = await adminClient
     .from('profiles')
-    .update({ service_plan_id: planId })
+    .update({ service_plan_id: planId, ...planDates })
     .eq('id', userId)
 
   if (error) {
-    if (error.message.includes('service_plan_id')) {
+    if (
+      error.message.includes('service_plan_id') ||
+      error.message.includes('service_plan_activated_at') ||
+      error.message.includes('service_plan_expires_at')
+    ) {
       return {
         ok: false,
-        message: 'Falta la migración de planes. Ejecuta 052_profiles_service_plan.sql en Supabase.',
+        message: 'Falta la migración de planes. Ejecuta 080_service_plan_subscription_dates.sql en Supabase.',
       }
     }
     return { ok: false, message: error.message || 'No se pudo actualizar el plan.' }
@@ -2486,6 +2506,8 @@ export async function updateClientServicePlanAction(
       metadata: {
         service_plan_id: planId,
         previous_service_plan_id: client.service_plan_id,
+        service_plan_activated_at: planDates.service_plan_activated_at,
+        service_plan_expires_at: planDates.service_plan_expires_at,
         admin_id: caller.id,
         admin_email: profile.email,
       },
@@ -2494,8 +2516,142 @@ export async function updateClientServicePlanAction(
   )
 
   revalidatePath('/admin')
+  revalidatePath('/admin/planes-servicio')
   revalidatePath('/dashboard/perfil')
   return { ok: true, message: `Plan de servicio actualizado.` }
+}
+
+export interface ClientServicePlanRow {
+  id: string
+  full_name: string | null
+  email: string | null
+  service_plan_id: ServicePlanId
+  service_plan_activated_at: string | null
+  service_plan_expires_at: string | null
+  is_active: boolean
+  status: ServicePlanSubscriptionStatus
+  daysUntilExpiry: number | null
+}
+
+export async function listClientServicePlansAction(): Promise<ClientServicePlanRow[]> {
+  const ctx = await requireAdminVaultCaller()
+  if (!ctx) return []
+
+  const { adminClient } = ctx
+  const { data, error } = await adminClient
+    .from('profiles')
+    .select(
+      'id, full_name, email, role, parent_user_id, service_plan_id, service_plan_activated_at, service_plan_expires_at, is_active, is_tech_inspector',
+    )
+    .not('service_plan_id', 'is', null)
+    .order('service_plan_expires_at', { ascending: true, nullsFirst: false })
+
+  if (error) {
+    if (
+      error.message.includes('service_plan_activated_at') ||
+      error.message.includes('service_plan_expires_at')
+    ) {
+      const fallback = await adminClient
+        .from('profiles')
+        .select('id, full_name, email, role, parent_user_id, service_plan_id, is_active, is_tech_inspector')
+        .not('service_plan_id', 'is', null)
+      if (fallback.error) return []
+      return (fallback.data ?? [])
+        .filter(row => isPrincipalClientProfile(row) && isServicePlanId(row.service_plan_id))
+        .map(row => {
+          const info = buildServicePlanSubscriptionInfo(row.service_plan_id, null, null)
+          return {
+            id: row.id,
+            full_name: row.full_name,
+            email: row.email,
+            service_plan_id: row.service_plan_id as ServicePlanId,
+            service_plan_activated_at: null,
+            service_plan_expires_at: null,
+            is_active: row.is_active !== false,
+            status: info.status,
+            daysUntilExpiry: info.daysUntilExpiry,
+          }
+        })
+    }
+    return []
+  }
+
+  return (data ?? [])
+    .filter(row => isPrincipalClientProfile(row) && isServicePlanId(row.service_plan_id))
+    .map(row => {
+      const planId = row.service_plan_id as ServicePlanId
+      const info = buildServicePlanSubscriptionInfo(
+        planId,
+        row.service_plan_activated_at,
+        row.service_plan_expires_at,
+      )
+      return {
+        id: row.id,
+        full_name: row.full_name,
+        email: row.email,
+        service_plan_id: planId,
+        service_plan_activated_at: row.service_plan_activated_at,
+        service_plan_expires_at: row.service_plan_expires_at,
+        is_active: row.is_active !== false,
+        status: info.status,
+        daysUntilExpiry: info.daysUntilExpiry,
+      }
+    })
+}
+
+export async function blockClientAccountAction(userId: string): Promise<VaultActionState> {
+  const ctx = await requireAdminVaultCaller()
+  if (!ctx) return { ok: false, message: 'No autorizado.' }
+
+  const { adminClient, supabase, caller, profile } = ctx
+
+  const { data: client, error: clientError } = await adminClient
+    .from('profiles')
+    .select('id, full_name, email, role, parent_user_id, is_active, is_tech_inspector')
+    .eq('id', userId)
+    .maybeSingle()
+
+  if (clientError || !client) {
+    return { ok: false, message: 'Cliente no encontrado.' }
+  }
+  if (!isPrincipalClientProfile(client)) {
+    return { ok: false, message: 'Solo se pueden bloquear clientes principales.' }
+  }
+  if (client.is_active === false) {
+    return { ok: false, message: 'El usuario ya está bloqueado.' }
+  }
+
+  const { error } = await adminClient
+    .from('profiles')
+    .update({ is_active: false, updated_at: new Date().toISOString() })
+    .eq('id', userId)
+
+  if (error) {
+    return { ok: false, message: error.message || 'No se pudo bloquear al usuario.' }
+  }
+
+  const userLabel = client.full_name || client.email || userId
+  await logAudit(
+    supabase,
+    {
+      action_type: 'BLOCK_USER',
+      target_type: 'user',
+      target_id: userId,
+      target_label: client.email ?? userLabel,
+      description: `Bloqueó la cuenta de ${userLabel} por plan de servicio vencido.`,
+      metadata: {
+        previous_state: { user_id: userId, is_active: true },
+        reason: 'service_plan_expired',
+        admin_id: caller.id,
+        admin_email: profile.email,
+      },
+    },
+    { actor_id: caller.id },
+  )
+
+  revalidatePath('/admin')
+  revalidatePath('/admin/planes-servicio')
+  return { ok: true, message: `${userLabel} fue bloqueado.` }
 }
 
 export async function getVaultClientExplorerAction(userId: string): Promise<VaultExplorerData | null> {

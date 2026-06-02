@@ -133,10 +133,16 @@ export const en: Messages = {
     contractedPlan: {
       title: 'Contracted plan',
       active: 'Active',
+      expiring: 'Expiring soon',
+      expired: 'Expired',
       none: 'You do not have a service plan assigned to your account yet.',
       contact: 'Contact Up Crop',
       viewPlans: 'View plans',
       monthlyValue: 'Monthly value',
+      activatedAt: 'Activated on {date} at {time}',
+      validUntil: 'Valid until {date} at {time}',
+      expiredOn: 'Expired on {date} at {time}',
+      expiringIn: 'Expires in {days} days',
     },
     servicePlans: {
       sectionTitlePrefix: 'Plans with',

@@ -16,16 +16,40 @@ import {
   UP_CROP_CONTACT,
   type ServicePlanId,
 } from '@/lib/subscription-plans'
+import type { ServicePlanSubscriptionStatus } from '@/lib/service-plan-subscription'
 import { SERVICE_PLANS_SECTION_ID } from '@/components/dashboard/subscription-plans-showcase'
 import { cn } from '@/lib/utils'
 
 interface ContractedPlanCardProps {
   servicePlanId: ServicePlanId | null
+  activatedAt?: string | null
+  expiresAt?: string | null
+  status?: ServicePlanSubscriptionStatus
   className?: string
 }
 
-export function ContractedPlanCard({ servicePlanId, className }: ContractedPlanCardProps) {
-  const { t } = useLocale()
+function formatPlanDateTime(iso: string | null | undefined, locale: string) {
+  if (!iso) return null
+  try {
+    const date = new Date(iso)
+    const loc = locale === 'es' ? 'es-CL' : 'en-US'
+    return {
+      date: new Intl.DateTimeFormat(loc, { day: 'numeric', month: 'long', year: 'numeric' }).format(date),
+      time: new Intl.DateTimeFormat(loc, { hour: '2-digit', minute: '2-digit' }).format(date),
+    }
+  } catch {
+    return null
+  }
+}
+
+export function ContractedPlanCard({
+  servicePlanId,
+  activatedAt = null,
+  expiresAt = null,
+  status = 'none',
+  className,
+}: ContractedPlanCardProps) {
+  const { t, locale } = useLocale()
 
   const scrollToPlans = () => {
     document.getElementById(SERVICE_PLANS_SECTION_ID)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -70,6 +94,28 @@ export function ContractedPlanCard({ servicePlanId, className }: ContractedPlanC
   const metalTier = getPlanVisualTier(servicePlanId)
   const isPremium = servicePlanId === 'business'
   const isSilver = servicePlanId === 'enterprise'
+  const activated = formatPlanDateTime(activatedAt, locale)
+  const expiry = formatPlanDateTime(expiresAt, locale)
+  const isExpired = status === 'expired'
+  const isExpiring = status === 'expiring'
+  const daysUntilExpiry = expiresAt
+    ? Math.ceil((new Date(expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+    : null
+
+  const statusBadge = isExpired ? (
+    <Badge variant="destructive">
+      {t('profile.contractedPlan.expired')}
+    </Badge>
+  ) : isExpiring ? (
+    <Badge className="bg-amber-500/90 text-white hover:bg-amber-500/90">
+      {t('profile.contractedPlan.expiring')}
+    </Badge>
+  ) : (
+    <Badge className={cn('text-white', styles.activeBadge)}>
+      <Check className="mr-1 h-3 w-3" />
+      {t('profile.contractedPlan.active')}
+    </Badge>
+  )
 
   return (
     <Card className={cn('relative overflow-hidden', styles.card, className)}>
@@ -99,10 +145,7 @@ export function ContractedPlanCard({ servicePlanId, className }: ContractedPlanC
                 >
                   {t('profile.contractedPlan.title')}
                 </p>
-                <Badge className={cn('text-white', styles.activeBadge)}>
-                  <Check className="mr-1 h-3 w-3" />
-                  {t('profile.contractedPlan.active')}
-                </Badge>
+                {statusBadge}
                 {isSilver && styles.leaderBadge && (
                   <Badge variant="secondary" className={styles.leaderBadge}>
                     <Star className="mr-1 h-3 w-3 fill-current" />
@@ -122,6 +165,39 @@ export function ContractedPlanCard({ servicePlanId, className }: ContractedPlanC
               <p className={cn('mt-1 text-sm', styles.description)}>
                 {t(`profile.servicePlans.plans.${servicePlanId}.description`)}
               </p>
+              {(activated || expiry) && (
+                <div className="mt-3 space-y-1 text-sm">
+                  {activated && (
+                    <p className={cn(styles.description ?? 'text-muted-foreground')}>
+                      {t('profile.contractedPlan.activatedAt', {
+                        date: activated.date,
+                        time: activated.time,
+                      })}
+                    </p>
+                  )}
+                  {expiry && !isExpired && (
+                    <p className={cn(isExpiring ? 'text-amber-600 dark:text-amber-400 font-medium' : styles.description)}>
+                      {t('profile.contractedPlan.validUntil', {
+                        date: expiry.date,
+                        time: expiry.time,
+                      })}
+                      {isExpiring && daysUntilExpiry != null && daysUntilExpiry > 0 && (
+                        <span className="ml-1">
+                          ({t('profile.contractedPlan.expiringIn', { days: String(daysUntilExpiry) })})
+                        </span>
+                      )}
+                    </p>
+                  )}
+                  {expiry && isExpired && (
+                    <p className="text-destructive font-medium">
+                      {t('profile.contractedPlan.expiredOn', {
+                        date: expiry.date,
+                        time: expiry.time,
+                      })}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

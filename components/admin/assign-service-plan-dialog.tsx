@@ -75,8 +75,7 @@ export function AssignServicePlanDialog({
   }
 
   const currentPlanId = user?.service_plan_id ?? null
-  const unchanged =
-    selected === 'none' ? currentPlanId === null : selected === currentPlanId
+  const unchanged = selected === 'none' && currentPlanId === null
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -93,7 +92,8 @@ export function AssignServicePlanDialog({
                 <span className="font-medium text-foreground">
                   {user.full_name || user.email || user.id}
                 </span>
-                . Los subusuarios heredan el plan de la cuenta principal.
+                . Los subusuarios heredan el plan de la cuenta principal. Al guardar, el plan
+                queda activo por 1 mes desde este momento.
               </>
             ) : (
               'Selecciona un cliente principal.'

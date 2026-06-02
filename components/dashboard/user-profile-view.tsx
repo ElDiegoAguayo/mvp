@@ -61,7 +61,12 @@ export function UserProfileView({ data }: UserProfileViewProps) {
         <p className="mt-1 text-muted-foreground">{t('profile.subtitle')}</p>
       </div>
 
-      <ContractedPlanCard servicePlanId={servicePlanId} />
+      <ContractedPlanCard
+        servicePlanId={servicePlanId}
+        activatedAt={data.servicePlanActivatedAt}
+        expiresAt={data.servicePlanExpiresAt}
+        status={data.servicePlanStatus}
+      />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
         <Card className="border-border bg-card shadow-sm">
