@@ -4,6 +4,22 @@ export const estimacionCosecha = {
     subtitle:
       'Conteos fenológicos y estimación de kg por cuartel — personalizado por cliente.',
   },
+  readOnlyBanner:
+    'Vista de solo lectura. Los conteos y estimaciones los registra tu equipo Up Crop en campo.',
+  inspector: {
+    title: 'Vista del cliente',
+    subtitle: 'Elige la empresa, registra conteos en su nombre y el cliente los verá en su cuenta.',
+    client: 'Cliente',
+    selectPlaceholder: 'Seleccionar cliente',
+    noClientsAssigned: 'No tienes clientes asignados. Contacta a Up Crop para que te habiliten.',
+    viewingAsLabel: 'Viendo cuenta de',
+    viewingAsHint: 'Los conteos que guardes aquí aparecen en la cuenta del cliente.',
+    selectClientFirst: 'Selecciona un cliente arriba para registrar conteos.',
+    noClientsTitle: 'Sin clientes asignados',
+    noClientsDesc: 'Pide a Up Crop que te asignen empresas desde el panel de administración.',
+    selectClientTitle: 'Elige un cliente',
+    selectClientDesc: 'Usa el selector verde arriba para ver y registrar los conteos de esa empresa.',
+  },
   tabs: {
     count: 'Conteo',
     estimation: 'Estimación de cosecha',

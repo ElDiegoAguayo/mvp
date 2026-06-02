@@ -78,8 +78,10 @@ import { compareModulesByAreaThenName, groupModulesByArea, type ModuleArea } fro
 import { InventoryManager } from '@/components/admin/inventory-manager'
 import { SiiCostosSection } from '@/components/admin/sii-costos-section'
 import { ProduccionUploader } from '@/components/admin/produccion-uploader'
+import { HarvestEstimationUploader } from '@/components/admin/harvest-estimation-uploader'
 import { ProduccionManager } from '@/components/admin/produccion-manager'
 import { isCostosGastosModule, isProduccionModule } from '@/lib/dashboard/costos-module'
+import { isHarvestEstimationModule } from '@/lib/dashboard/harvest-module'
 
 // Preset options for select columns
 const PRESET_OPTIONS = [
@@ -1119,6 +1121,7 @@ export function ClientDataManager({ initialClientId, initialModuleId }: ClientDa
     const isInventoryModule = selectedModule.slug.toLowerCase().includes('inventario')
     const isCostosModule = isCostosGastosModule(selectedModule.slug, selectedModule.name)
     const isProduccionModuleFlag = isProduccionModule(selectedModule.slug, selectedModule.name)
+    const isHarvestModule = isHarvestEstimationModule(selectedModule.slug, selectedModule.name)
     
     return (
       <div className="space-y-6">
@@ -1153,18 +1156,24 @@ export function ClientDataManager({ initialClientId, initialModuleId }: ClientDa
             </div>
           </div>
           <div className="flex gap-2 flex-wrap">
-            <Button onClick={() => setShowExcelImporter(true)} variant="outline">
-              <Upload className="w-4 h-4 mr-2" />
-              Importar Excel
-            </Button>
-            <Button onClick={openCreateTableDialog} variant="outline">
-              <Plus className="w-4 h-4 mr-2" />
-              Nueva Tabla
-            </Button>
-            <Button onClick={openCreateChartDialog}>
-              <Plus className="w-4 h-4 mr-2" />
-              Nuevo Gráfico
-            </Button>
+            {!isHarvestModule && (
+              <Button onClick={() => setShowExcelImporter(true)} variant="outline">
+                <Upload className="w-4 h-4 mr-2" />
+                Importar Excel
+              </Button>
+            )}
+            {!isHarvestModule && (
+              <>
+                <Button onClick={openCreateTableDialog} variant="outline">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Nueva Tabla
+                </Button>
+                <Button onClick={openCreateChartDialog}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Nuevo Gráfico
+                </Button>
+              </>
+            )}
           </div>
         </div>
 
@@ -1206,6 +1215,20 @@ export function ClientDataManager({ initialClientId, initialModuleId }: ClientDa
               </div>
             )}
 
+            {isHarvestModule && (
+              <div className="rounded-xl border border-emerald-500/20 bg-card p-5 space-y-3">
+                <div>
+                  <h2 className="text-base font-semibold text-foreground">Importar Excel de estimación de cosecha</h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Carga conteos o estimaciones a la cuenta de {selectedClient.full_name || selectedClient.email}.
+                    Solo administradores pueden importar; el cliente e inspectores ven los datos en el dashboard.
+                  </p>
+                </div>
+                <HarvestEstimationUploader clienteId={selectedClient.id} />
+              </div>
+            )}
+
+            {!isHarvestModule && (
             <div className="grid lg:grid-cols-2 gap-6">
               {/* Tables Section */}
               <div className="space-y-4">
@@ -1355,6 +1378,7 @@ export function ClientDataManager({ initialClientId, initialModuleId }: ClientDa
               )}
               </div>
             </div>
+            )}
           </div>
         )}
 

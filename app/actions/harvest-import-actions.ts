@@ -2,9 +2,9 @@
 
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { createClient as createServerClient } from '@/lib/supabase/server'
-import { getViewAsContext } from '@/lib/impersonation'
 import { revalidatePath } from 'next/cache'
 import type { ParsedHarvestEstimate, ParsedHarvestImport } from '@/lib/agronomy/parse-harvest-xlsx'
+import { assertHarvestWriteAccess, assertAdminHarvestImportAccess } from '@/lib/agronomy/harvest-owner-context'
 import { aggregateCountByBlockVariety } from '@/lib/agronomy/aggregate-count-rows'
 import { enrichAggregatedEstimateForEstimation } from '@/lib/agronomy/build-estimation-from-count'
 
@@ -17,14 +17,19 @@ function getServiceClient() {
   })
 }
 
-async function resolveOwnerId(client: NonNullable<ReturnType<typeof getServiceClient>>, userId: string) {
-  const { data } = await client
-    .from('profiles')
-    .select('parent_user_id, role')
-    .eq('id', userId)
-    .maybeSingle()
-  if (data?.role === 'user' && data.parent_user_id) return String(data.parent_user_id)
-  return userId
+async function resolveOwnerId(
+  service: NonNullable<ReturnType<typeof getServiceClient>>,
+  clientUserId?: string | null,
+) {
+  const resolved = await assertHarvestWriteAccess(service, clientUserId ?? null)
+  if (!resolved.ok) throw new Error(resolved.error)
+  return resolved.ownerId
+}
+
+async function resolveAdminImportOwnerId(clientUserId: string) {
+  const resolved = await assertAdminHarvestImportAccess(clientUserId)
+  if (!resolved.ok) throw new Error(resolved.error)
+  return resolved.ownerId
 }
 
 export type HarvestImportResult =
@@ -250,6 +255,7 @@ async function importHarvestData(
   replaceExisting: boolean,
   mode: ImportMode,
   recordDate?: string,
+  clientUserId?: string | null,
 ): Promise<HarvestImportResult> {
   const supabase = await createServerClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -258,8 +264,14 @@ async function importHarvestData(
   const service = getServiceClient()
   if (!service) return { ok: false, error: 'Servicio no configurado' }
 
-  const viewAs = await getViewAsContext()
-  const ownerId = await resolveOwnerId(service, viewAs.viewAsUserId ?? user.id)
+  if (!clientUserId) return { ok: false, error: 'Cliente no especificado.' }
+
+  let ownerId: string
+  try {
+    ownerId = await resolveAdminImportOwnerId(clientUserId)
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'No autorizado' }
+  }
   const date = recordDate || new Date().toISOString().slice(0, 10)
 
   if (replaceExisting) {
@@ -315,6 +327,7 @@ async function importHarvestData(
   }
 
   revalidatePath('/dashboard/estimacion-cosecha')
+  revalidatePath('/admin')
 
   return {
     ok: true,
@@ -327,6 +340,7 @@ async function importHarvestData(
 
 export async function syncEstimationsFromCountAction(
   seasonLabel?: string,
+  clientUserId?: string | null,
 ): Promise<{ ok: true; updated: number } | { ok: false; error: string }> {
   const supabase = await createServerClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -335,8 +349,12 @@ export async function syncEstimationsFromCountAction(
   const service = getServiceClient()
   if (!service) return { ok: false, error: 'Servicio no configurado' }
 
-  const viewAs = await getViewAsContext()
-  const ownerId = await resolveOwnerId(service, viewAs.viewAsUserId ?? user.id)
+  let ownerId: string
+  try {
+    ownerId = await resolveOwnerId(service, clientUserId)
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'No autorizado' }
+  }
   const date = new Date().toISOString().slice(0, 10)
 
   const { data: samples, error: sampleError } = await service
@@ -395,16 +413,18 @@ export async function importCountFromExcelAction(
   data: ParsedHarvestImport,
   replaceExisting: boolean,
   recordDate?: string,
+  clientUserId?: string | null,
 ): Promise<HarvestImportResult> {
-  return importHarvestData(data, replaceExisting, 'conteo', recordDate)
+  return importHarvestData(data, replaceExisting, 'conteo', recordDate, clientUserId)
 }
 
 export async function importEstimationFromExcelAction(
   data: ParsedHarvestImport,
   replaceExisting: boolean,
   recordDate?: string,
+  clientUserId?: string | null,
 ): Promise<HarvestImportResult> {
-  return importHarvestData(data, replaceExisting, 'estimacion', recordDate)
+  return importHarvestData(data, replaceExisting, 'estimacion', recordDate, clientUserId)
 }
 
 /** @deprecated Usar importEstimationFromExcelAction o importCountFromExcelAction */
@@ -416,7 +436,9 @@ export async function importHarvestFromExcelAction(
   return importEstimationFromExcelAction(data, replaceExisting, recordDate)
 }
 
-export async function clearAllHarvestDataAction(): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function clearAllHarvestDataAction(
+  clientUserId?: string | null,
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const supabase = await createServerClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { ok: false, error: 'Debes iniciar sesión' }
@@ -424,8 +446,12 @@ export async function clearAllHarvestDataAction(): Promise<{ ok: true } | { ok: 
   const service = getServiceClient()
   if (!service) return { ok: false, error: 'Servicio no configurado' }
 
-  const viewAs = await getViewAsContext()
-  const ownerId = await resolveOwnerId(service, viewAs.viewAsUserId ?? user.id)
+  let ownerId: string
+  try {
+    ownerId = await resolveOwnerId(service, clientUserId)
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'No autorizado' }
+  }
 
   for (const table of ['harvest_estimates', 'harvest_blocks', 'harvest_fields'] as const) {
     const { error } = await service.from(table).delete().eq('user_id', ownerId)
@@ -436,7 +462,9 @@ export async function clearAllHarvestDataAction(): Promise<{ ok: true } | { ok: 
   return { ok: true }
 }
 
-export async function deleteAllHarvestFieldsAction(): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function deleteAllHarvestFieldsAction(
+  clientUserId?: string | null,
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const supabase = await createServerClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { ok: false, error: 'Debes iniciar sesión' }
@@ -444,8 +472,12 @@ export async function deleteAllHarvestFieldsAction(): Promise<{ ok: true } | { o
   const service = getServiceClient()
   if (!service) return { ok: false, error: 'Servicio no configurado' }
 
-  const viewAs = await getViewAsContext()
-  const ownerId = await resolveOwnerId(service, viewAs.viewAsUserId ?? user.id)
+  let ownerId: string
+  try {
+    ownerId = await resolveOwnerId(service, clientUserId)
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'No autorizado' }
+  }
 
   const { error } = await service.from('harvest_fields').delete().eq('user_id', ownerId)
   if (error) return { ok: false, error: error.message }
@@ -454,7 +486,9 @@ export async function deleteAllHarvestFieldsAction(): Promise<{ ok: true } | { o
   return { ok: true }
 }
 
-export async function deleteAllHarvestBlocksAction(): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function deleteAllHarvestBlocksAction(
+  clientUserId?: string | null,
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const supabase = await createServerClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { ok: false, error: 'Debes iniciar sesión' }
@@ -462,8 +496,12 @@ export async function deleteAllHarvestBlocksAction(): Promise<{ ok: true } | { o
   const service = getServiceClient()
   if (!service) return { ok: false, error: 'Servicio no configurado' }
 
-  const viewAs = await getViewAsContext()
-  const ownerId = await resolveOwnerId(service, viewAs.viewAsUserId ?? user.id)
+  let ownerId: string
+  try {
+    ownerId = await resolveOwnerId(service, clientUserId)
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'No autorizado' }
+  }
 
   const { error } = await service.from('harvest_blocks').delete().eq('user_id', ownerId)
   if (error) return { ok: false, error: error.message }

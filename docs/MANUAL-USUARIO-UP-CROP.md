@@ -4,6 +4,8 @@
 **Audiencia:** CEO, clientes, equipo comercial y usuarios finales (sin conocimientos técnicos)  
 **Versión:** Mayo 2026
 
+> **Manual del cliente (solo lo que ven los clientes):** [`MANUAL-CLIENTE-UP-CROP.md`](./MANUAL-CLIENTE-UP-CROP.md)
+
 ---
 
 ## Tabla de contenidos
@@ -67,6 +69,7 @@ Cada cliente ve **solo los módulos que Up Crop le habilitó**. No todos tienen 
 - Módulos **Asistencia técnica**, **Estados fenológicos** y **Estimación de cosecha** (pestaña Conteo)
 - Marca entrada/salida con validación GPS (geocerca)
 - Puede tener varios clientes asignados
+- En **Estimación de cosecha** elige el **cliente** y ve la misma pantalla (conteo + estimación) que la empresa
 
 ### Administrador Up Crop
 - Panel Admin + todos los módulos
@@ -225,7 +228,7 @@ Documentos recientes sin entrar al módulo completo.
 **Ruta:** menú lateral → **Mi perfil** (`/dashboard/perfil`)
 
 ### 6.1 Plan contratado (tarjeta superior)
-Plan Esencial, Enterprise o Business; descripción; valor en UF; badge **Activo**; contacto Up Crop.
+Plan Esencial, Enterprise o Business; descripción; valor en UF; badge **Activo**, **Por vencer** o **Vencido**; **fecha y hora de activación**; **fecha y hora de vencimiento** (ciclo de 1 mes); contacto Up Crop.
 
 | Plan | Idea general | Referencia |
 |------|--------------|------------|
@@ -351,23 +354,27 @@ Del **conteo en campo** a **kilos estimados** y **plan de cosecha**.
 #### Gestión transversal
 - **Campos** y **cuarteles** (cultivo, variedad, ha, plantas/ha)
 - Filtros: temporada, cultivo, campo, cuartel, variedad
-- Importar/exportar Excel; vaciar datos (destructivo)
+- **Importar Excel masivo:** solo **admin** en Panel Admin → Clientes → [cliente] → Estimación de cosecha
+- Exportar Excel desde dashboard (cliente e inspector)
+- **Inspectores:** tarjeta verde **Vista del cliente** arriba; eligen empresa, registran conteos manualmente y el **cliente los ve en su cuenta**
+- **Clientes y subusuarios:** solo lectura (visualizar, filtrar, exportar); no editan ni borran
 
 #### Pestaña Conteo
-- Muestras por árbol: dardos, ramillas, primordios, % cuaja, pre/post poda
-- Vistas: promedios por cuartel, detalle por árbol, gráficos
-- Nuevo conteo, editar, eliminar, importar/exportar Excel
+- Muestras por árbol: dardos, ramillas, primordios, pre/post poda
+- Tablas de detalle y resumen por cuartel
+- Gráficos: promedio dardos por cuartel, promedio ramillas por cuartel, Pre vs Post poda, **Disminución de carga**
+- Inspectores: nuevo conteo, editar, eliminar, exportar Excel
 
 #### Pestaña Estimación de cosecha
 - kg/planta, kg/ha, kg totales desde fórmulas agronómicas
-- Calcular desde conteo, guardar calculadas, estimación manual
+- Inspectores: calcular desde conteo, guardar calculadas, estimación manual
 - Tabla + gráficos; exportar Excel
 - Aviso si faltan hectáreas en cuarteles
 
 #### Pestaña Plan de cosecha
 - Ventanas de cosecha (fecha inicio/fin) por cuartel
 - Diagrama Gantt + tabla
-- El menú “Plan de cosecha” redirige aquí (`?tab=plan`)
+- El ítem de menú “Plan de cosecha” redirige a Estimación de cosecha (`/dashboard/estimacion-cosecha`)
 
 ---
 
@@ -502,7 +509,7 @@ Módulos dinámicos (Centro de Control, Producto Terminado, Plata, Productores, 
 - Slug “comercio” → rastreo satelital (7.7)
 - Enlaces Looker Studio embebidos
 
-**Admin configura** en Clientes: tablas, gráficos, permisos, Excel.
+**Admin configura** en Clientes: tablas, gráficos, permisos, Excel. En **Estimación de cosecha** importa el Excel base del cliente (conteo o estimación).
 
 ---
 
@@ -606,7 +613,7 @@ Aplicar `076_phytosanitary_inventory_module.sql` y `077_phytosanitary_stages_2_4
 
 ### 8.2 Pestaña Usuarios
 
-**Toolbar:** planes de servicio, crear inspector, registrar cliente, gestionar áreas, crear módulo, exportar Excel permisos.
+**Toolbar:** planes de servicio (`/admin/planes-servicio`: vigencias, por vencer, vencidos, bloquear), crear inspector, registrar cliente, gestionar áreas, crear módulo, exportar Excel permisos.
 
 **Por usuario:**
 - Switches módulos on/off

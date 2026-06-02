@@ -23,8 +23,9 @@ export interface HarvestEstimationCardRow {
 interface HarvestEstimationCardsProps {
   rows: HarvestEstimationCardRow[]
   countStyle: Record<HarvestCountState, string>
-  onEdit: (row: HarvestEstimationCardRow) => void
-  onDelete: (row: HarvestEstimationCardRow) => void
+  onEdit?: (row: HarvestEstimationCardRow) => void
+  onDelete?: (row: HarvestEstimationCardRow) => void
+  readOnly?: boolean
 }
 
 function tCountState(t: (k: string) => string, state: HarvestCountState) {
@@ -38,6 +39,7 @@ export function HarvestEstimationCards({
   countStyle,
   onEdit,
   onDelete,
+  readOnly = false,
 }: HarvestEstimationCardsProps) {
   const { t } = useLocale()
 
@@ -69,16 +71,18 @@ export function HarvestEstimationCards({
             </div>
             <div className="flex items-center justify-between gap-2">
               <Badge variant="outline" className={countStyle[countState]}>{tCountState(t, countState)}</Badge>
-              <div className="flex gap-1">
-                <Button variant="ghost" size="icon" onClick={() => onEdit(row)} title={t('common.actions.edit')}>
-                  <Pencil className="w-4 h-4" />
-                </Button>
-                {canDelete && (
-                  <Button variant="ghost" size="icon" onClick={() => onDelete(row)} title={t('common.actions.delete')}>
-                    <Trash2 className="w-4 h-4 text-destructive" />
+              {!readOnly && onEdit && onDelete && (
+                <div className="flex gap-1">
+                  <Button variant="ghost" size="icon" onClick={() => onEdit(row)} title={t('common.actions.edit')}>
+                    <Pencil className="w-4 h-4" />
                   </Button>
-                )}
-              </div>
+                  {canDelete && (
+                    <Button variant="ghost" size="icon" onClick={() => onDelete(row)} title={t('common.actions.delete')}>
+                      <Trash2 className="w-4 h-4 text-destructive" />
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )

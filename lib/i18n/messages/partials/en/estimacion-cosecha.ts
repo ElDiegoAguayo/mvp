@@ -4,6 +4,22 @@ export const estimacionCosecha = {
     subtitle:
       'Phenological counts and kg estimation by block — customized per client.',
   },
+  readOnlyBanner:
+    'Read-only view. Counts and estimates are registered by your Up Crop field team.',
+  inspector: {
+    title: 'Client view',
+    subtitle: 'Pick the company, register counts on their behalf, and the client will see them in their account.',
+    client: 'Client',
+    selectPlaceholder: 'Select client',
+    noClientsAssigned: 'You have no assigned clients. Contact Up Crop to get access.',
+    viewingAsLabel: 'Viewing account',
+    viewingAsHint: 'Counts you save here appear in the client account.',
+    selectClientFirst: 'Select a client above to register counts.',
+    noClientsTitle: 'No assigned clients',
+    noClientsDesc: 'Ask Up Crop to assign companies to you from the admin panel.',
+    selectClientTitle: 'Choose a client',
+    selectClientDesc: 'Use the green selector above to view and register that company’s counts.',
+  },
   tabs: {
     count: 'Count',
     estimation: 'Harvest estimation',

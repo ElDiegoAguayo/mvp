@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { getEffectiveUserId } from '@/lib/supabase/effective-user'
@@ -16,22 +16,16 @@ import {
 } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
-  Loader2, Plus, Pencil, Trash2, BarChart3, MapPin, Trees, FileSpreadsheet, Upload, Download, ClipboardList,
+  Loader2, Plus, Pencil, Trash2, BarChart3, MapPin, Trees, Download, ClipboardList, Building2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import {
-  clearAllHarvestDataAction,
   deleteAllHarvestBlocksAction,
   deleteAllHarvestFieldsAction,
-  importCountFromExcelAction,
-  importEstimationFromExcelAction,
   syncEstimationsFromCountAction,
 } from '@/app/actions/harvest-import-actions'
-import { parseHarvestWorkbook, type ParsedHarvestImport } from '@/lib/agronomy/parse-harvest-xlsx'
-import { parseCountWorkbook, isBellavistaDashboardWorkbook } from '@/lib/agronomy/parse-count-xlsx'
-import * as XLSX from 'xlsx'
 import { exportHarvestToExcel } from '@/lib/agronomy/export-harvest-xlsx'
 import { exportCountToExcel } from '@/lib/agronomy/export-count-xlsx'
 import { countGroupKey, fmtCountAvg, listCountGroupSummaries } from '@/lib/agronomy/count-group-averages'
@@ -68,6 +62,12 @@ import { computePrePostDeltaRows } from '@/lib/agronomy/compute-pre-post-delta'
 import { loadHarvestModuleData, offlineWrite } from '@/lib/offline/agronomy-offline'
 import { OFFLINE_EVENT } from '@/lib/offline/types'
 import { useLocale } from '@/components/i18n/locale-provider'
+import { useViewAsUserId } from '@/components/dashboard/view-as-provider'
+import {
+  HARVEST_INSPECTOR_CLIENT_STORAGE_KEY,
+  InspectorHarvestClientSelect,
+} from '@/components/dashboard/harvest/inspector-harvest-client-select'
+import { fetchInspectorClientOptions, type InspectorClientOption } from '@/lib/tech-assistance/inspector-clients'
 
 export type HarvestEstimationTab = 'conteo' | 'estimacion'
 
@@ -295,6 +295,7 @@ function computeFromForm(form: FormState, forSave = false) {
 
 export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab?: HarvestEstimationTab } = {}) {
   const { t } = useLocale()
+  const viewAsUserId = useViewAsUserId()
   const router = useRouter()
   const supabase = useMemo(() => createClient(), [])
   const [loading, setLoading] = useState(true)
@@ -303,6 +304,10 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
   const [blocks, setBlocks] = useState<HarvestBlock[]>([])
   const [fields, setFields] = useState<HarvestField[]>([])
   const [ownerId, setOwnerId] = useState<string | null>(null)
+  const [isInspector, setIsInspector] = useState(false)
+  const [inspectorReady, setInspectorReady] = useState(false)
+  const [inspectorClients, setInspectorClients] = useState<InspectorClientOption[]>([])
+  const [selectedClientId, setSelectedClientId] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [blocksDialogOpen, setBlocksDialogOpen] = useState(false)
   const [fieldsDialogOpen, setFieldsDialogOpen] = useState(false)
@@ -320,12 +325,6 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
     router.replace(href, { scroll: false })
   }
   const [countView, setCountView] = useState<'promedios' | 'muestras'>('promedios')
-  const [importDialogOpen, setImportDialogOpen] = useState(false)
-  const [importMode, setImportMode] = useState<'conteo' | 'estimacion'>('conteo')
-  const [importPreview, setImportPreview] = useState<ParsedHarvestImport | null>(null)
-  const [importReplace, setImportReplace] = useState(false)
-  const [importing, setImporting] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const [dialogMode, setDialogMode] = useState<'conteo' | 'estimacion'>('conteo')
   const [editing, setEditing] = useState<HarvestEstimate | null>(null)
   const [form, setForm] = useState<FormState>(() => buildEmptyForm())
@@ -387,17 +386,103 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
     [blocks, form.field_name],
   )
 
+  const inspectorClientId = isInspector ? selectedClientId || null : null
+  const inspectorCanWork = !isInspector || Boolean(ownerId)
+  /** Clientes y subusuarios solo visualizan; inspectores registran conteos. */
+  const canEditHarvest = isInspector
+
+  function requireInspectorClient(): boolean {
+    if (!isInspector || ownerId) return true
+    toast.error(t('estimacionCosecha.inspector.selectClientFirst'))
+    return false
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    setInspectorReady(false)
+    void (async () => {
+      const { userId: actingUserId } = await getEffectiveUserId(supabase, viewAsUserId)
+      if (!actingUserId || cancelled) {
+        if (!cancelled) {
+          setIsInspector(false)
+          setInspectorClients([])
+          setSelectedClientId('')
+          setInspectorReady(true)
+        }
+        return
+      }
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('is_tech_inspector')
+        .eq('id', actingUserId)
+        .maybeSingle()
+
+      if (!profile?.is_tech_inspector) {
+        if (!cancelled) {
+          setIsInspector(false)
+          setInspectorClients([])
+          setSelectedClientId('')
+          setInspectorReady(true)
+        }
+        return
+      }
+
+      const clients = await fetchInspectorClientOptions(supabase, actingUserId)
+      if (cancelled) return
+
+      setIsInspector(true)
+      setInspectorClients(clients)
+      const stored =
+        typeof window !== 'undefined'
+          ? window.sessionStorage.getItem(HARVEST_INSPECTOR_CLIENT_STORAGE_KEY)
+          : null
+      const initial =
+        stored && clients.some(c => c.id === stored) ? stored : clients[0]?.id ?? ''
+      setSelectedClientId(initial)
+      setInspectorReady(true)
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [supabase, viewAsUserId])
+
+  const handleInspectorClientChange = useCallback((clientId: string) => {
+    setSelectedClientId(clientId)
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.setItem(HARVEST_INSPECTOR_CLIENT_STORAGE_KEY, clientId)
+    }
+  }, [])
+
   const load = useCallback(async (options?: { silent?: boolean }) => {
-    if (!options?.silent) setLoading(true)
-    const { effectiveUserId } = await getEffectiveUserId(supabase)
-    if (!effectiveUserId) {
+    if (!inspectorReady) return
+    if (isInspector && !selectedClientId) {
+      setOwnerId(null)
+      setRows([])
+      setBlocks([])
+      setFields([])
       if (!options?.silent) setLoading(false)
       return
     }
-    setOwnerId(effectiveUserId)
+
+    if (!options?.silent) setLoading(true)
+
+    let dataOwnerId: string | null = null
+    if (isInspector) {
+      dataOwnerId = selectedClientId
+    } else {
+      const { effectiveUserId } = await getEffectiveUserId(supabase)
+      dataOwnerId = effectiveUserId
+    }
+
+    if (!dataOwnerId) {
+      if (!options?.silent) setLoading(false)
+      return
+    }
+    setOwnerId(dataOwnerId)
 
     try {
-      const data = await loadHarvestModuleData(supabase, effectiveUserId)
+      const data = await loadHarvestModuleData(supabase, dataOwnerId)
       const loadedRows = data.estimates as unknown as HarvestEstimate[]
       const loadedBlocks = data.blocks as unknown as HarvestBlock[]
       const loadedFields = data.fields as unknown as HarvestField[]
@@ -423,7 +508,7 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
 
       if (orphanNames.length > 0) {
         const { error: syncError } = await supabase.from('harvest_fields').upsert(
-          orphanNames.map((name) => ({ user_id: effectiveUserId, name })),
+          orphanNames.map((name) => ({ user_id: dataOwnerId, name })),
           { onConflict: 'user_id,name', ignoreDuplicates: true },
         )
         if (syncError) {
@@ -433,7 +518,7 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
           const { data: syncedFields } = await supabase
             .from('harvest_fields')
             .select('id, name')
-            .eq('user_id', effectiveUserId)
+            .eq('user_id', dataOwnerId)
             .order('name')
           setFields((syncedFields ?? loadedFields) as HarvestField[])
         }
@@ -446,7 +531,7 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
     } finally {
       if (!options?.silent) setLoading(false)
     }
-  }, [supabase, t])
+  }, [supabase, t, inspectorReady, isInspector, selectedClientId])
 
   useEffect(() => { void load() }, [load])
 
@@ -810,6 +895,7 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
   }
 
   function openCreateCount() {
+    if (!requireInspectorClient()) return
     setDialogMode('conteo')
     setEditing(null)
     setForm(buildEmptyForm(filterSeason || currentSeasonLabel()))
@@ -817,6 +903,7 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
   }
 
   function openCreateEstimation() {
+    if (!requireInspectorClient()) return
     setDialogMode('estimacion')
     setEditing(null)
     const season = filterSeason || currentSeasonLabel()
@@ -904,24 +991,10 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
     }))
   }
 
-  async function handleClearAllData() {
-    if (!confirm(t('estimacionCosecha.confirms.clearAll'))) return
-    setSaving(true)
-    const result = await clearAllHarvestDataAction()
-    setSaving(false)
-    if (!result.ok) {
-      toast.error(t('estimacionCosecha.toasts.clearFailed'), { description: result.error })
-      return
-    }
-    toast.success(t('estimacionCosecha.toasts.dataDeleted'))
-    setImportPreview(null)
-    load()
-  }
-
   async function handleDeleteAllFields() {
     if (!confirm(t('estimacionCosecha.confirms.deleteAllFields', { count: fieldOptions.length }))) return
     setSaving(true)
-    const result = await deleteAllHarvestFieldsAction()
+    const result = await deleteAllHarvestFieldsAction(inspectorClientId)
     setSaving(false)
     if (!result.ok) toast.error(result.error)
     else { toast.success(t('estimacionCosecha.toasts.fieldsDeleted')); load() }
@@ -930,7 +1003,7 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
   async function handleDeleteAllBlocks() {
     if (!confirm(t('estimacionCosecha.confirms.deleteAllBlocks', { count: blocks.length }))) return
     setSaving(true)
-    const result = await deleteAllHarvestBlocksAction()
+    const result = await deleteAllHarvestBlocksAction(inspectorClientId)
     setSaving(false)
     if (!result.ok) toast.error(result.error)
     else { toast.success(t('estimacionCosecha.toasts.blocksDeleted')); load() }
@@ -968,7 +1041,7 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
 
   async function handleSyncEstimations() {
     setSaving(true)
-    const result = await syncEstimationsFromCountAction(filterSeason || undefined)
+    const result = await syncEstimationsFromCountAction(filterSeason || undefined, inspectorClientId)
     setSaving(false)
     if (!result.ok) {
       toast.error(t('estimacionCosecha.toasts.calcFailed'), { description: result.error })
@@ -977,82 +1050,6 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
     toast.success(t('estimacionCosecha.toasts.estimationsUpdated'), {
       description: t('estimacionCosecha.toasts.blocksCalculated', { count: result.updated }),
     })
-    load()
-  }
-
-  function openImportDialog(mode: 'conteo' | 'estimacion') {
-    setImportMode(mode)
-    setImportPreview(null)
-    if (mode === 'conteo') setActiveTab('conteo')
-    setImportDialogOpen(true)
-  }
-
-  async function handleFileSelect(file: File, mode: 'conteo' | 'estimacion') {
-    try {
-      const buffer = await file.arrayBuffer()
-      const wb = XLSX.read(buffer, { type: 'array' })
-      let effectiveMode = mode
-
-      if (isBellavistaDashboardWorkbook(wb)) {
-        effectiveMode = 'conteo'
-        setImportMode('conteo')
-        setActiveTab('conteo')
-        if (mode === 'estimacion') {
-          toast.info(t('estimacionCosecha.toasts.countWorkbookDetected'), {
-            description: t('estimacionCosecha.toasts.countWorkbookDesc'),
-          })
-        }
-      }
-
-      const parsed = effectiveMode === 'conteo'
-        ? parseCountWorkbook(buffer)
-        : parseHarvestWorkbook(buffer)
-      setImportPreview(parsed)
-      toast.success(effectiveMode === 'conteo' ? t('estimacionCosecha.toasts.countRead') : t('estimacionCosecha.toasts.estimationRead'), {
-        description: t('estimacionCosecha.toasts.importPreview', {
-          blocks: parsed.estimates.length,
-          rows: parsed.source_row_count ?? parsed.estimates.length,
-        }),
-      })
-    } catch (err) {
-      toast.error(t('estimacionCosecha.toasts.excelReadError'), {
-        description: err instanceof Error ? err.message : t('estimacionCosecha.toasts.invalidFormat'),
-      })
-      setImportPreview(null)
-    }
-  }
-
-  async function handleConfirmImport() {
-    if (!importPreview) return
-    setImporting(true)
-    const result = importMode === 'conteo'
-      ? await importCountFromExcelAction(importPreview, importReplace)
-      : await importEstimationFromExcelAction(importPreview, importReplace)
-    setImporting(false)
-    if (!result.ok) {
-      toast.error(t('estimacionCosecha.toasts.importFailed'), { description: result.error })
-      return
-    }
-    toast.success(importMode === 'conteo' ? t('estimacionCosecha.toasts.countImported') : t('estimacionCosecha.toasts.estimationImported'), {
-      description: t('estimacionCosecha.toasts.importSummary', {
-        fields: result.fields,
-        blocks: result.blocks,
-        records: result.estimates,
-      }),
-    })
-    if (importMode === 'conteo') {
-      const sync = await syncEstimationsFromCountAction(importPreview.season_label)
-      if (sync.ok) {
-        toast.success(t('estimacionCosecha.toasts.estimationCalculated'), {
-          description: t('estimacionCosecha.toasts.kgFromCount', { count: sync.updated }),
-        })
-      }
-    }
-    setImportDialogOpen(false)
-    setImportPreview(null)
-    setFilterSeason(result.season)
-    if (importMode === 'conteo') setActiveTab('estimacion')
-    else setActiveTab('estimacion')
     load()
   }
 
@@ -1165,6 +1162,7 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
   }
 
   async function handleSave() {
+    if (!canEditHarvest) return
     if (!ownerId) return
 
     const isEstimation = dialogMode === 'estimacion'
@@ -1307,6 +1305,7 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
   }
 
   async function handleDelete(row: HarvestEstimate) {
+    if (!canEditHarvest) return
     if (row.id.startsWith('computed-')) {
       toast.error(t('estimacionCosecha.toasts.computeFirst'), {
         description: t('estimacionCosecha.toasts.computeFirstDesc'),
@@ -1331,7 +1330,7 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
     }
   }
 
-  if (loading) {
+  if (!inspectorReady || loading) {
     return (
       <div className="flex items-center justify-center py-24 text-muted-foreground">
         <Loader2 className="w-6 h-6 animate-spin mr-2" />
@@ -1414,8 +1413,54 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
     </div>
   )
 
+  const renderInspectorGate = () => {
+    if (!isInspector) return null
+    if (inspectorClients.length === 0) {
+      return (
+        <div className="rounded-xl border border-dashed border-amber-500/40 bg-amber-500/5 p-10 text-center">
+          <Building2 className="w-10 h-10 mx-auto mb-3 text-amber-600 dark:text-amber-400 opacity-80" />
+          <p className="font-medium text-foreground mb-1">{t('estimacionCosecha.inspector.noClientsTitle')}</p>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto">
+            {t('estimacionCosecha.inspector.noClientsDesc')}
+          </p>
+        </div>
+      )
+    }
+    if (!selectedClientId) {
+      return (
+        <div className="rounded-xl border border-dashed border-emerald-500/40 bg-emerald-500/5 p-10 text-center">
+          <ClipboardList className="w-10 h-10 mx-auto mb-3 text-emerald-600 dark:text-emerald-400 opacity-80" />
+          <p className="font-medium text-foreground mb-1">{t('estimacionCosecha.inspector.selectClientTitle')}</p>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto">
+            {t('estimacionCosecha.inspector.selectClientDesc')}
+          </p>
+        </div>
+      )
+    }
+    return null
+  }
+
   return (
     <div className="space-y-6">
+      {isInspector && (
+        <InspectorHarvestClientSelect
+          clients={inspectorClients}
+          value={selectedClientId}
+          onValueChange={handleInspectorClientChange}
+        />
+      )}
+
+      {!canEditHarvest && (
+        <div className="rounded-lg border border-border/80 bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+          {t('estimacionCosecha.readOnlyBanner')}
+        </div>
+      )}
+
+      {isInspector && !inspectorCanWork ? (
+        renderInspectorGate()
+      ) : (
+      <>
+      {canEditHarvest && (
       <div className="flex gap-2 flex-wrap">
         <Button variant="outline" onClick={() => setFieldsDialogOpen(true)} className="gap-2">
           <Trees className="w-4 h-4" /> {t('estimacionCosecha.buttons.fields', { count: fieldOptions.length })}
@@ -1424,6 +1469,7 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
           <MapPin className="w-4 h-4" /> {t('estimacionCosecha.buttons.blocks', { count: blocks.length })}
         </Button>
       </div>
+      )}
 
       <Tabs value={activeTab} onValueChange={(v) => handleMainTabChange(v as HarvestEstimationTab)}>
         <TabsList className="w-full sm:w-auto h-auto flex-wrap">
@@ -1465,12 +1511,11 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
               <Button variant="outline" onClick={handleExportCount} className="gap-2" disabled={countRows.length === 0}>
                 <Download className="w-4 h-4" /> {t('estimacionCosecha.buttons.exportExcel')}
               </Button>
-              <Button variant="outline" onClick={() => openImportDialog('conteo')} className="gap-2">
-                <Upload className="w-4 h-4" /> {t('estimacionCosecha.buttons.importExcel')}
-              </Button>
-              <Button onClick={openCreateCount} className="gap-2">
-                <Plus className="w-4 h-4" /> {t('estimacionCosecha.buttons.newCount')}
-              </Button>
+              {canEditHarvest && (
+                <Button onClick={openCreateCount} className="gap-2">
+                  <Plus className="w-4 h-4" /> {t('estimacionCosecha.buttons.newCount')}
+                </Button>
+              )}
             </div>
           </div>
 
@@ -1479,12 +1524,16 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
               <ClipboardList className="w-10 h-10 mx-auto mb-3 opacity-40" />
               <p className="font-medium text-foreground mb-1">{t('estimacionCosecha.empty.noCountsTitle')}</p>
               <p className="text-sm mb-4">
-                {t('estimacionCosecha.empty.noCountsDesc')}
+                {canEditHarvest
+                  ? t('estimacionCosecha.empty.noCountsDesc')
+                  : t('estimacionCosecha.readOnlyBanner')}
               </p>
+              {canEditHarvest && (
               <div className="flex gap-2 justify-center flex-wrap">
                 <Button variant="outline" onClick={() => setFieldsDialogOpen(true)}>{t('estimacionCosecha.buttons.addFields')}</Button>
                 <Button onClick={openCreateCount}>{t('estimacionCosecha.buttons.newCount')}</Button>
               </div>
+              )}
             </div>
           ) : (
             <div className="space-y-4">
@@ -1558,7 +1607,7 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                       <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.spur')}</th>
                       <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.twigs')}</th>
                       <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.status')}</th>
-                      <th className="px-3 py-3 w-20" />
+                      {canEditHarvest && <th className="px-3 py-3 w-20" />}
                     </tr>
                   </thead>
                   <tbody>
@@ -1578,6 +1627,7 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                               <OfflinePendingBadge recordId={row.id} />
                             </div>
                           </td>
+                          {canEditHarvest && (
                           <td className="px-3 py-3">
                             <div className="flex gap-1">
                               <Button variant="ghost" size="icon" onClick={() => openEditCount(row)}>
@@ -1588,6 +1638,7 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                               </Button>
                             </div>
                           </td>
+                          )}
                         </tr>
                       )
                     })}
@@ -1632,7 +1683,7 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
               {t('estimacionCosecha.estimationView.tableDesc')}
             </p>
             <div className="flex gap-2 shrink-0 flex-wrap">
-              {computedCount > 0 && (
+              {canEditHarvest && computedCount > 0 && (
                 <Button
                   variant="default"
                   onClick={handleSyncEstimations}
@@ -1643,24 +1694,25 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                   {t('estimacionCosecha.buttons.saveComputed', { count: computedCount })}
                 </Button>
               )}
-              <Button
-                variant="outline"
-                onClick={handleSyncEstimations}
-                disabled={countSummaries.length === 0 || saving}
-                className="gap-2"
-              >
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <BarChart3 className="w-4 h-4" />}
-                {t('estimacionCosecha.buttons.calcFromCount')}
-              </Button>
+              {canEditHarvest && (
+                <Button
+                  variant="outline"
+                  onClick={handleSyncEstimations}
+                  disabled={countSummaries.length === 0 || saving}
+                  className="gap-2"
+                >
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <BarChart3 className="w-4 h-4" />}
+                  {t('estimacionCosecha.buttons.calcFromCount')}
+                </Button>
+              )}
               <Button variant="outline" onClick={handleExportEstimation} className="gap-2" disabled={estimationDisplayRows.length === 0}>
                 <Download className="w-4 h-4" /> {t('estimacionCosecha.buttons.exportExcel')}
               </Button>
-              <Button variant="outline" onClick={() => openImportDialog('estimacion')} className="gap-2">
-                <Upload className="w-4 h-4" /> {t('estimacionCosecha.buttons.importExcel')}
-              </Button>
-              <Button onClick={openCreateEstimation} className="gap-2">
-                <Plus className="w-4 h-4" /> {t('estimacionCosecha.buttons.newEstimation')}
-              </Button>
+              {canEditHarvest && (
+                <Button onClick={openCreateEstimation} className="gap-2">
+                  <Plus className="w-4 h-4" /> {t('estimacionCosecha.buttons.newEstimation')}
+                </Button>
+              )}
             </div>
           </div>
 
@@ -1675,11 +1727,15 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
               <BarChart3 className="w-10 h-10 mx-auto mb-3 opacity-40" />
               <p className="font-medium text-foreground mb-1">{t('estimacionCosecha.empty.noEstimationsTitle')}</p>
               <p className="text-sm mb-4">
-                {t('estimacionCosecha.empty.noEstimationsDesc')}
+                {canEditHarvest
+                  ? t('estimacionCosecha.empty.noEstimationsDesc')
+                  : t('estimacionCosecha.readOnlyBanner')}
               </p>
               <div className="flex gap-2 justify-center flex-wrap">
                 <Button variant="outline" onClick={() => handleMainTabChange('conteo')}>{t('estimacionCosecha.buttons.goToCount')}</Button>
-                <Button onClick={openCreateEstimation}>{t('estimacionCosecha.buttons.newEstimation')}</Button>
+                {canEditHarvest && (
+                  <Button onClick={openCreateEstimation}>{t('estimacionCosecha.buttons.newEstimation')}</Button>
+                )}
               </div>
             </div>
           ) : (
@@ -1687,8 +1743,9 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
             <HarvestEstimationCards
               rows={estimationDisplayRows}
               countStyle={COUNT_STYLE}
-              onEdit={(row) => openEditEstimation(row as HarvestEstimate)}
-              onDelete={(row) => handleDelete(row as HarvestEstimate)}
+              readOnly={!canEditHarvest}
+              onEdit={canEditHarvest ? (row) => openEditEstimation(row as HarvestEstimate) : undefined}
+              onDelete={canEditHarvest ? (row) => handleDelete(row as HarvestEstimate) : undefined}
             />
             <div className="rounded-xl border overflow-hidden hidden md:block">
               <div className="overflow-x-auto">
@@ -1710,7 +1767,7 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                       <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.kgPerHa')}</th>
                       <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.estimatedKg')}</th>
                       <th className="px-3 py-3 font-medium">{t('estimacionCosecha.table.count')}</th>
-                      <th className="px-3 py-3 w-20" />
+                      {canEditHarvest && <th className="px-3 py-3 w-20" />}
                     </tr>
                   </thead>
                   <tbody>
@@ -1741,6 +1798,7 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                         <td className="px-3 py-3">
                           <Badge variant="outline" className={COUNT_STYLE[countState]}>{tCountState(t, countState)}</Badge>
                         </td>
+                        {canEditHarvest && (
                         <td className="px-3 py-3">
                           <div className="flex gap-1">
                             <Button variant="ghost" size="icon" onClick={() => openEditEstimation(row)} title={t('estimacionCosecha.buttons.editEstimation')}>
@@ -1753,6 +1811,7 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
                             )}
                           </div>
                         </td>
+                        )}
                       </tr>
                     )})}
                   </tbody>
@@ -1764,92 +1823,8 @@ export function HarvestEstimationManager({ initialTab = 'conteo' }: { initialTab
         </TabsContent>
 
       </Tabs>
-
-      {/* Dialog importar Excel */}
-      <Dialog open={importDialogOpen} onOpenChange={(o) => { setImportDialogOpen(o); if (!o) setImportPreview(null) }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {importMode === 'conteo' ? t('estimacionCosecha.dialogs.importCount') : t('estimacionCosecha.dialogs.importEstimation')}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-xs text-muted-foreground">
-              {importMode === 'conteo'
-                ? t('estimacionCosecha.dialogs.importCountHint')
-                : t('estimacionCosecha.dialogs.importEstimationHint')}
-            </p>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xlsx,.xls"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0]
-                if (file) handleFileSelect(file, importMode)
-                e.target.value = ''
-              }}
-            />
-            <Button
-              variant="outline"
-              className="w-full gap-2"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <FileSpreadsheet className="w-4 h-4" />
-              {t('estimacionCosecha.buttons.selectExcel')}
-            </Button>
-            {importPreview && (
-              <div className="rounded-lg border bg-muted/30 p-3 text-sm space-y-1">
-                <p className="font-medium">{t('estimacionCosecha.dialogs.sheet', { name: importPreview.sheetName })}</p>
-                <p className="text-muted-foreground">
-                  {t('estimacionCosecha.dialogs.previewSummary', {
-                    fields: importPreview.fields.length,
-                    blocks: importPreview.blocks.length,
-                    estimates: importPreview.estimates.length,
-                  })}
-                </p>
-                {importMode === 'conteo' && importPreview.source_row_count != null && (
-                  <p className="text-xs text-muted-foreground">
-                    {t('estimacionCosecha.dialogs.treeSamples', { count: importPreview.estimates.length })}
-                  </p>
-                )}
-                {importMode === 'conteo' && importPreview.estimates.every((e) => !e.hectares || e.hectares <= 0) && (
-                  <p className="text-xs text-amber-600 dark:text-amber-400">
-                    {t('estimacionCosecha.dialogs.noHaInExcel')}
-                  </p>
-                )}
-                <p className="text-xs text-muted-foreground">{t('estimacionCosecha.dialogs.detectedSeason', { season: importPreview.season_label })}</p>
-              </div>
-            )}
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="import-replace"
-                checked={importReplace}
-                onCheckedChange={(v) => setImportReplace(v === true)}
-              />
-              <Label htmlFor="import-replace" className="text-sm font-normal cursor-pointer">
-                {t('estimacionCosecha.dialogs.replaceBeforeImport')}
-              </Label>
-            </div>
-            <Button
-              variant="destructive"
-              size="sm"
-              className="w-full"
-              onClick={handleClearAllData}
-              disabled={saving}
-            >
-              {t('estimacionCosecha.buttons.clearAllData')}
-            </Button>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setImportDialogOpen(false)}>{t('common.actions.cancel')}</Button>
-            <Button onClick={handleConfirmImport} disabled={!importPreview || importing}>
-              {importing && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-              {t('common.actions.import')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      </>
+      )}
 
       {/* Dialog campos */}
       <Dialog open={fieldsDialogOpen} onOpenChange={setFieldsDialogOpen}>
