@@ -13,6 +13,13 @@ export interface ServicePlanSubscriptionInfo {
   daysUntilExpiry: number | null
 }
 
+export function isMissingServicePlanDateColumns(message: string): boolean {
+  return (
+    message.includes('service_plan_activated_at') ||
+    message.includes('service_plan_expires_at')
+  )
+}
+
 /** Suma un mes calendario a la fecha de activación. */
 export function computeServicePlanExpiresAt(activatedAt: Date): Date {
   const expires = new Date(activatedAt)

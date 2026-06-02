@@ -16,6 +16,7 @@ import type { ServicePlanId } from '@/lib/subscription-plans'
 import { isServicePlanId } from '@/lib/subscription-plans'
 import {
   buildServicePlanSubscriptionInfo,
+  isMissingServicePlanDateColumns,
   type ServicePlanSubscriptionStatus,
 } from '@/lib/service-plan-subscription'
 import type { TechLocationOption } from '@/app/actions/tech-assistance-location-actions'
@@ -70,16 +71,19 @@ async function resolveServicePlanSubscription(
     return buildServicePlanSubscriptionInfo(null, null, null)
   }
 
+  if (error && isMissingServicePlanDateColumns(error.message)) {
+    const { data: fallback } = await supabase
+      .from('profiles')
+      .select('service_plan_id')
+      .eq('id', ownerId)
+      .maybeSingle()
+    const fallbackPlanId = isServicePlanId(fallback?.service_plan_id) ? fallback.service_plan_id : null
+    return buildServicePlanSubscriptionInfo(fallbackPlanId, null, null)
+  }
+
   const planId = isServicePlanId(data?.service_plan_id) ? data.service_plan_id : null
   const activatedAt = data?.service_plan_activated_at ?? null
   const expiresAt = data?.service_plan_expires_at ?? null
-
-  if (
-    error?.message?.includes('service_plan_activated_at') ||
-    error?.message?.includes('service_plan_expires_at')
-  ) {
-    return buildServicePlanSubscriptionInfo(planId, null, null)
-  }
 
   return buildServicePlanSubscriptionInfo(planId, activatedAt, expiresAt)
 }

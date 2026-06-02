@@ -93,6 +93,12 @@ export function ServicePlansClientsManager({ initialClients }: ServicePlansClien
     () => clients.filter(c => c.status === 'active' && c.is_active),
     [clients],
   )
+  const datesMissing = useMemo(
+    () =>
+      clients.length > 0 &&
+      clients.every(c => !c.service_plan_activated_at && !c.service_plan_expires_at),
+    [clients],
+  )
 
   const refresh = useCallback(() => {
     startRefresh(async () => {
@@ -262,6 +268,21 @@ export function ServicePlansClientsManager({ initialClients }: ServicePlansClien
           </CardHeader>
         </Card>
       </div>
+
+      {datesMissing && (
+        <Card className="border-primary/30 bg-primary/5">
+          <CardContent className="flex items-start gap-3 py-4">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+            <p className="text-sm text-foreground">
+              Las fechas de vencimiento no están disponibles. Ejecuta la migración{' '}
+              <code className="rounded bg-secondary px-1 py-0.5 text-xs">
+                080_service_plan_subscription_dates.sql
+              </code>{' '}
+              en Supabase para activar vencimientos y renovaciones con fecha.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {expiring.length > 0 && (
         <Card className="border-amber-500/30 bg-amber-500/5">

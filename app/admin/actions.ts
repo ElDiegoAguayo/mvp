@@ -27,6 +27,7 @@ import { isServicePlanId, type ServicePlanId } from '@/lib/subscription-plans'
 import {
   buildServicePlanSubscriptionInfo,
   computeServicePlanExpiresAt,
+  isMissingServicePlanDateColumns,
   type ServicePlanSubscriptionStatus,
 } from '@/lib/service-plan-subscription'
 import { syncInspectorModulesOnly } from '@/lib/admin/sync-inspector-modules'
@@ -2480,17 +2481,23 @@ export async function updateClientServicePlanAction(
     .eq('id', userId)
 
   if (error) {
-    if (
-      error.message.includes('service_plan_id') ||
-      error.message.includes('service_plan_activated_at') ||
-      error.message.includes('service_plan_expires_at')
-    ) {
+    if (isMissingServicePlanDateColumns(error.message)) {
+      const { error: fallbackError } = await adminClient
+        .from('profiles')
+        .update({ service_plan_id: planId })
+        .eq('id', userId)
+
+      if (fallbackError) {
+        return { ok: false, message: fallbackError.message || 'No se pudo actualizar el plan.' }
+      }
+    } else if (error.message.includes('service_plan_id')) {
       return {
         ok: false,
-        message: 'Falta la migración de planes. Ejecuta 080_service_plan_subscription_dates.sql en Supabase.',
+        message: 'Falta la migración de planes. Ejecuta 052_profiles_service_plan.sql en Supabase.',
       }
+    } else {
+      return { ok: false, message: error.message || 'No se pudo actualizar el plan.' }
     }
-    return { ok: false, message: error.message || 'No se pudo actualizar el plan.' }
   }
 
   const planLabel = planId ?? 'Sin plan'
@@ -2547,10 +2554,7 @@ export async function listClientServicePlansAction(): Promise<ClientServicePlanR
     .order('service_plan_expires_at', { ascending: true, nullsFirst: false })
 
   if (error) {
-    if (
-      error.message.includes('service_plan_activated_at') ||
-      error.message.includes('service_plan_expires_at')
-    ) {
+    if (isMissingServicePlanDateColumns(error.message)) {
       const fallback = await adminClient
         .from('profiles')
         .select('id, full_name, email, role, parent_user_id, service_plan_id, is_active, is_tech_inspector')
