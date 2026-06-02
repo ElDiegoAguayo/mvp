@@ -1,6 +1,7 @@
 'use client'
 
 import { BrandWordmark } from '@/components/brand/brand-wordmark'
+import { useLocale } from '@/components/i18n/locale-provider'
 
 interface DashboardHomeHeaderProps {
   fullName: string
