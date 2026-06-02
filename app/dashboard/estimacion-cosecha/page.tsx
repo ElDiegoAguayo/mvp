@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { HarvestEstimationManager } from '@/components/dashboard/harvest-estimation-manager'
 import { HarvestEstimationPageHeader } from '@/components/dashboard/harvest-estimation-page-header'
 import { ModuleViewTracker } from '@/components/dashboard/module-view-tracker'
+import { userCanAccessModuleBySlug } from '@/lib/dashboard/module-access'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,16 +24,7 @@ export default async function EstimacionCosechaPage({
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/auth/login')
 
-  const { data: access } = await supabase
-    .from('user_module_access')
-    .select('enabled, modules:module_id (slug)')
-    .eq('user_id', user.id)
-    .eq('enabled', true)
-
-  type AccessRow = { enabled: boolean; modules: { slug: string } | null }
-  const hasAccess = ((access ?? []) as unknown as AccessRow[]).some(
-    (a) => a.modules?.slug === MODULE_SLUG,
-  )
+  const hasAccess = await userCanAccessModuleBySlug(supabase, user.id, MODULE_SLUG)
   if (!hasAccess) redirect('/dashboard')
 
   const { data: mod } = await supabase

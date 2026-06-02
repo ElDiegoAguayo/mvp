@@ -60,6 +60,32 @@ export default async function DashboardLayout({
     .eq('enabled', true)
 
   let enabledModuleIds = (userAccessData ?? []).map((a) => a.module_id)
+  const moduleOrderMap = new Map(
+    (userAccessData ?? []).map((row) => [row.module_id, row.display_order ?? 0]),
+  )
+
+  if (restrictToTechAssistance) {
+    const { data: inspectorModules } = await supabase
+      .from('modules')
+      .select('id, slug')
+      .eq('is_active', true)
+      .in('slug', [...INSPECTOR_ALLOWED_MODULE_SLUGS])
+
+    const inspectorOrder: Record<string, number> = {
+      'asistencia-tecnica': 0,
+      'estados-fenologicos': 1,
+      'estimacion-cosecha': 2,
+    }
+
+    for (const mod of inspectorModules ?? []) {
+      if (!enabledModuleIds.includes(mod.id)) {
+        enabledModuleIds.push(mod.id)
+      }
+      if (mod.slug && inspectorOrder[mod.slug] !== undefined) {
+        moduleOrderMap.set(mod.id, inspectorOrder[mod.slug])
+      }
+    }
+  }
 
   if (isLoggedInAdmin) {
     const { data: allActiveModules } = await supabase
@@ -77,9 +103,6 @@ export default async function DashboardLayout({
     const parentModuleIds = new Set((parentAccessData ?? []).map((a) => a.module_id))
     enabledModuleIds = enabledModuleIds.filter((id) => parentModuleIds.has(id))
   }
-  const moduleOrderMap = new Map(
-    (userAccessData ?? []).map((row) => [row.module_id, row.display_order ?? 0]),
-  )
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let allowedModules: any[] = []

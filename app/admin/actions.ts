@@ -1136,6 +1136,66 @@ export async function setTechInspectorAction(
   }
 }
 
+export async function resyncInspectorModulesAction(
+  userId: string,
+): Promise<{ ok: true; message: string } | { ok: false; message: string }> {
+  const supabase = await createServerClient()
+  const {
+    data: { user: caller },
+  } = await supabase.auth.getUser()
+
+  if (!caller) {
+    return { ok: false, message: 'Sesión expirada.' }
+  }
+
+  const { data: callerProfile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', caller.id)
+    .single()
+
+  if (callerProfile?.role !== 'admin') {
+    return { ok: false, message: 'Solo administradores pueden sincronizar módulos.' }
+  }
+
+  const { data: target } = await supabase
+    .from('profiles')
+    .select('id, is_tech_inspector, full_name, email')
+    .eq('id', userId)
+    .maybeSingle()
+
+  if (!target?.is_tech_inspector) {
+    return { ok: false, message: 'El usuario no es inspector de campo.' }
+  }
+
+  const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!supabaseUrl || !serviceKey) {
+    return { ok: false, message: 'Configuración del servidor incompleta.' }
+  }
+
+  const adminClient = createSupabaseClient(supabaseUrl, serviceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+
+  try {
+    await syncInspectorModulesOnly(adminClient, userId)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Error al sincronizar módulos'
+    return {
+      ok: false,
+      message: `${msg}. ¿Aplicaste la migración 075_inspector_phenology_module.sql en Supabase?`,
+    }
+  }
+
+  revalidatePath('/admin')
+  revalidatePath('/dashboard')
+  return {
+    ok: true,
+    message: `Módulos sincronizados para ${target.full_name || target.email || 'inspector'}.`,
+  }
+}
+
 /**
  * Update user's name and email.
  * Only admins can update other users.

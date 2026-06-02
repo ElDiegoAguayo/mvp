@@ -29,5 +29,11 @@ export async function syncInspectorModulesOnly(
     display_order: displayOrder[mod.slug] ?? idx,
   }))
 
-  await adminClient.from('user_module_access').upsert(rows, { onConflict: 'user_id,module_id' })
+  const { error: upsertError } = await adminClient
+    .from('user_module_access')
+    .upsert(rows, { onConflict: 'user_id,module_id' })
+
+  if (upsertError) {
+    throw new Error(upsertError.message)
+  }
 }

@@ -1,4 +1,5 @@
 import { isCostosGastosModule, isProduccionModule } from '@/lib/dashboard/costos-module'
+import { isFitosanitarioModule, FITOSANITARIO_DEFAULT_HREF } from '@/lib/dashboard/fitosanitario-module'
 import { isProveedoresModule, PROVEEDORES_DEFAULT_HREF } from '@/lib/dashboard/proveedores-module'
 
 /** Maps a module slug/name to its dedicated app route (when one exists). */
@@ -14,6 +15,9 @@ export function resolveModuleHref(slug: string, name?: string | null): string {
   }
   if (isProveedoresModule(slug, name)) {
     return PROVEEDORES_DEFAULT_HREF
+  }
+  if (isFitosanitarioModule(slug, name)) {
+    return FITOSANITARIO_DEFAULT_HREF
   }
   return `/dashboard/${slug}`
 }
@@ -35,6 +39,9 @@ export function isModuleRouteActive(
   }
   if (isProveedoresModule(slug, name)) {
     return pathname.startsWith('/dashboard/proveedores')
+  }
+  if (isFitosanitarioModule(slug, name)) {
+    return pathname.startsWith('/dashboard/inventario-fitosanitario')
   }
   return pathname === `/dashboard/${slug}` || pathname.startsWith(`/dashboard/${slug}/`)
 }

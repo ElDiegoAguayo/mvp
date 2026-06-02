@@ -552,6 +552,42 @@ Las facturas de compra registradas aquí son el control interno previo o paralel
 
 ---
 
+### 7.13 Inventario fitosanitario
+
+**Ruta:** `/dashboard/inventario-fitosanitario` — área **Campo y cosecha**.
+
+Control de **bodegas por campo**, **stock entrada/salida**, **facturas de compra**, **programa de aplicaciones**, **análisis de proveedores** y **comparador de precios**. Compatible con importación desde Excel tipo *Bodega Fitosanitaria* (hojas Facturas, Movimientos, Programa, bodegas por campo).
+
+#### Pestañas
+
+| Pestaña | Ruta | Función |
+|---------|------|---------|
+| **Stock** | `.../stock` | KPIs, entradas/salidas/stock actual por bodega y producto, movimientos recientes |
+| **Movimientos** | `.../movimientos` | Historial completo (campo, tipo, proveedor, precio, total CLP) |
+| **Facturas** | `.../facturas` | Compras: boleta, empresa, campo, IVA, total |
+| **Programa** | `.../programa` | Calendario de aplicaciones (etapa, dosis, mojamiento, ha) + gráfico stock vs consumo planificado |
+| **Análisis** | `.../analisis` | % participación por proveedor y por tipo de producto |
+| **Comparador** | `.../comparador` | Precio unitario promedio entre dos proveedores |
+| **Bodegas** | `.../bodegas` | Bodegas por campo (EMBOQUE, JUNTA, etc.) |
+| **Productos** | `.../productos` | Catálogo con tipo Excel, categoría, proveedor, stock mínimo |
+
+#### Importar Excel
+
+En el encabezado del módulo, **Importar Excel** carga el archivo de bodega fitosanitaria: crea bodegas, productos, movimientos, facturas, programa de aplicaciones y contenedores por bodega.
+
+#### Flujo recomendado
+
+1. **Importar Excel** (opcional) o crear bodegas y productos manualmente.
+2. Revisar **Stock** y **Movimientos**.
+3. Planificar aplicaciones en **Programa** (dosis tipo `300CC/100`, mojamiento L/ha, superficie ha).
+4. Analizar compras en **Análisis** y comparar proveedores en **Comparador**.
+
+#### Migraciones Supabase
+
+Aplicar `076_phytosanitary_inventory_module.sql` y `077_phytosanitary_stages_2_4.sql` en el proyecto Supabase.
+
+---
+
 ## 8. Panel de Administración
 
 **Ruta:** `/admin` — solo rol **admin**.

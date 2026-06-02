@@ -8,6 +8,7 @@ import { mercado } from './partials/en/mercado'
 import { produccion } from './partials/en/produccion'
 import { dynamicModule } from './partials/en/dynamic-module'
 import { proveedores } from './partials/en/proveedores'
+import { fitosanitario } from './partials/en/fitosanitario'
 
 export const en: Messages = {
   common,
@@ -19,6 +20,7 @@ export const en: Messages = {
   produccion,
   dynamicModule,
   proveedores,
+  fitosanitario,
   shell: {
     home: 'Home',
     noModules: 'No modules assigned.',
@@ -570,6 +572,7 @@ export const en: Messages = {
     'centro-de-control': 'Control center',
     'asistencia-tecnica': 'Technical assistance',
     proveedores: 'Suppliers',
+    'inventario-fitosanitario': 'Phytosanitary inventory',
   },
   homeWidgets: {
     fuelsTitle: 'Fuel costs (energy)',

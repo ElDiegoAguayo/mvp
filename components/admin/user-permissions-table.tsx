@@ -48,6 +48,7 @@ import {
   Layers,
   Crown,
   HardHat,
+  RefreshCw,
 } from 'lucide-react'
 import { getModuleIcon, getIconShape, resolveIconContainerStyle, resolveIconStyle, resolveTextStyle } from '@/lib/module-icons'
 import { cn } from '@/lib/utils'
@@ -82,6 +83,7 @@ import { logAudit } from '@/lib/audit-log'
 import { compareModulesByAreaThenName, groupModulesByArea, buildModuleAreaCellMeta, moduleAreaCellClassName, type ModuleArea } from '@/lib/modules/areas'
 import { fetchActiveModules } from '@/lib/modules/fetch-active-modules'
 import { startImpersonationAction } from '@/app/admin/impersonation-actions'
+import { resyncInspectorModulesAction } from '@/app/admin/actions'
 
 interface ModuleRow {
   id: string
@@ -310,6 +312,7 @@ export function UserPermissionsTable() {
   const [orderTarget, setOrderTarget] = useState<UserRow | null>(null)
   const [assignPlanTarget, setAssignPlanTarget] = useState<UserRow | null>(null)
   const [impersonatingId, setImpersonatingId] = useState<string | null>(null)
+  const [syncingInspectorId, setSyncingInspectorId] = useState<string | null>(null)
   const [expandedMobileUserId, setExpandedMobileUserId] = useState<string | null>(null)
   const [, startTransition] = useTransition()
   // Ticker to force re-render every 30s so relative times stay fresh
@@ -492,6 +495,21 @@ export function UserPermissionsTable() {
       window.location.assign(res.redirectTo)
     })
   }, [impersonatingId, startTransition])
+
+  const handleResyncInspectorModules = useCallback((user: UserRow) => {
+    if (!user.is_tech_inspector || syncingInspectorId) return
+    setSyncingInspectorId(user.id)
+    startTransition(async () => {
+      const res = await resyncInspectorModulesAction(user.id)
+      setSyncingInspectorId(null)
+      if (!res.ok) {
+        toast.error('No se pudieron sincronizar módulos', { description: res.message })
+        return
+      }
+      toast.success(res.message)
+      await fetchAll()
+    })
+  }, [fetchAll, syncingInspectorId, startTransition])
 
   const handleAccessChange = async (
     userId: string,
@@ -1226,6 +1244,22 @@ export function UserPermissionsTable() {
                                 className="h-7 w-7 p-0 text-muted-foreground hover:text-primary hover:bg-primary/10"
                               >
                                 <UserPlus className="w-3.5 h-3.5" />
+                              </Button>
+                            )}
+                            {user.is_tech_inspector && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleResyncInspectorModules(user)}
+                                disabled={syncingInspectorId === user.id}
+                                title="Sincronizar módulos del inspector (Asistencia, Fenología, Conteo)"
+                                className="h-7 w-7 p-0 text-muted-foreground hover:text-emerald-600 hover:bg-emerald-500/10"
+                              >
+                                {syncingInspectorId === user.id ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <RefreshCw className="w-3.5 h-3.5" />
+                                )}
                               </Button>
                             )}
                             {user.is_tech_inspector && (
