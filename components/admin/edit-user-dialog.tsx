@@ -195,6 +195,7 @@ export function EditUserDialog({ open, onOpenChange, user }: EditUserDialogProps
         const file = new File([blob], 'avatar.jpg', { type: 'image/jpeg' })
         const formData = new FormData()
         formData.append('file', file)
+        if (cropSource) formData.append('original_url', cropSource)
         const result = await uploadCroppedAvatarAction(formData, user.id)
         if (result.ok && result.url) {
           setSelectedAvatar(result.url)

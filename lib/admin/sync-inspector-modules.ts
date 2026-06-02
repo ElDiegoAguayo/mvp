@@ -1,29 +1,27 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { TECH_ASSISTANCE_MODULE_SLUG } from '@/lib/admin/inspector-module-access'
+import { INSPECTOR_ALLOWED_MODULE_SLUGS } from '@/lib/admin/inspector-module-access'
 
 export async function syncInspectorModulesOnly(
   adminClient: SupabaseClient,
   userId: string,
 ): Promise<void> {
-  const { data: techModule } = await adminClient
+  const { data: allowedModules } = await adminClient
     .from('modules')
-    .select('id')
-    .eq('slug', TECH_ASSISTANCE_MODULE_SLUG)
-    .maybeSingle()
+    .select('id, slug')
+    .in('slug', [...INSPECTOR_ALLOWED_MODULE_SLUGS])
 
   await adminClient.from('user_module_access').delete().eq('user_id', userId)
   await adminClient.from('user_table_access').delete().eq('user_id', userId)
   await adminClient.from('user_chart_access').delete().eq('user_id', userId)
 
-  if (!techModule?.id) return
+  if (!allowedModules?.length) return
 
-  await adminClient.from('user_module_access').upsert(
-    {
-      user_id: userId,
-      module_id: techModule.id,
-      enabled: true,
-      display_order: 0,
-    },
-    { onConflict: 'user_id,module_id' },
-  )
+  const rows = allowedModules.map((mod, idx) => ({
+    user_id: userId,
+    module_id: mod.id,
+    enabled: true,
+    display_order: mod.slug === 'asistencia-tecnica' ? 0 : idx,
+  }))
+
+  await adminClient.from('user_module_access').upsert(rows, { onConflict: 'user_id,module_id' })
 }

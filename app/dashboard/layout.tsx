@@ -7,6 +7,7 @@ import { SupportModeBanner } from '@/components/dashboard/support-mode-banner'
 import { getViewAsContext, VIEW_AS_COOKIE } from '@/lib/impersonation'
 import { compareModulesByAreaThenName } from '@/lib/modules/areas'
 import { isServicePlanId, type ServicePlanId } from '@/lib/subscription-plans'
+import { INSPECTOR_ALLOWED_MODULE_SLUGS } from '@/lib/admin/inspector-module-access'
 
 export const dynamic = 'force-dynamic'
 
@@ -122,7 +123,8 @@ export default async function DashboardLayout({
 
   if (restrictToTechAssistance) {
     allowedModules = allowedModules.filter(
-      (m: { slug?: string }) => m.slug === 'asistencia-tecnica',
+      (m: { slug?: string }) =>
+        !!m.slug && (INSPECTOR_ALLOWED_MODULE_SLUGS as readonly string[]).includes(m.slug),
     )
   }
 

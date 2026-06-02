@@ -1,4 +1,17 @@
 export const TECH_ASSISTANCE_MODULE_SLUG = 'asistencia-tecnica'
+export const INSPECTOR_HARVEST_COUNT_MODULE_SLUG = 'estimacion-cosecha'
+
+/** Modules field inspectors may access (DB trigger must stay in sync). */
+export const INSPECTOR_ALLOWED_MODULE_SLUGS = [
+  TECH_ASSISTANCE_MODULE_SLUG,
+  INSPECTOR_HARVEST_COUNT_MODULE_SLUG,
+] as const
+
+export type InspectorAllowedModuleSlug = (typeof INSPECTOR_ALLOWED_MODULE_SLUGS)[number]
+
+export function isInspectorAllowedModule(module: { slug: string }): boolean {
+  return (INSPECTOR_ALLOWED_MODULE_SLUGS as readonly string[]).includes(module.slug)
+}
 
 export function isTechAssistanceModule(module: { slug: string }): boolean {
   return module.slug === TECH_ASSISTANCE_MODULE_SLUG
@@ -10,7 +23,7 @@ export function inspectorModuleCellState(
   module: { slug: string },
 ): 'locked-on' | 'locked-off' | null {
   if (!user.is_tech_inspector) return null
-  return isTechAssistanceModule(module) ? 'locked-on' : 'locked-off'
+  return isInspectorAllowedModule(module) ? 'locked-on' : 'locked-off'
 }
 
 export function isInspectorModuleSwitchDisabled(
@@ -25,8 +38,8 @@ export function inspectorModuleSwitchTitle(
   module: { slug: string },
 ): string | undefined {
   if (!user.is_tech_inspector) return undefined
-  if (isTechAssistanceModule(module)) {
-    return 'Único módulo permitido para inspectores de campo'
+  if (isInspectorAllowedModule(module)) {
+    return 'Módulo obligatorio para inspectores de campo'
   }
-  return 'Los inspectores solo pueden usar Asistencia técnica'
+  return 'Los inspectores solo pueden usar Asistencia técnica y Estimación de cosecha (conteo)'
 }

@@ -7,6 +7,7 @@ import { costosGastos } from './partials/en/costos-gastos'
 import { mercado } from './partials/en/mercado'
 import { produccion } from './partials/en/produccion'
 import { dynamicModule } from './partials/en/dynamic-module'
+import { proveedores } from './partials/en/proveedores'
 
 export const en: Messages = {
   common,
@@ -17,6 +18,7 @@ export const en: Messages = {
   mercado,
   produccion,
   dynamicModule,
+  proveedores,
   shell: {
     home: 'Home',
     noModules: 'No modules assigned.',
@@ -567,6 +569,7 @@ export const en: Messages = {
     'producto-terminado': 'Finished product',
     'centro-de-control': 'Control center',
     'asistencia-tecnica': 'Technical assistance',
+    proveedores: 'Suppliers',
   },
   homeWidgets: {
     fuelsTitle: 'Fuel costs (energy)',

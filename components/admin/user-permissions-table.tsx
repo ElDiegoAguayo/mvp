@@ -32,6 +32,7 @@ import {
   Download,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Lock,
   Unlock,
   ShieldAlert,
@@ -308,6 +309,7 @@ export function UserPermissionsTable() {
   const [orderTarget, setOrderTarget] = useState<UserRow | null>(null)
   const [assignPlanTarget, setAssignPlanTarget] = useState<UserRow | null>(null)
   const [impersonatingId, setImpersonatingId] = useState<string | null>(null)
+  const [expandedMobileUserId, setExpandedMobileUserId] = useState<string | null>(null)
   const [, startTransition] = useTransition()
   // Ticker to force re-render every 30s so relative times stay fresh
   const [, setTick] = useState(0)
@@ -503,7 +505,7 @@ export function UserPermissionsTable() {
     if (!user) return
 
     if (user.is_tech_inspector) {
-      toast.error('Los inspectores solo pueden tener Asistencia técnica')
+      toast.error('Los inspectores solo pueden tener Asistencia técnica y Estimación de cosecha (conteo)')
       return
     }
 
@@ -765,6 +767,10 @@ export function UserPermissionsTable() {
   const safePage = Math.min(page, totalPages)
   const pageUsers = filteredUsers.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
 
+  useEffect(() => {
+    setExpandedMobileUserId(null)
+  }, [safePage])
+
   const headerScrollRef = useRef<HTMLDivElement>(null)
   const bodyScrollRef = useRef<HTMLDivElement>(null)
 
@@ -866,18 +872,18 @@ export function UserPermissionsTable() {
             </SelectContent>
           </Select>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:flex lg:flex-wrap lg:gap-2">
           <Button
             onClick={() => setAreasDialogOpen(true)}
             variant="outline"
-            className="border-border hover:bg-primary hover:text-primary-foreground hover:border-primary"
+            className="w-full border-border hover:bg-primary hover:text-primary-foreground hover:border-primary lg:w-auto"
           >
             <Layers className="w-4 h-4 mr-2" />
             Áreas
           </Button>
           <Button
             onClick={() => setModuleDialogOpen(true)}
-            className="bg-primary/15 hover:bg-primary text-primary hover:text-primary-foreground border border-primary/30"
+            className="w-full bg-primary/15 hover:bg-primary text-primary hover:text-primary-foreground border border-primary/30 lg:w-auto"
           >
             <Plus className="w-4 h-4 mr-2" />
             Nuevo Módulo
@@ -885,7 +891,7 @@ export function UserPermissionsTable() {
           <Button
             onClick={() => void handleExportExcel()}
             variant="outline"
-            className="border-border hover:bg-primary hover:text-primary-foreground hover:border-primary"
+            className="w-full border-border hover:bg-primary hover:text-primary-foreground hover:border-primary lg:w-auto"
           >
             <Download className="w-4 h-4 mr-2" />
             Exportar Excel
@@ -1394,54 +1400,63 @@ export function UserPermissionsTable() {
           </span>
         </div>
 
-        {/* Mobile Cards */}
-        <div className="lg:hidden divide-y divide-border">
-          <div className="sticky top-16 z-30 bg-card/95 backdrop-blur-sm border-b border-border p-4 space-y-3 shadow-sm">
+        {/* Mobile: catálogo de módulos colapsable (no bloquea la lista de usuarios) */}
+        <div className="lg:hidden border-b border-border">
+          <details className="group">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 bg-secondary/50 px-4 py-3 [&::-webkit-details-marker]:hidden">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-foreground">Módulos y áreas</p>
+                <p className="text-xs text-muted-foreground">
+                  {sortedModules.length} módulo{sortedModules.length !== 1 ? 's' : ''} · editar o eliminar
+                </p>
+              </div>
+              <ChevronDown className="h-5 w-5 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+            </summary>
             {sortedModules.length > 0 && (
-              <div className="space-y-3">
+              <div className="max-h-[min(55vh,28rem)] space-y-3 overflow-y-auto overscroll-contain p-4">
                 {moduleGroups.map((group) => (
                   <div
                     key={group.area.id}
                     className={cn(
-                      'rounded-xl border-2 border-border overflow-hidden',
+                      'overflow-hidden rounded-xl border-2 border-border',
                       moduleAreaMeta.areaHeaderTintClass.get(group.area.id),
                     )}
                   >
-                    <div className="px-3 py-2 border-b border-border flex items-center justify-between gap-2">
-                      <p className="text-[11px] font-bold text-foreground uppercase tracking-wider">
+                    <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+                      <p className="text-[11px] font-bold uppercase tracking-wider text-foreground line-clamp-2">
                         {group.area.name}
                       </p>
-                      <span className="text-[10px] text-muted-foreground shrink-0">
+                      <span className="shrink-0 text-[10px] text-muted-foreground">
                         {group.modules.length} mód.
                       </span>
                     </div>
-                    <div className="flex flex-wrap gap-2 p-3 bg-background/40">
+                    <div className="flex flex-col gap-2 bg-background/40 p-3">
                       {group.modules.map((module) => {
                         const Icon = getModuleIcon(module.icon)
                         return (
                           <div
                             key={module.id}
-                            className="flex items-center gap-1.5 bg-secondary/60 border border-border rounded-full pl-3 pr-1.5 py-1"
+                            className="flex items-center gap-2 rounded-lg border border-border bg-secondary/60 px-3 py-2"
                           >
-                            <Icon className="w-3.5 h-3.5 text-muted-foreground" />
-                            <span className="text-xs text-foreground">{module.name}</span>
+                            <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                            <span className="min-w-0 flex-1 text-sm text-foreground">{module.name}</span>
                             <Button
                               size="sm"
                               variant="ghost"
                               onClick={() => setEditModuleTarget(module)}
                               aria-label={`Editar módulo ${module.name}`}
-                              className="h-6 w-6 p-0 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                              className="h-8 w-8 shrink-0 p-0 text-muted-foreground hover:bg-primary/10 hover:text-primary"
                             >
-                              <Pencil className="w-3 h-3" />
+                              <Pencil className="h-3.5 w-3.5" />
                             </Button>
                             <Button
                               size="sm"
                               variant="ghost"
                               onClick={() => setDeleteModuleTarget(module)}
                               aria-label={`Eliminar módulo ${module.name}`}
-                              className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                              className="h-8 w-8 shrink-0 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                             >
-                              <Trash2 className="w-3 h-3" />
+                              <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </div>
                         )
@@ -1451,7 +1466,11 @@ export function UserPermissionsTable() {
                 ))}
               </div>
             )}
-          </div>
+          </details>
+        </div>
+
+        {/* Mobile user cards */}
+        <div className="lg:hidden">
           {pageUsers.map((user) => {
             const isBlocking = blockingStates[user.id]
             const parentLabel = user.parent_user_id
@@ -1460,79 +1479,128 @@ export function UserPermissionsTable() {
                 'Cuenta principal'
               : null
             const isPrimaryClient = isPrincipalClientProfile(user)
+            const isExpanded = expandedMobileUserId === user.id
             return (
               <div
                 key={user.id}
-                className={`p-4 space-y-4 ${!user.is_active ? 'opacity-70' : ''}`}
+                className={cn('border-b border-border', !user.is_active && 'opacity-70')}
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center">
-                    <User className="w-5 h-5 text-primary" />
+                <div className="flex items-start gap-3 p-4">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-primary/20 bg-primary/10">
+                    <User className="h-5 w-5 text-primary" />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-foreground truncate">
+
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium text-foreground">
                       {user.full_name || 'Sin nombre'}
                     </p>
-                    <p className="text-sm text-muted-foreground truncate">{user.email}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Última actividad: {formatDateTime(user.last_activity_at)}
-                    </p>
-                    {parentLabel && (
-                      <p className="text-xs text-muted-foreground truncate">
-                        Subusuario de {parentLabel}
-                      </p>
-                    )}
-                    {isPrimaryClient && (
-                      <div className="mt-1">
-                        {user.service_plan_id ? (
-                          <Badge
-                            variant="outline"
-                            className={cn('text-[10px]', getServicePlanBadgeClass(user.service_plan_id))}
-                          >
-                            {getServicePlanLabel(user.service_plan_id)}
+                    {!isExpanded && (
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                        {user.role === 'admin' && (
+                          <Badge className="inline-flex items-center gap-1 border border-blue-500/30 bg-blue-500/15 text-blue-600 dark:text-blue-400">
+                            <Shield className="h-3 w-3 shrink-0" />
+                            Admin
                           </Badge>
-                        ) : (
-                          <Badge variant="outline" className="text-[10px] text-muted-foreground">
-                            Sin plan de servicio
+                        )}
+                        {isPrimaryClient && (
+                          <Badge className="border border-emerald-500/30 bg-emerald-500/15 text-emerald-600">
+                            Cliente
+                          </Badge>
+                        )}
+                        {user.role === 'user' && user.parent_user_id && (
+                          <Badge className="border border-violet-500/30 bg-violet-500/15 text-violet-600 dark:text-violet-400">
+                            Sub usuario
+                          </Badge>
+                        )}
+                        {user.is_tech_inspector && (
+                          <Badge className="border border-sky-500/30 bg-sky-500/15 text-sky-700 dark:text-sky-400">
+                            Inspector
+                          </Badge>
+                        )}
+                        {!user.is_active && (
+                          <Badge className="border border-destructive/30 bg-destructive/15 text-destructive">
+                            Bloqueado
                           </Badge>
                         )}
                       </div>
                     )}
-                  </div>
-                  <div className="flex flex-col items-end gap-1 shrink-0">
-                    {user.role === 'admin' && (
-                      <Badge className="inline-flex items-center gap-1 bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30">
-                        <Shield className="w-3.5 h-3.5 shrink-0" />
-                        Admin
-                      </Badge>
-                    )}
-                    {isPrimaryClient && (
-                      <Badge className="bg-emerald-500/15 text-emerald-600 border border-emerald-500/30">
-                        Cliente
-                      </Badge>
-                    )}
-                    {user.role === 'user' && user.parent_user_id && (
-                      <Badge className="bg-violet-500/15 text-violet-600 dark:text-violet-400 border border-violet-500/30">
-                        Subusuario
-                      </Badge>
-                    )}
-                    {user.is_tech_inspector && (
-                      <Badge className="bg-sky-500/15 text-sky-700 dark:text-sky-400 border border-sky-500/30">
-                        Inspector
-                      </Badge>
-                    )}
-                    {user.is_active ? (
-                      <Badge className="bg-primary/15 text-primary border border-primary/30">
-                        Activo
-                      </Badge>
-                    ) : (
-                      <Badge className="bg-destructive/15 text-destructive border border-destructive/30">
-                        Bloqueado
-                      </Badge>
+                    <p className={cn('truncate text-sm text-muted-foreground', !isExpanded ? 'mt-1' : 'mt-0.5')}>
+                      {user.email}
+                    </p>
+                    {isExpanded && (
+                      <div className="mt-2 space-y-0.5 text-xs text-muted-foreground">
+                        <p>Última actividad: {formatDateTime(user.last_activity_at)}</p>
+                        {parentLabel && <p className="truncate">Sub usuario de {parentLabel}</p>}
+                        {isPrimaryClient && (
+                          <div className="pt-1">
+                            {user.service_plan_id ? (
+                              <Badge
+                                variant="outline"
+                                className={cn('text-[10px]', getServicePlanBadgeClass(user.service_plan_id))}
+                              >
+                                {getServicePlanLabel(user.service_plan_id)}
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                                Sin plan de servicio
+                              </Badge>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
+
+                  {isExpanded && (
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      {user.role === 'admin' && (
+                        <Badge className="inline-flex items-center gap-1 border border-blue-500/30 bg-blue-500/15 text-blue-600 dark:text-blue-400">
+                          <Shield className="h-3 w-3 shrink-0" />
+                          Admin
+                        </Badge>
+                      )}
+                      {isPrimaryClient && (
+                        <Badge className="border border-emerald-500/30 bg-emerald-500/15 text-emerald-600">
+                          Cliente
+                        </Badge>
+                      )}
+                      {user.role === 'user' && user.parent_user_id && (
+                        <Badge className="border border-violet-500/30 bg-violet-500/15 text-violet-600 dark:text-violet-400">
+                          Sub usuario
+                        </Badge>
+                      )}
+                      {user.is_tech_inspector && (
+                        <Badge className="border border-sky-500/30 bg-sky-500/15 text-sky-700 dark:text-sky-400">
+                          Inspector
+                        </Badge>
+                      )}
+                      {user.is_active ? (
+                        <Badge className="border border-primary/30 bg-primary/15 text-primary">
+                          Activo
+                        </Badge>
+                      ) : (
+                        <Badge className="border border-destructive/30 bg-destructive/15 text-destructive">
+                          Bloqueado
+                        </Badge>
+                      )}
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    aria-expanded={isExpanded}
+                    aria-label={isExpanded ? 'Ocultar detalle del usuario' : 'Ver detalle del usuario'}
+                    onClick={() => setExpandedMobileUserId(isExpanded ? null : user.id)}
+                    className="flex h-11 w-11 shrink-0 items-center justify-center self-center rounded-lg border border-border bg-secondary/70 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                  >
+                    <ChevronDown
+                      className={cn('h-5 w-5 transition-transform duration-200', isExpanded && 'rotate-180')}
+                    />
+                  </button>
                 </div>
 
+                {isExpanded && (
+                <div className="space-y-4 border-t border-border/60 px-4 pb-4 pt-3">
                 <Button
                   size="sm"
                   variant={user.is_active ? 'outline' : 'default'}
@@ -1559,12 +1627,12 @@ export function UserPermissionsTable() {
                   )}
                 </Button>
 
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button
                     size="sm"
                     variant="outline"
                     onClick={() => setEditUserTarget(user)}
-                    className="flex-1"
+                    className="min-w-[calc(50%-0.25rem)] flex-1"
                   >
                     <Pencil className="w-4 h-4 mr-2" />
                     Editar
@@ -1575,14 +1643,14 @@ export function UserPermissionsTable() {
                     fullName={user.full_name}
                     variant="outline"
                     size="sm"
-                    className="flex-1 border-sky-500/30 text-sky-700 dark:text-sky-400 hover:bg-sky-500/10"
+                    className="min-w-[calc(50%-0.25rem)] flex-1 border-sky-500/30 text-sky-700 dark:text-sky-400 hover:bg-sky-500/10"
                   />
                   {!user.is_tech_inspector && (
                     <Button
                       size="sm"
                       variant="outline"
                       onClick={() => setDataAccessTarget(user)}
-                      className="flex-1"
+                      className="w-full sm:min-w-[calc(50%-0.25rem)] sm:flex-1"
                     >
                       <Database className="w-4 h-4 mr-2" />
                       Datos
@@ -1639,24 +1707,24 @@ export function UserPermissionsTable() {
                   </Button>
                 )}
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-3">
                   {moduleGroups.map((group) => (
                     <div
                       key={group.area.id}
                       className={cn(
-                        'col-span-2 rounded-xl border-2 border-border overflow-hidden',
+                        'overflow-hidden rounded-xl border-2 border-border',
                         moduleAreaMeta.areaHeaderTintClass.get(group.area.id),
                       )}
                     >
-                      <div className="px-3 py-2 border-b border-border flex items-center justify-between">
-                        <p className="text-[11px] font-bold text-foreground uppercase tracking-wider">
+                      <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+                        <p className="text-[11px] font-bold uppercase tracking-wider text-foreground line-clamp-2">
                           {group.area.name}
                         </p>
-                        <span className="text-[10px] text-muted-foreground">
+                        <span className="shrink-0 text-[10px] text-muted-foreground">
                           {group.modules.length} mód.
                         </span>
                       </div>
-                      <div className="grid grid-cols-2 gap-2 p-3 bg-background/30">
+                      <div className="grid grid-cols-1 gap-2 bg-background/30 p-3 sm:grid-cols-2">
                         {group.modules.map((module) => {
                           const Icon = getModuleIcon(module.icon)
                           const key = accessKey(user.id, module.id)
@@ -1672,11 +1740,11 @@ export function UserPermissionsTable() {
                           return (
                             <div
                               key={module.id}
-                              className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg"
+                              className="flex items-center justify-between gap-2 rounded-lg bg-secondary/50 p-3"
                             >
-                              <div className="flex items-center gap-2 min-w-0">
-                                <Icon className="w-4 h-4 text-muted-foreground shrink-0" />
-                                <span className="text-sm text-foreground truncate" title={switchTitle}>
+                              <div className="flex min-w-0 flex-1 items-center gap-2">
+                                <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                <span className="text-sm text-foreground break-words" title={switchTitle}>
                                   {module.name}
                                 </span>
                               </div>
@@ -1707,6 +1775,8 @@ export function UserPermissionsTable() {
                     </div>
                   ))}
                 </div>
+                </div>
+                )}
               </div>
             )
           })}

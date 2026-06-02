@@ -69,11 +69,11 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
   return (
     <div className="min-h-screen bg-background bg-grid">
       {/* Header */}
-      <header className="border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-[#4A6CF7]/10 border border-[#4A6CF7]/20 flex items-center justify-center overflow-hidden">
+      <header className="sticky top-0 z-50 border-b border-border bg-card/80 backdrop-blur-sm">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex h-14 min-h-14 items-center justify-between gap-2 sm:h-16">
+            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#4A6CF7]/20 bg-[#4A6CF7]/10">
                 <Image 
                   src="/logo-upcrop.png" 
                   alt="Up Crop" 
@@ -82,25 +82,27 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
                   className="object-contain"
                 />
               </div>
-              <span className="text-xl font-bold text-foreground">
+              <span className="truncate text-lg font-bold text-foreground sm:text-xl">
                 Up <span className="text-[#4A6CF7]">Crop</span>
               </span>
-              <span className="text-muted-foreground">/</span>
-              <span className="text-foreground font-medium">Admin</span>
+              <span className="hidden text-muted-foreground sm:inline">/</span>
+              <span className="hidden font-medium text-foreground sm:inline">Admin</span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
               <Link
                 href="/admin/auditoria"
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#4A6CF7]/15 border border-[#4A6CF7]/30 text-[#4A6CF7] hover:bg-[#4A6CF7] hover:text-white transition-colors"
+                className="flex items-center gap-2 rounded-lg border border-[#4A6CF7]/30 bg-[#4A6CF7]/15 px-2.5 py-2 text-[#4A6CF7] transition-colors hover:bg-[#4A6CF7] hover:text-white sm:px-4"
+                title="Registro de Actividad"
               >
-                <ScrollText className="w-4 h-4" />
+                <ScrollText className="h-4 w-4 shrink-0" />
                 <span className="hidden sm:inline">Registro de Actividad</span>
               </Link>
               <Link
                 href="/dashboard"
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary text-foreground hover:bg-muted transition-colors"
+                className="flex items-center gap-2 rounded-lg bg-secondary px-2.5 py-2 text-foreground transition-colors hover:bg-muted sm:px-4"
+                title="Volver"
               >
-                <ArrowLeft className="w-4 h-4" />
+                <ArrowLeft className="h-4 w-4 shrink-0" />
                 <span className="hidden sm:inline">Volver</span>
               </Link>
             </div>
@@ -109,7 +111,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+      <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
         <Suspense fallback={<div className="h-12 rounded-xl bg-secondary animate-pulse" />}>
           <AdminTabs defaultTab={activeTab}>
             <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 xl:grid-cols-8 bg-secondary h-auto gap-1 p-1">
@@ -178,9 +180,9 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
           <TabsContent value="usuarios" className="space-y-6">
             {/* Title */}
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="w-10 h-10 rounded-lg bg-[#4A6CF7]/10 border border-[#4A6CF7]/20 flex items-center justify-center overflow-hidden">
+              <div className="min-w-0">
+                <div className="mb-2 flex items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#4A6CF7]/20 bg-[#4A6CF7]/10">
                     <Image 
                       src="/logo-upcrop.png" 
                       alt="Up Crop" 
@@ -189,15 +191,15 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
                       className="object-contain"
                     />
                   </div>
-                  <h1 className="text-3xl font-bold text-foreground">
+                  <h1 className="text-2xl font-bold text-foreground sm:text-3xl">
                     Gestión de Usuarios
                   </h1>
                 </div>
-                <p className="text-muted-foreground">
+                <p className="text-sm text-muted-foreground sm:text-base">
                   Administra los permisos de acceso a módulos para cada usuario. La lista se actualiza en tiempo real.
                 </p>
               </div>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:shrink-0">
                 <ServicePlansManagerButton />
                 <RegisterFieldInspectorButton />
                 <RegisterClientButton />

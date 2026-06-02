@@ -1398,7 +1398,11 @@ export async function updateAvatarAction(
   if (callerProfile?.role !== 'admin') return { ok: false, message: 'Solo administradores pueden cambiar avatares.' }
 
   const adminClient = await getAdminClient()
-  const { error } = await adminClient.from('profiles').update({ avatar_url: avatarUrl }).eq('id', userId)
+  const patch: Record<string, string | null> = { avatar_url: avatarUrl }
+  if (avatarUrl && !avatarUrl.includes('/cropped/')) {
+    patch.avatar_original_url = avatarUrl
+  }
+  const { error } = await adminClient.from('profiles').update(patch).eq('id', userId)
   if (error) return { ok: false, message: error.message }
 
   revalidatePath('/admin')
@@ -1453,7 +1457,10 @@ export async function deletePresetAvatarAction(fileName: string): Promise<Avatar
 }
 
 /** Upload a cropped avatar for a specific user (saved under cropped/ subfolder, not shown in gallery) */
-export async function uploadCroppedAvatarAction(formData: FormData, userId: string): Promise<AvatarActionState> {
+export async function uploadCroppedAvatarAction(
+  formData: FormData,
+  userId: string,
+): Promise<AvatarActionState> {
   const supabase = await createServerClient()
   const { data: { user: caller } } = await supabase.auth.getUser()
   if (!caller) return { ok: false, message: 'Sesion expirada.' }
@@ -1463,6 +1470,7 @@ export async function uploadCroppedAvatarAction(formData: FormData, userId: stri
 
   const file = formData.get('file') as File | null
   if (!file || file.size === 0) return { ok: false, message: 'No se encontro el archivo.' }
+  const originalUrl = String(formData.get('original_url') ?? '').trim() || null
 
   const ext = 'jpg'
   const fileName = `cropped/${userId}-${Date.now()}.${ext}`
@@ -1479,6 +1487,13 @@ export async function uploadCroppedAvatarAction(formData: FormData, userId: stri
 
   const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL
   const publicUrl = `${supabaseUrl}/storage/v1/object/public/preset-avatars/${fileName}`
+
+  const profilePatch: Record<string, string> = { avatar_url: publicUrl }
+  if (originalUrl && !originalUrl.includes('/cropped/')) {
+    profilePatch.avatar_original_url = originalUrl
+  }
+  await adminClient.from('profiles').update(profilePatch).eq('id', userId)
+
   return { ok: true, message: 'Imagen recortada lista.', url: publicUrl }
 }
 

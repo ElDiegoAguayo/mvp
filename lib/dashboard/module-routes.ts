@@ -1,4 +1,5 @@
 import { isCostosGastosModule, isProduccionModule } from '@/lib/dashboard/costos-module'
+import { isProveedoresModule, PROVEEDORES_DEFAULT_HREF } from '@/lib/dashboard/proveedores-module'
 
 /** Maps a module slug/name to its dedicated app route (when one exists). */
 export function resolveModuleHref(slug: string, name?: string | null): string {
@@ -10,6 +11,9 @@ export function resolveModuleHref(slug: string, name?: string | null): string {
   }
   if (isProduccionModule(slug, name)) {
     return '/dashboard/produccion'
+  }
+  if (isProveedoresModule(slug, name)) {
+    return PROVEEDORES_DEFAULT_HREF
   }
   return `/dashboard/${slug}`
 }
@@ -28,6 +32,9 @@ export function isModuleRouteActive(
       || pathname === `/dashboard/${slug}`
       || pathname.startsWith(`/dashboard/${slug}/`)
     )
+  }
+  if (isProveedoresModule(slug, name)) {
+    return pathname.startsWith('/dashboard/proveedores')
   }
   return pathname === `/dashboard/${slug}` || pathname.startsWith(`/dashboard/${slug}/`)
 }
