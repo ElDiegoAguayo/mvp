@@ -16,11 +16,17 @@ export async function syncInspectorModulesOnly(
 
   if (!allowedModules?.length) return
 
+  const displayOrder: Record<string, number> = {
+    'asistencia-tecnica': 0,
+    'estados-fenologicos': 1,
+    'estimacion-cosecha': 2,
+  }
+
   const rows = allowedModules.map((mod, idx) => ({
     user_id: userId,
     module_id: mod.id,
     enabled: true,
-    display_order: mod.slug === 'asistencia-tecnica' ? 0 : idx,
+    display_order: displayOrder[mod.slug] ?? idx,
   }))
 
   await adminClient.from('user_module_access').upsert(rows, { onConflict: 'user_id,module_id' })

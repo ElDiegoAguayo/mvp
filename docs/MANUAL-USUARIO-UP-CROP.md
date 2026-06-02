@@ -46,7 +46,7 @@ Cada cliente ve **solo los módulos que Up Crop le habilitó**. No todos tienen 
 |------|------------|-------------------|
 | **Cliente principal** | La empresa contratante (ej. una exportadora) | Inicio + módulos contratados + perfil completo |
 | **Sub usuario** | Persona de la misma empresa con permisos limitados | Solo módulos activados para él; comparte plan y almacenamiento con la cuenta principal |
-| **Inspector de campo** | Técnico que trabaja en terreno | **Asistencia técnica** y **Estimación de cosecha (conteo)**; al entrar va directo a Asistencia técnica (no ve Inicio) |
+| **Inspector de campo** | Técnico que trabaja en terreno | **Asistencia técnica**, **Estados fenológicos** y **Estimación de cosecha (conteo)**; al entrar va directo a Asistencia técnica (no ve Inicio) |
 | **Administrador Up Crop** | Equipo interno | Todo + **Panel Admin** para gestionar clientes |
 
 **Regla importante:** nadie se registra solo. Up Crop envía una **invitación por correo** o crea la cuenta desde el panel admin.
@@ -64,7 +64,7 @@ Cada cliente ve **solo los módulos que Up Crop le habilitó**. No todos tienen 
 - Mismo plan de servicio y almacenamiento que el padre
 
 ### Inspector de campo
-- Módulos **Asistencia técnica** y **Estimación de cosecha** (pestaña Conteo)
+- Módulos **Asistencia técnica**, **Estados fenológicos** y **Estimación de cosecha** (pestaña Conteo)
 - Marca entrada/salida con validación GPS (geocerca)
 - Puede tener varios clientes asignados
 

@@ -58,6 +58,7 @@ import {
 } from '@/lib/admin/subuser-module-access'
 import {
   inspectorModuleCellState,
+  INSPECTOR_MODULE_ACCESS_MESSAGE,
   inspectorModuleSwitchTitle,
 } from '@/lib/admin/inspector-module-access'
 import { exportStyledReportExcel } from '@/lib/excel/upcrop-excel-theme'
@@ -505,7 +506,7 @@ export function UserPermissionsTable() {
     if (!user) return
 
     if (user.is_tech_inspector) {
-      toast.error('Los inspectores solo pueden tener Asistencia técnica y Estimación de cosecha (conteo)')
+      toast.error(INSPECTOR_MODULE_ACCESS_MESSAGE)
       return
     }
 

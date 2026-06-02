@@ -1,11 +1,16 @@
 export const TECH_ASSISTANCE_MODULE_SLUG = 'asistencia-tecnica'
+export const PHENOLOGY_MODULE_SLUG = 'estados-fenologicos'
 export const INSPECTOR_HARVEST_COUNT_MODULE_SLUG = 'estimacion-cosecha'
 
 /** Modules field inspectors may access (DB trigger must stay in sync). */
 export const INSPECTOR_ALLOWED_MODULE_SLUGS = [
   TECH_ASSISTANCE_MODULE_SLUG,
+  PHENOLOGY_MODULE_SLUG,
   INSPECTOR_HARVEST_COUNT_MODULE_SLUG,
 ] as const
+
+export const INSPECTOR_MODULE_ACCESS_MESSAGE =
+  'Los inspectores solo pueden tener Asistencia técnica, Estados fenológicos y Estimación de cosecha (conteo)'
 
 export type InspectorAllowedModuleSlug = (typeof INSPECTOR_ALLOWED_MODULE_SLUGS)[number]
 
@@ -41,5 +46,5 @@ export function inspectorModuleSwitchTitle(
   if (isInspectorAllowedModule(module)) {
     return 'Módulo obligatorio para inspectores de campo'
   }
-  return 'Los inspectores solo pueden usar Asistencia técnica y Estimación de cosecha (conteo)'
+  return INSPECTOR_MODULE_ACCESS_MESSAGE
 }
